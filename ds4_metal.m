@@ -50661,3 +50661,58 @@ int ds4_gpu_mellum_qk_norm_rope_tensor(
            mellum_qk_norm_rope_dispatch(k, k, model_map, model_size, k_norm_offset, n_tok, rope->n_head_k, D,
                                         pos0, D, inv_freq, mscale, rope->eps);
 }
+
+/* Commit n_rows rows of a sliding layer's f32 K and V to its f16 ring, row r
+ * at slot (pos0 + r) % ring_slots with that slot's tag set to pos0 + r. */
+int ds4_gpu_mellum_ring_commit_tensor(
+        ds4_gpu_tensor *ring_k, ds4_gpu_tensor *ring_v, ds4_gpu_tensor *ring_pos,
+        const ds4_gpu_tensor *k, const ds4_gpu_tensor *v,
+        uint32_t n_rows, uint32_t width, uint32_t pos0, uint32_t ring_slots) {
+    struct { uint32_t n_rows, pos0, cache_cap, width; } args = { n_rows, pos0, ring_slots, width };
+    if (n_rows == 0 || width == 0 || ring_slots == 0 || n_rows > ring_slots || pos0 > INT32_MAX - n_rows) return 0;
+    const uint64_t rows_bytes = (uint64_t)n_rows * width * sizeof(float);
+    const uint64_t ring_bytes = (uint64_t)ring_slots * width * sizeof(uint16_t);
+    qwen4_bind b[5];
+    if (!qwen4_bind_tensor(&b[0], k, rows_bytes, "mellum ring commit k") ||
+        !qwen4_bind_tensor(&b[1], v, rows_bytes, "mellum ring commit v") ||
+        !qwen4_bind_tensor(&b[2], ring_k, ring_bytes, "mellum ring k") ||
+        !qwen4_bind_tensor(&b[3], ring_v, ring_bytes, "mellum ring v") ||
+        !qwen4_bind_tensor(&b[4], ring_pos, (uint64_t)ring_slots * sizeof(int32_t), "mellum ring tags")) {
+        return 0;
+    }
+    const uint64_t n = (uint64_t)n_rows * width;
+    return mellum_dispatch("kernel_mellum_ring_commit", &args, sizeof(args), b, 5,
+                           MTLSizeMake((n + 255u) / 256u, 1, 1), MTLSizeMake(256, 1, 1));
+}
+
+/* Mellum's sliding-window attention (ds4_gpu.h has the contract; metal/mellum.metal the kernel). */
+int ds4_gpu_mellum_attn_swa_tensor(
+        ds4_gpu_tensor *out, const ds4_gpu_tensor *q,
+        const ds4_gpu_tensor *ring_k, const ds4_gpu_tensor *ring_v, const ds4_gpu_tensor *ring_tags,
+        const ds4_gpu_tensor *k16, const ds4_gpu_tensor *v16,
+        uint32_t n_tok, uint32_t pos0, uint32_t window,
+        uint32_t n_head, uint32_t n_head_kv, uint32_t head_dim, float scale) {
+    struct { uint32_t n_tokens, n_head, n_head_kv, pos0, window; float scale; uint32_t pad0, pad1; } args =
+        { n_tok, n_head, n_head_kv, pos0, window, scale, 0, 0 };
+    /* the tags are int32 positions */
+    if (n_tok == 0u || window == 0u || head_dim != 128u || n_head != 32u || n_head_kv != 4u ||
+        pos0 > (uint32_t)INT32_MAX - n_tok) {
+        return 0;
+    }
+    const uint64_t width = (uint64_t)n_head_kv * head_dim;
+    const uint64_t q_bytes = (uint64_t)n_tok * n_head * head_dim * sizeof(float);
+    const uint64_t ring_bytes = (uint64_t)window * width * sizeof(uint16_t);
+    const uint64_t stage_bytes = (uint64_t)n_tok * width * sizeof(uint16_t);
+    qwen4_bind b[7];
+    if (!qwen4_bind_tensor(&b[0], q, q_bytes, "mellum attention q") ||
+        !qwen4_bind_tensor(&b[1], ring_k, ring_bytes, "mellum ring k") ||
+        !qwen4_bind_tensor(&b[2], ring_v, ring_bytes, "mellum ring v") ||
+        !qwen4_bind_tensor(&b[3], ring_tags, (uint64_t)window * sizeof(int32_t), "mellum ring tags") ||
+        !qwen4_bind_tensor(&b[4], k16, stage_bytes, "mellum staged k") ||
+        !qwen4_bind_tensor(&b[5], v16, stage_bytes, "mellum staged v") ||
+        !qwen4_bind_tensor(&b[6], out, q_bytes, "mellum attention output")) {
+        return 0;
+    }
+    return mellum_dispatch("kernel_mellum_attn_swa", &args, sizeof(args), b, 7,
+                           MTLSizeMake(n_head, n_tok, 1), MTLSizeMake(32 * 8, 1, 1));
+}

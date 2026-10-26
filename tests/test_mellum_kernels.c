@@ -4,7 +4,8 @@
  *
  * q/k norm + RoPE: per-head RMS norm and NeoX RoPE, plain on sliding layers
  * and YaRN on full layers.  The reference is llama.cpp's YaRN formulas
- * (rope_yarn_corr_dims and the ramp blend) in double. */
+ * (rope_yarn_corr_dims and the ramp blend) in double.  Then attention: the
+ * sliding window over a ring, and the ring commit. */
 
 #include <math.h>
 #include <stdbool.h>
@@ -430,6 +431,432 @@ static void test_refusals(fixture_t *f) {
     free(xq); free(xk);
 }
 
+
+/* ======================================================================
+ * Attention.  GQA 32/4, head 128.  Sliding layers: a 1,024-slot f16 ring plus
+ * the chunk's f16 staging copy (kernel_mellum_attn_swa), the chunk committed
+ * to the ring afterwards (kernel_mellum_ring_commit).  The reference is causal
+ * GQA attention in double (a window keeps keys with q - k < window), over the
+ * keys as the kernel reads them, rounded to f16.
+ * ====================================================================== */
+
+#define KV_W (MELLUM_N_HEAD_KV * MELLUM_HEAD_DIM)  /* 512 */
+#define Q_W (MELLUM_N_HEAD * MELLUM_HEAD_DIM)      /* 4096 */
+#define RING 1024u
+/* f32 accumulation over at most 1,025 keys against a double reference, on keys both read as f16 */
+#define ATTN_TOL 1e-5
+
+static float attn_scale(void) {
+    return 1.0f / sqrtf((float)MELLUM_HEAD_DIM);
+}
+
+static float round_f16(float x) {
+    return (float)(__fp16)x;
+}
+
+typedef struct {
+    uint32_t n;
+    float *q;      /* [n][Q_W] */
+    float *k, *v;  /* [n][KV_W], f32 as the projections leave them */
+    float *kr, *vr; /* the same rounded to f16 */
+} seq_t;
+
+static seq_t make_seq(uint32_t n) {
+    seq_t s;
+    s.n = n;
+    /* scores of standard deviation about 2: the softmax is not flat, so a dropped or reordered key shows */
+    s.q = rand_vec((uint64_t)n * Q_W, 3.0f);
+    s.k = rand_vec((uint64_t)n * KV_W, 2.0f);
+    s.v = rand_vec((uint64_t)n * KV_W, 1.5f);
+    s.kr = malloc((uint64_t)n * KV_W * sizeof(float));
+    s.vr = malloc((uint64_t)n * KV_W * sizeof(float));
+    require_ok(s.kr != NULL && s.vr != NULL, "malloc");
+    for (uint64_t i = 0; i < (uint64_t)n * KV_W; i++) {
+        s.kr[i] = round_f16(s.k[i]);
+        s.vr[i] = round_f16(s.v[i]);
+    }
+    return s;
+}
+
+static void free_seq(seq_t *s) {
+    free(s->q); free(s->k); free(s->v); free(s->kr); free(s->vr);
+}
+
+/* One query row of attention() in double.  window 0: no window. */
+static void ref_attn_row(const float *q, const float *K, const float *V, uint32_t qpos, uint32_t window, double *out) {
+    const uint32_t first = (window && qpos + 1u > window) ? qpos + 1u - window : 0u;
+    const uint32_t n = qpos + 1u - first;
+    const uint32_t rep = MELLUM_N_HEAD / MELLUM_N_HEAD_KV;
+    double *p = malloc((uint64_t)n * sizeof(double));
+    require_ok(p != NULL, "malloc");
+    for (uint32_t h = 0; h < MELLUM_N_HEAD; h++) {
+        const uint32_t kvh = h / rep;
+        const float *qh = q + (uint64_t)h * MELLUM_HEAD_DIM;
+        double mx = -INFINITY;
+        for (uint32_t i = 0; i < n; i++) {
+            const float *kr = K + (uint64_t)(first + i) * KV_W + (uint64_t)kvh * MELLUM_HEAD_DIM;
+            double dot = 0.0;
+            for (uint32_t d = 0; d < MELLUM_HEAD_DIM; d++) dot += (double)qh[d] * kr[d];
+            p[i] = dot * (double)attn_scale();
+            if (p[i] > mx) mx = p[i];
+        }
+        double sum = 0.0;
+        for (uint32_t i = 0; i < n; i++) {
+            p[i] = exp(p[i] - mx);
+            sum += p[i];
+        }
+        double *oh = out + (uint64_t)h * MELLUM_HEAD_DIM;
+        for (uint32_t d = 0; d < MELLUM_HEAD_DIM; d++) oh[d] = 0.0;
+        for (uint32_t i = 0; i < n; i++) {
+            const float *vr = V + (uint64_t)(first + i) * KV_W + (uint64_t)kvh * MELLUM_HEAD_DIM;
+            for (uint32_t d = 0; d < MELLUM_HEAD_DIM; d++) oh[d] += p[i] * vr[d];
+        }
+        for (uint32_t d = 0; d < MELLUM_HEAD_DIM; d++) oh[d] /= sum;
+    }
+    free(p);
+}
+
+/* Worst scale-relative error of rows [r0, r1) of out against the reference (window 0: full attention);
+ * rounded: the reference reads the keys as f16, as the kernel does. */
+static double rows_vs_ref(const seq_t *s, const float *out, uint32_t r0, uint32_t r1, uint32_t window, bool rounded) {
+    double worst = 0.0;
+    double *ref = malloc((uint64_t)Q_W * sizeof(double));
+    require_ok(ref != NULL, "malloc");
+    for (uint32_t r = r0; r < r1; r++) {
+        ref_attn_row(s->q + (uint64_t)r * Q_W, rounded ? s->kr : s->k, rounded ? s->vr : s->v, r, window, ref);
+        const double e = max_rel(out + (uint64_t)r * Q_W, ref, Q_W);
+        if (e > worst) worst = e;
+    }
+    free(ref);
+    return worst;
+}
+
+/* the number of float words that differ in bits, and the index of the first */
+static uint64_t bit_diffs(const float *a, const float *b, uint64_t n, uint64_t *first) {
+    uint64_t d = 0;
+    for (uint64_t i = 0; i < n; i++) {
+        if (memcmp(&a[i], &b[i], sizeof(float)) != 0) {
+            if (d == 0 && first) *first = i;
+            d++;
+        }
+    }
+    return d;
+}
+
+static ds4_gpu_tensor *zeroed(uint64_t bytes) {
+    ds4_gpu_tensor *t = ds4_gpu_tensor_alloc(bytes);
+    require_ok(t != NULL, "tensor alloc");
+    uint8_t *z = calloc(1, bytes);
+    require_ok(z != NULL, "calloc");
+    require_ok(ds4_gpu_tensor_write(t, 0, z, bytes), "tensor zero");
+    free(z);
+    return t;
+}
+
+/* Round the chunk's f32 rows to its f16 staging copy: the one place a sliding layer's keys are rounded. */
+static void stage_f16(ds4_gpu_tensor *dst16, const ds4_gpu_tensor *src32, uint64_t count) {
+    require_ok(ds4_gpu_tensor_copy_f32_to_f16(dst16, 0, src32, 0, count), "stage f32 to f16");
+}
+
+/* A chunking: the first chunk has `lead` rows (0: `size`), the rest `size`.  {0,1} is decode. */
+typedef struct {
+    uint32_t lead, size;
+} plan_t;
+
+/* The forward pass encodes a layer's ops into one command buffer that runs at end_commands, so a table the CPU
+ * rewrites between two ops is seen by the GPU only in its last state.  Outside a batch every op runs to completion
+ * before the call returns.  The sessions run both ways; this selects which. */
+static bool g_batched;
+
+/* Run a whole sequence through the sliding kernel as a session would: stage, attend, then commit to the ring.
+ * commit_first runs the wrong order (the control for the read-then-commit contract).  out is [n][Q_W]. */
+static void swa_session(const seq_t *s, plan_t plan, bool commit_first, float *out) {
+    const uint32_t max_rows = plan.size > plan.lead ? plan.size : plan.lead;
+    ds4_gpu_tensor *ring_k = zeroed((uint64_t)RING * KV_W * 2u), *ring_v = zeroed((uint64_t)RING * KV_W * 2u);
+    ds4_gpu_tensor *tags = ds4_gpu_tensor_alloc(RING * sizeof(int32_t));
+    int32_t none[RING];
+    for (uint32_t i = 0; i < RING; i++) none[i] = -1;
+    require_ok(tags && ds4_gpu_tensor_write(tags, 0, none, sizeof(none)), "tags");
+    ds4_gpu_tensor *kt = ds4_gpu_tensor_alloc((uint64_t)max_rows * KV_W * 4u), *vt = ds4_gpu_tensor_alloc((uint64_t)max_rows * KV_W * 4u);
+    ds4_gpu_tensor *k16 = ds4_gpu_tensor_alloc((uint64_t)max_rows * KV_W * 2u), *v16 = ds4_gpu_tensor_alloc((uint64_t)max_rows * KV_W * 2u);
+    ds4_gpu_tensor *qt = ds4_gpu_tensor_alloc((uint64_t)max_rows * Q_W * 4u), *ot = ds4_gpu_tensor_alloc((uint64_t)max_rows * Q_W * 4u);
+    require_ok(kt && vt && k16 && v16 && qt && ot, "session tensors");
+    for (uint32_t a = 0; a < s->n;) {
+        const uint32_t rows = (a == 0 && plan.lead) ? plan.lead : plan.size;
+        const uint32_t n = (s->n - a < rows) ? s->n - a : rows;
+        require_ok(ds4_gpu_tensor_write(kt, 0, s->k + (uint64_t)a * KV_W, (uint64_t)n * KV_W * 4u), "k upload");
+        require_ok(ds4_gpu_tensor_write(vt, 0, s->v + (uint64_t)a * KV_W, (uint64_t)n * KV_W * 4u), "v upload");
+        require_ok(ds4_gpu_tensor_write(qt, 0, s->q + (uint64_t)a * Q_W, (uint64_t)n * Q_W * 4u), "q upload");
+        if (g_batched) require_ok(ds4_gpu_begin_commands(), "begin commands");
+        stage_f16(k16, kt, (uint64_t)n * KV_W);
+        stage_f16(v16, vt, (uint64_t)n * KV_W);
+        if (commit_first) {
+            require_ok(ds4_gpu_mellum_ring_commit_tensor(ring_k, ring_v, tags, kt, vt, n, KV_W, a, RING), "ring commit");
+        }
+        require_ok(ds4_gpu_mellum_attn_swa_tensor(ot, qt, ring_k, ring_v, tags, k16, v16, n, a, RING, MELLUM_N_HEAD,
+                                                  MELLUM_N_HEAD_KV, MELLUM_HEAD_DIM, attn_scale()), "sliding attention");
+        if (!commit_first) {
+            require_ok(ds4_gpu_mellum_ring_commit_tensor(ring_k, ring_v, tags, kt, vt, n, KV_W, a, RING), "ring commit");
+        }
+        if (g_batched) require_ok(ds4_gpu_end_commands(), "end commands");
+        require_ok(ds4_gpu_tensor_read(ot, 0, out + (uint64_t)a * Q_W, (uint64_t)n * Q_W * 4u), "out download");
+        a += n;
+    }
+    ds4_gpu_tensor_free(ring_k); ds4_gpu_tensor_free(ring_v); ds4_gpu_tensor_free(tags);
+    ds4_gpu_tensor_free(kt); ds4_gpu_tensor_free(vt); ds4_gpu_tensor_free(k16); ds4_gpu_tensor_free(v16);
+    ds4_gpu_tensor_free(qt); ds4_gpu_tensor_free(ot);
+}
+
+static bool all_finite(const float *v, uint64_t n) {
+    for (uint64_t i = 0; i < n; i++) if (!isfinite(v[i])) return false;
+    return true;
+}
+
+/* Sliding attention at n keys: decode (one row at a time) and prefill (a chunk of 64 rows straddling 1,024,
+ * and a 1,024-row chunk), each against the reference with window 1,024; the identity of every row of each
+ * prefill with the decode steps; the off-by-one control at 1,025 keys. */
+static void test_swa_session(uint32_t n) {
+    static const plan_t decode = { 0, 1 }, pre_b = { 32, 64 }, pre_c = { 33, 1024 };
+    seq_t s = make_seq(n);
+    float *dec = malloc((uint64_t)n * Q_W * 4u), *pb = malloc((uint64_t)n * Q_W * 4u), *pc = malloc((uint64_t)n * Q_W * 4u);
+    require_ok(dec && pb && pc, "malloc");
+    swa_session(&s, decode, false, dec);
+    swa_session(&s, pre_b, false, pb);
+    swa_session(&s, pre_c, false, pc);
+    uint64_t fb = 0, fc = 0;
+    const uint64_t db = bit_diffs(dec, pb, (uint64_t)n * Q_W, &fb), dc = bit_diffs(dec, pc, (uint64_t)n * Q_W, &fc);
+    CHECK(all_finite(dec, (uint64_t)n * Q_W), "sliding decode at %u keys produced a non-finite value", n);
+    CHECK(db == 0, "sliding prefill (32 then 64-row chunks) at %u keys differs from decode in %llu words, first at row %llu",
+          n, (unsigned long long)db, (unsigned long long)(fb / Q_W));
+    CHECK(dc == 0, "sliding prefill (33 then 1,024-row chunks) at %u keys differs from decode in %llu words, first at row %llu",
+          n, (unsigned long long)dc, (unsigned long long)(fc / Q_W));
+    const uint32_t tail = n < 8u ? n : 8u;
+    const double e_dec = rows_vs_ref(&s, dec, n - tail, n, RING, true);
+    const double e_pre = rows_vs_ref(&s, pb, n - tail, n, RING, true);
+    CHECK(e_dec <= ATTN_TOL && e_pre <= ATTN_TOL, "sliding at %u keys vs the window-1024 reference: decode %.3e prefill %.3e (tol %.0e)",
+          n, e_dec, e_pre, ATTN_TOL);
+    /* the keys are f16: against the reference that reads them as f32 the kernel must be visibly off */
+    const double e_f32 = rows_vs_ref(&s, dec, n - tail, n, RING, false);
+    CHECK(e_f32 > 3.0 * ATTN_TOL, "sliding at %u keys must read f16 keys, but is only %.3e from the f32-key reference", n, e_f32);
+    printf("  sliding  %4u keys: last %u rows vs reference decode %.2e prefill %.2e (tol %.0e); vs f32-key ref %.2e; identity: 64-row chunks %llu / 1,024-row chunks %llu words differ of %llu\n",
+           n, tail, e_dec, e_pre, ATTN_TOL, e_f32, (unsigned long long)db, (unsigned long long)dc, (unsigned long long)n * Q_W);
+    if (n == 1057) {
+        /* the 64-row chunk [992, 1056) straddles 1,024: every row against the reference, prefill and decode */
+        const double s_pre = rows_vs_ref(&s, pb, 992, 1056, RING, true), s_dec = rows_vs_ref(&s, dec, 992, 1056, RING, true);
+        CHECK(s_pre <= ATTN_TOL && s_dec <= ATTN_TOL, "the chunk straddling 1,024 vs the reference: prefill %.3e decode %.3e (tol %.0e)",
+              s_pre, s_dec, ATTN_TOL);
+        printf("  sliding  chunk of 64 rows [992,1056) straddling 1,024: worst row vs reference prefill %.2e decode %.2e (tol %.0e)\n",
+               s_pre, s_dec, ATTN_TOL);
+        /* the same sessions with each chunk's ops (stage, attend, commit) encoded into one command buffer, as the
+         * forward pass runs them: the order the ops were encoded in is the order they run */
+        float *bd = malloc((uint64_t)n * Q_W * 4u), *bp = malloc((uint64_t)n * Q_W * 4u);
+        require_ok(bd && bp, "malloc");
+        g_batched = true;
+        swa_session(&s, decode, false, bd);
+        swa_session(&s, pre_b, false, bp);
+        g_batched = false;
+        const uint64_t d_bd = bit_diffs(dec, bd, (uint64_t)n * Q_W, NULL), d_bp = bit_diffs(dec, bp, (uint64_t)n * Q_W, NULL);
+        CHECK(d_bd == 0 && d_bp == 0, "batched sliding sessions at %u keys differ from the unbatched decode: decode %llu words, prefill %llu words",
+              n, (unsigned long long)d_bd, (unsigned long long)d_bp);
+        printf("  sliding  %u keys with each chunk's ops in one command buffer: decode %llu, prefill %llu words differ from the unbatched decode\n",
+               n, (unsigned long long)d_bd, (unsigned long long)d_bp);
+        free(bd); free(bp);
+        /* the read-then-commit contract: the chunk committed before its attention makes row 0 read a slot that now holds
+         * position 1,024 + s; the tag check turns every row that still needs a lost position into NaN.
+         * Rows 0 .. 62 need one (row r's first position is r - 31 when r > 31, and slot (first) % 1,024 < 32
+         * was overwritten by position 1,024 + first); row 63's first position is 32, kept. */
+        float *wrong = malloc((uint64_t)n * Q_W * 4u);
+        require_ok(wrong != NULL, "malloc");
+        swa_session(&s, pre_b, true, wrong);
+        uint32_t nan_rows = 0, bad_after = 0;
+        for (uint32_t r = 992; r < 1056; r++) {
+            const bool fin = all_finite(wrong + (uint64_t)r * Q_W, Q_W);
+            if (!fin) nan_rows++;
+            if (r - 992u < 63u && fin) bad_after++;
+        }
+        const bool last_ok = all_finite(wrong + (uint64_t)1055 * Q_W, Q_W) &&
+                             bit_diffs(wrong + (uint64_t)1055 * Q_W, pb + (uint64_t)1055 * Q_W, Q_W, NULL) == 0;
+        CHECK(nan_rows == 63 && bad_after == 0, "committing the chunk before its attention must lose the ring's history of rows 0..62 of the chunk: %u rows non-finite, %u of rows 0..62 finite",
+              nan_rows, bad_after);
+        CHECK(last_ok, "row 63 of the chunk needs nothing the early commit overwrote and must still match");
+        printf("  control  commit before attention: %u of the 64 rows [992,1056) are NaN (the stale-tag check), row 1055 unchanged\n", nan_rows);
+        free(wrong);
+    }
+    if (n == 1025) {
+        /* the off-by-one control: a window of 1,025 keeps position 0 for the query at 1,024 */
+        double *r24 = malloc((uint64_t)Q_W * 8u), *r25 = malloc((uint64_t)Q_W * 8u);
+        require_ok(r24 && r25, "malloc");
+        ref_attn_row(s.q + (uint64_t)1024 * Q_W, s.kr, s.vr, 1024, 1024, r24);
+        ref_attn_row(s.q + (uint64_t)1024 * Q_W, s.kr, s.vr, 1024, 1025, r25);
+        const double e24 = max_rel(dec + (uint64_t)1024 * Q_W, r24, Q_W), e25 = max_rel(dec + (uint64_t)1024 * Q_W, r25, Q_W);
+        double apart = 0.0, sc = 1e-30;
+        for (uint32_t i = 0; i < Q_W; i++) {
+            if (fabs(r24[i] - r25[i]) > apart) apart = fabs(r24[i] - r25[i]);
+            if (fabs(r24[i]) > sc) sc = fabs(r24[i]);
+        }
+        apart /= sc;
+        CHECK(e24 <= ATTN_TOL, "row 1024 vs the window-1024 reference: %.3e", e24);
+        CHECK(apart > 100.0 * ATTN_TOL && e25 > 100.0 * ATTN_TOL, "off-by-one control: the references differ by %.3e and the kernel is %.3e from window 1,025 (it must NOT match)", apart, e25);
+        printf("  control  off-by-one at 1,025 keys: window-1024 ref %.2e, window-1025 ref %.2e (the two references differ by %.2e)\n", e24, e25, apart);
+        free(r24); free(r25);
+    }
+    free(dec); free(pb); free(pc);
+    free_seq(&s);
+}
+
+/* The tag check's sibling: a ring with the right tags is finite and right; wrong tags give NaN, not a wrong number. */
+static void test_swa_tags(void) {
+    const uint32_t n = 1100, qpos = 1099;
+    seq_t s = make_seq(n);
+    ds4_gpu_tensor *ring_k = zeroed((uint64_t)RING * KV_W * 2u), *ring_v = zeroed((uint64_t)RING * KV_W * 2u);
+    ds4_gpu_tensor *tags = ds4_gpu_tensor_alloc(RING * sizeof(int32_t));
+    ds4_gpu_tensor *kt = upload(s.k, (uint64_t)n * KV_W), *vt = upload(s.v, (uint64_t)n * KV_W);
+    ds4_gpu_tensor *k16 = ds4_gpu_tensor_alloc((uint64_t)n * KV_W * 2u), *v16 = ds4_gpu_tensor_alloc((uint64_t)n * KV_W * 2u);
+    ds4_gpu_tensor *qt = upload(s.q + (uint64_t)qpos * Q_W, Q_W), *ot = ds4_gpu_tensor_alloc(Q_W * 4u);
+    require_ok(tags && k16 && v16 && ot, "tag tensors");
+    stage_f16(k16, kt, (uint64_t)n * KV_W);
+    stage_f16(v16, vt, (uint64_t)n * KV_W);
+    /* positions 0 .. 1098 in the ring (slot = pos % 1,024, the later position wins), then the row at 1,099 */
+    ds4_gpu_tensor *k_lo = ds4_gpu_tensor_view(kt, 0, 1024ull * KV_W * 4u), *v_lo = ds4_gpu_tensor_view(vt, 0, 1024ull * KV_W * 4u);
+    ds4_gpu_tensor *k_hi = ds4_gpu_tensor_view(kt, 1024ull * KV_W * 4u, 75ull * KV_W * 4u);
+    ds4_gpu_tensor *v_hi = ds4_gpu_tensor_view(vt, 1024ull * KV_W * 4u, 75ull * KV_W * 4u);
+    ds4_gpu_tensor *k_row = ds4_gpu_tensor_view(k16, (uint64_t)qpos * KV_W * 2u, KV_W * 2u);
+    ds4_gpu_tensor *v_row = ds4_gpu_tensor_view(v16, (uint64_t)qpos * KV_W * 2u, KV_W * 2u);
+    require_ok(k_lo && v_lo && k_hi && v_hi && k_row && v_row, "views");
+    require_ok(ds4_gpu_mellum_ring_commit_tensor(ring_k, ring_v, tags, k_lo, v_lo, 1024, KV_W, 0, RING), "commit 0..1023");
+    require_ok(ds4_gpu_mellum_ring_commit_tensor(ring_k, ring_v, tags, k_hi, v_hi, 75, KV_W, 1024, RING), "commit 1024..1098");
+    float *out = malloc(Q_W * 4u);
+    double *ref = malloc(Q_W * 8u);
+    require_ok(out && ref, "malloc");
+    CHECK(ds4_gpu_mellum_attn_swa_tensor(ot, qt, ring_k, ring_v, tags, k_row, v_row, 1, qpos, RING, MELLUM_N_HEAD, MELLUM_N_HEAD_KV,
+                                         MELLUM_HEAD_DIM, attn_scale()) != 0, "sliding attention with a live ring runs");
+    require_ok(ds4_gpu_tensor_read(ot, 0, out, Q_W * 4u), "read");
+    ref_attn_row(s.q + (uint64_t)qpos * Q_W, s.kr, s.vr, qpos, RING, ref);
+    const double e_ok = max_rel(out, ref, Q_W);
+    CHECK(e_ok <= ATTN_TOL, "row 1099 from a live ring vs the reference: %.3e", e_ok);
+    /* The row sees positions 76 .. 1099.  Slot 100 holds position 100, which it needs: a wrong tag there gives NaN. */
+    int32_t t[RING];
+    require_ok(ds4_gpu_tensor_read(tags, 0, t, sizeof(t)), "read tags");
+    CHECK(t[100] == 100 && t[75] == 75 && t[50] == 1074, "the ring holds position 100 in slot 100, 75 in slot 75, 1074 in slot 50");
+    t[100] = 101;
+    require_ok(ds4_gpu_tensor_write(tags, 0, t, sizeof(t)), "write tags");
+    require_ok(ds4_gpu_mellum_attn_swa_tensor(ot, qt, ring_k, ring_v, tags, k_row, v_row, 1, qpos, RING, MELLUM_N_HEAD, MELLUM_N_HEAD_KV,
+                                              MELLUM_HEAD_DIM, attn_scale()), "sliding attention with a stale tag");
+    require_ok(ds4_gpu_tensor_read(ot, 0, out, Q_W * 4u), "read");
+    CHECK(!all_finite(out, Q_W), "a wrong tag on a slot the row needs must not give a finite value");
+    /* Slot 75 holds position 75, outside the window: a wrong tag there is not read. */
+    t[100] = 100;
+    t[75] = 9999;
+    require_ok(ds4_gpu_tensor_write(tags, 0, t, sizeof(t)), "write tags");
+    require_ok(ds4_gpu_mellum_attn_swa_tensor(ot, qt, ring_k, ring_v, tags, k_row, v_row, 1, qpos, RING, MELLUM_N_HEAD, MELLUM_N_HEAD_KV,
+                                              MELLUM_HEAD_DIM, attn_scale()), "sliding attention, tag outside the window");
+    require_ok(ds4_gpu_tensor_read(ot, 0, out, Q_W * 4u), "read");
+    const double e_out = max_rel(out, ref, Q_W);
+    CHECK(e_out <= ATTN_TOL, "a wrong tag on a slot the row does not need must not matter: %.3e from the reference", e_out);
+    printf("  tags     live ring %.2e from the reference; a wrong tag on a needed slot gives NaN; one outside the window changes nothing (%.2e)\n",
+           e_ok, e_out);
+    free(out); free(ref);
+    ds4_gpu_tensor_free(k_lo); ds4_gpu_tensor_free(v_lo); ds4_gpu_tensor_free(k_hi); ds4_gpu_tensor_free(v_hi);
+    ds4_gpu_tensor_free(k_row); ds4_gpu_tensor_free(v_row);
+    ds4_gpu_tensor_free(ring_k); ds4_gpu_tensor_free(ring_v); ds4_gpu_tensor_free(tags);
+    ds4_gpu_tensor_free(kt); ds4_gpu_tensor_free(vt); ds4_gpu_tensor_free(k16); ds4_gpu_tensor_free(v16);
+    ds4_gpu_tensor_free(qt); ds4_gpu_tensor_free(ot);
+    free_seq(&s);
+}
+
+/* A rejected draft row on a ring of exactly the window: positions 0 .. 1098 are committed, then a draft row at
+ * 1,099 is attended and committed (overwriting slot 75, which held position 75); the draft is dropped and the true
+ * row at 1,099 is attended again.  It reads positions 76 .. 1,098 from the ring and itself from staging, so
+ * nothing it needs was lost, and after its commit the row at 1,100 reads the true row.  Both must equal the
+ * reference over the true sequence, bit for bit equal to a session that never saw the draft. */
+static void test_swa_rewind_one(void) {
+    const uint32_t n = 1101, draft_pos = 1099;
+    seq_t s = make_seq(n);
+    seq_t d = make_seq(1);  /* the draft's q, k, v */
+    float *straight = malloc((uint64_t)n * Q_W * 4u);
+    require_ok(straight != NULL, "malloc");
+    swa_session(&s, (plan_t){ 0, 1 }, false, straight);
+
+    ds4_gpu_tensor *ring_k = zeroed((uint64_t)RING * KV_W * 2u), *ring_v = zeroed((uint64_t)RING * KV_W * 2u);
+    ds4_gpu_tensor *tags = ds4_gpu_tensor_alloc(RING * sizeof(int32_t));
+    int32_t none[RING];
+    for (uint32_t i = 0; i < RING; i++) none[i] = -1;
+    require_ok(tags && ds4_gpu_tensor_write(tags, 0, none, sizeof(none)), "tags");
+    ds4_gpu_tensor *kt = ds4_gpu_tensor_alloc(KV_W * 4u), *vt = ds4_gpu_tensor_alloc(KV_W * 4u);
+    ds4_gpu_tensor *k16 = ds4_gpu_tensor_alloc(KV_W * 2u), *v16 = ds4_gpu_tensor_alloc(KV_W * 2u);
+    ds4_gpu_tensor *qt = ds4_gpu_tensor_alloc(Q_W * 4u), *ot = ds4_gpu_tensor_alloc(Q_W * 4u);
+    require_ok(kt && vt && k16 && v16 && qt && ot, "rewind tensors");
+    float *row = malloc(Q_W * 4u);
+    require_ok(row != NULL, "malloc");
+    uint64_t bad = 0;
+    /* one decode step at pos from (q, k, v); commit after attending */
+    #define STEP(q_, k_, v_, pos_) do { \
+        require_ok(ds4_gpu_tensor_write(kt, 0, k_, KV_W * 4u) && ds4_gpu_tensor_write(vt, 0, v_, KV_W * 4u) && \
+                   ds4_gpu_tensor_write(qt, 0, q_, Q_W * 4u), "upload"); \
+        stage_f16(k16, kt, KV_W); \
+        stage_f16(v16, vt, KV_W); \
+        require_ok(ds4_gpu_mellum_attn_swa_tensor(ot, qt, ring_k, ring_v, tags, k16, v16, 1, pos_, RING, MELLUM_N_HEAD, \
+                                                  MELLUM_N_HEAD_KV, MELLUM_HEAD_DIM, attn_scale()), "attend"); \
+        require_ok(ds4_gpu_mellum_ring_commit_tensor(ring_k, ring_v, tags, kt, vt, 1, KV_W, pos_, RING), "commit"); \
+        require_ok(ds4_gpu_tensor_read(ot, 0, row, Q_W * 4u), "read"); \
+    } while (0)
+    for (uint32_t p = 0; p < draft_pos; p++) {
+        STEP(s.q + (uint64_t)p * Q_W, s.k + (uint64_t)p * KV_W, s.v + (uint64_t)p * KV_W, p);
+    }
+    STEP(d.q, d.k, d.v, draft_pos);                         /* the draft, then dropped */
+    for (uint32_t p = draft_pos; p < n; p++) {
+        STEP(s.q + (uint64_t)p * Q_W, s.k + (uint64_t)p * KV_W, s.v + (uint64_t)p * KV_W, p);
+        bad += bit_diffs(row, straight + (uint64_t)p * Q_W, Q_W, NULL);
+        CHECK(all_finite(row, Q_W), "row %u after the dropped draft is not finite", p);
+    }
+    #undef STEP
+    const double e = rows_vs_ref(&s, straight, draft_pos, n, RING, true);
+    CHECK(bad == 0, "after a dropped draft at %u, rows %u and %u differ from the straight session in %llu words",
+          draft_pos, draft_pos, draft_pos + 1u, (unsigned long long)bad);
+    CHECK(e <= ATTN_TOL, "the straight session's rows %u .. %u vs the reference: %.3e", draft_pos, n - 1u, e);
+    printf("  rewind   a draft at %u committed then dropped on a %u-slot ring: rows %u and %u equal the straight session "
+           "(%llu words differ), %.2e from the reference\n", draft_pos, RING, draft_pos, draft_pos + 1u,
+           (unsigned long long)bad, e);
+    free(row); free(straight);
+    ds4_gpu_tensor_free(ring_k); ds4_gpu_tensor_free(ring_v); ds4_gpu_tensor_free(tags);
+    ds4_gpu_tensor_free(kt); ds4_gpu_tensor_free(vt); ds4_gpu_tensor_free(k16); ds4_gpu_tensor_free(v16);
+    ds4_gpu_tensor_free(qt); ds4_gpu_tensor_free(ot);
+    free_seq(&d);
+    free_seq(&s);
+}
+
+static void test_swa_refusals(void) {
+    ds4_gpu_tensor *ring = zeroed((uint64_t)RING * KV_W * 2u), *tags = zeroed(RING * 4u);
+    ds4_gpu_tensor *k16 = zeroed(2ull * KV_W * 2u), *v16 = zeroed(2ull * KV_W * 2u);
+    ds4_gpu_tensor *q = zeroed(2ull * Q_W * 4u), *o = zeroed(2ull * Q_W * 4u);
+    ds4_gpu_tensor *small = zeroed(64);
+    const float sc = attn_scale();
+#define SWA(out_, q_, rk_, rv_, tg_, k_, v_, n_, p_, w_, nh_, nkv_, hd_) \
+    ds4_gpu_mellum_attn_swa_tensor(out_, q_, rk_, rv_, tg_, k_, v_, n_, p_, w_, nh_, nkv_, hd_, sc)
+    CHECK(SWA(o, q, ring, ring, tags, k16, v16, 2, 5, RING, 32, 4, 128) != 0, "a valid sliding call succeeds");
+    CHECK(SWA(o, q, ring, ring, tags, k16, v16, 0, 5, RING, 32, 4, 128) == 0, "zero rows are refused");
+    CHECK(SWA(o, q, ring, ring, tags, k16, v16, 2, 5, 0, 32, 4, 128) == 0, "a zero window is refused");
+    CHECK(SWA(o, q, ring, ring, tags, k16, v16, 2, 5, RING, 32, 4, 96) == 0, "head_dim 96 is refused (Mellum's is 128)");
+    CHECK(SWA(o, q, ring, ring, tags, k16, v16, 2, 5, RING, 30, 4, 128) == 0, "30 heads over 4 KV heads is refused");
+    CHECK(SWA(o, q, ring, ring, tags, k16, v16, 2, 5, RING, 16, 2, 128) == 0, "16 query and 2 KV heads is refused (Mellum's is 32 and 4)");
+    CHECK(SWA(o, small, ring, ring, tags, k16, v16, 2, 5, RING, 32, 4, 128) == 0, "an undersized q is refused");
+    CHECK(SWA(small, q, ring, ring, tags, k16, v16, 2, 5, RING, 32, 4, 128) == 0, "an undersized out is refused");
+    CHECK(SWA(o, q, small, ring, tags, k16, v16, 2, 5, RING, 32, 4, 128) == 0, "an undersized ring k is refused");
+    CHECK(SWA(o, q, ring, small, tags, k16, v16, 2, 5, RING, 32, 4, 128) == 0, "an undersized ring v is refused");
+    CHECK(SWA(o, q, ring, ring, small, k16, v16, 2, 5, RING, 32, 4, 128) == 0, "an undersized tag array is refused");
+    CHECK(SWA(o, q, ring, ring, tags, small, v16, 2, 5, RING, 32, 4, 128) == 0, "an undersized staged k is refused");
+    CHECK(SWA(o, q, ring, ring, tags, k16, small, 2, 5, RING, 32, 4, 128) == 0, "an undersized staged v is refused");
+    CHECK(SWA(o, q, ring, ring, tags, k16, v16, 2, 0x7fffffffu, RING, 32, 4, 128) == 0, "a position past INT32_MAX is refused (tags are int32)");
+    CHECK(SWA(o, q, ring, ring, tags, k16, v16, 2, 0x7ffffff0u, RING, 32, 4, 128) != 0, "a position below INT32_MAX with room for the rows is accepted");
+#undef SWA
+    ds4_gpu_tensor_free(ring); ds4_gpu_tensor_free(tags); ds4_gpu_tensor_free(k16); ds4_gpu_tensor_free(v16);
+    ds4_gpu_tensor_free(q); ds4_gpu_tensor_free(o); ds4_gpu_tensor_free(small);
+}
+
+/* ---- full attention ---- */
+
+#define CTX 1100u
+
 int main(void) {
     fixture_t f;
     memset(&f, 0, sizeof(f));
@@ -459,6 +886,13 @@ int main(void) {
     test_double_scale_control(&f, 1, 8191);
     test_double_scale_control(&f, 0, 1025);
     test_refusals(&f);
+
+    printf("Mellum attention (GQA 32/4, head 128, sliding window 1,024, f16 keys; max|d| / max|ref|)\n");
+    static const uint32_t swa_counts[] = { 26, 1000, 1023, 1024, 1025, 1057, 2100 };
+    for (size_t i = 0; i < sizeof(swa_counts) / sizeof(swa_counts[0]); i++) test_swa_session(swa_counts[i]);
+    test_swa_tags();
+    test_swa_refusals();
+    test_swa_rewind_one();
 
     printf("%d checks, %d failures\n", g_checks, g_failures);
     return g_failures ? 1 : 0;

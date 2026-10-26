@@ -3706,6 +3706,39 @@ int ds4_gpu_mellum_qk_norm_rope_tensor(
         uint32_t n_tok, uint32_t pos0, int layer_kind,
         const ds4_gpu_mellum_rope *rope);
 
+/* Mellum 2.1 sliding-window attention (metal/mellum.metal), one contract for
+ * prefill and decode (decode is n_tok == 1):
+ *  1. The chunk's own K and V rows are read from the f16 staging copies k16 and
+ *     v16 ([n_tok][n_head_kv * head_dim], from ds4_gpu_tensor_copy_f32_to_f16),
+ *     so a key has the same value in prefill and in decode.
+ *  2. A query at qpos = pos0 + r sees positions max(0, qpos - window + 1) ..
+ *     qpos in that order: below pos0 from ring slot pos % window (ring_k,
+ *     ring_v: [window][n_head_kv * head_dim] f16; ring_tags: window int32,
+ *     the slot's tag must equal pos, else the whole output row is NaN),
+ *     otherwise staged row pos - pos0.  Keys are split over eight simdgroups
+ *     by their index in that sequence, so a row's arithmetic does not depend
+ *     on pos0 or on n_tok.
+ *  3. The ring is read here and written afterwards: commit the chunk with
+ *     ds4_gpu_mellum_ring_commit_tensor only after this call, never before.
+ *     So a ring of exactly the window survives a one-token rewind: the slot a
+ *     dropped row overwrote held a position no later query reads.
+ * q and out are [n_tok][n_head * head_dim] f32.  Mellum's shape only: head_dim
+ * 128, 32 query and 4 KV heads.
+ *
+ * ring_commit: n_rows rows of f32 K and V ([n_rows][width]) into the f16
+ * rings ([ring_slots][width]), row r at slot (pos0 + r) % ring_slots, and that
+ * slot's int32 tag set to pos0 + r.  At most ring_slots rows per call. */
+int ds4_gpu_mellum_attn_swa_tensor(
+        ds4_gpu_tensor *out, const ds4_gpu_tensor *q,
+        const ds4_gpu_tensor *ring_k, const ds4_gpu_tensor *ring_v, const ds4_gpu_tensor *ring_tags,
+        const ds4_gpu_tensor *k16, const ds4_gpu_tensor *v16,
+        uint32_t n_tok, uint32_t pos0, uint32_t window,
+        uint32_t n_head, uint32_t n_head_kv, uint32_t head_dim, float scale);
+int ds4_gpu_mellum_ring_commit_tensor(
+        ds4_gpu_tensor *ring_k, ds4_gpu_tensor *ring_v, ds4_gpu_tensor *ring_pos,
+        const ds4_gpu_tensor *k, const ds4_gpu_tensor *v,
+        uint32_t n_rows, uint32_t width, uint32_t pos0, uint32_t ring_slots);
+
 #ifdef __cplusplus
 }
 #endif
