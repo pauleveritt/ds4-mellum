@@ -903,6 +903,18 @@ $(MELLUM_KERNEL_TEST): tests/test_mellum_kernels.o ds4_metal.o ds4_image.o
 test-mellum-kernels: $(MELLUM_KERNEL_TEST)
 	./$(MELLUM_KERNEL_TEST)
 
+# Mellum's trace driver: a real session, so it needs the GGUF.  `make test-mellum-trace` runs its
+# model-gated test (DS4_TEST_MELLUM_MODEL).
+tests/mellum_trace.o: tests/mellum_trace.c tests/mellum_trace_context.h ds4.h
+	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -I. -c -o $@ $<
+
+tests/mellum_trace: tests/mellum_trace.o $(CORE_OBJS)
+	$(CC) $(CFLAGS) -o $@ $^ $(METAL_LDLIBS)
+
+.PHONY: test-mellum-trace
+test-mellum-trace: tests/mellum_trace
+	./tests/test_mellum_trace.sh
+
 endif
 
 tests/test_qwen4_vision.o: tests/test_qwen4_vision.c ds4.h
@@ -1401,7 +1413,7 @@ tests/test_session_state_gpu.o: ds4_tool_text.h
 clean:
 	rm -f tests/test_mmvq_cuda tests/test_mmvq_rocm
 	rm -f tests/test_qwen4_ngrams
-	rm -f tests/test_mellum_kernels
+	rm -f tests/test_mellum_kernels tests/mellum_trace
 	rm -f tests/test_mellum_config tests/test_mellum_tokenizer tests/test_mellum_frontends_cli tests/test_mellum_frontends_agent tests/test_mellum_frontends_server
 	rm -f tests/test_qwen4_ngram_state
 	rm -f tests/test_web_recovery
