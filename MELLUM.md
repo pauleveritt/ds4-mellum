@@ -7,14 +7,26 @@ from the model's training, and what is not covered.
 
 ## Status
 
-Phase 1 (recognize and load) is done: a `mellum` GGUF is detected,
-validated, bound and planned, and a Metal session can be created. The forward
-pass is not ported, so every forward entry refuses by name, and ds4-server and
-ds4-agent refuse a Mellum engine at startup (no Hermes tool syntax yet).
+Phases 1 (recognize and load) and 2 (text) are done: a `mellum` GGUF is
+detected, validated, bound and planned, and a Metal session can be created;
+the `mellum2` pre-tokenizer, the stop classes, the chat prefix and the sampling
+defaults match the model's own tokenizer and template. The forward pass is not
+ported, so every forward entry refuses by name, session save/load refuses by
+name, and ds4-server and ds4-agent refuse a Mellum engine at startup (no
+Hermes tool syntax yet).
 
 Model-free tests: `make test-mellum`. With `DS4_TEST_MELLUM_MODEL` set,
-`./tests/test_mellum_config` also validates and binds the real GGUF, and
-`./ds4_test --mellum-session` checks session allocation against the plan.
+`./tests/test_mellum_config` also validates, binds and renders against the real
+GGUF, `./tests/test_mellum_tokenizer` checks token ids through its vocabulary,
+and `./ds4_test --mellum-session` checks session allocation against the plan.
+
+Generated test data (each generator's command is in its docstring; they ran on
+the local Mellum2.1-12B-A2.5B-Thinking MLX snapshot, whose `tokenizer.json`
+and `chat_template.jinja` are byte-identical to the Hugging Face snapshot
+`6f239041` the old port used, by the sha256 its fixtures recorded):
+`ds4_mellum_unicode.inc` (`tests/gen_mellum_unicode.py`),
+`tests/mellum_tokenizer_cases.inc` (`tests/gen_mellum_tokenizer_cases.py`),
+`tests/mellum_chat_ids.inc` (`tests/gen_mellum_chat_ids.py`).
 
 ## Commits
 
@@ -26,10 +38,29 @@ Phase 1:
 - `34b5d44` bind the tensors by name and check their Q8_0 layout.
 - `f4d1ef1` memory plan and session allocation; the forward entries refuse.
 
+Phase 2:
+- `e398212` generated Unicode classes, with the generator (step 7).
+- `5e4884d`, `a7f0b4f` tokenizer cases from the model's own tokenizer; the
+  `mellum2` pre-tokenizer (step 8). The old port's batch drivers
+  (`dump_segments_batch`, `dump_tokens_batch`) are not ported: a generated
+  fixture and `tests/test_mellum_tokenizer` replace them, so step 10 (the
+  drivers refusing a signed record count) has nothing to apply to; upstream's
+  tokenizer entry points take C strings.
+- `79922e5` special tokens classed, corpus markers are content (step 9; it
+  also covers step 12: `<|im_end|>` is EOS, id 0 EOS-alt, `</tool_call>`
+  stops nothing).
+- `8021751`, `20a696c` chat ids from the model's own template; Mellum's own
+  system turn and assistant prefix (step 11).
+- `dd0d997` sampling defaults from the engine, read by the CLI, agent and
+  server (step 13).
+- `a74bafe` session save and load refuse Mellum by name (step 14).
+
 ## Measured
 
 | what | command | result | n |
 |---|---|---|---|
+| tokenizer ids vs the model's own tokenizer, 30 strings | `DS4_TEST_MELLUM_MODEL=... ./tests/test_mellum_tokenizer` | 30/30 equal | 1 |
+| chat renders vs the model's own template, 3 conversations + 2 prefixes | `DS4_TEST_MELLUM_MODEL=... ./tests/test_mellum_config` | all equal | 1 |
 | session bytes allocated vs planned, Q8_0 GGUF | `DS4_TEST_MELLUM_MODEL=... ./ds4_test --mellum-session` | equal at ctx 20,000 / 65,536 / 131,072 for chunks 1,024 and 512 (601,513,984 / 1,254,318,080 / 2,193,842,176 bytes at chunk 1,024) | 1 |
 
 ## Backends covered
