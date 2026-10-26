@@ -1219,13 +1219,23 @@ static server_model_syntax server_model_syntax_for_engine(ds4_engine *engine) {
            SERVER_MODEL_SYNTAX_DEEPSEEK41 : SERVER_MODEL_SYNTAX_DEEPSEEK;
 }
 
+/* Mellum 2.1 is also a qwen4 engine, so it is named before the qwen4 check. */
 static const char *server_model_id_from_engine(ds4_engine *engine) {
     if (ds4_engine_is_deepseek41(engine)) return "deepseek-v4.1-flash";
+    if (ds4_engine_is_mellum(engine)) return "mellum-2.1";
     if (ds4_engine_is_qwen4(engine)) return "qwen3.8-flash-next";
     if (ds4_engine_is_glm53(engine)) return "glm-5.3-flash";
     if (ds4_engine_is_glm_dsa(engine)) return "glm-5.2";
     return ds4_engine_model_id(engine) == 1 ?
            "deepseek-v4-pro" : "deepseek-v4-flash";
+}
+
+/* A loaded model the server cannot serve yet, or NULL.  Mellum would otherwise
+ * be spoken Flash Next's Qwen3-coder tool syntax (it is a qwen4 engine). */
+static const char *server_engine_refusal(ds4_engine *engine) {
+    if (ds4_engine_is_mellum(engine))
+        return "Mellum 2.1 is not served yet: ds4-server has no Hermes tool-call syntax";
+    return NULL;
 }
 
 static bool server_model_alias_known(const char *id) {
@@ -15892,6 +15902,12 @@ int main(int argc, char **argv) {
                     &engine, &cfg.engine, &gpu_cfg) != 0) return 1;
         }
     } else if (ds4_engine_open(&engine, &cfg.engine) != 0) {
+        return 1;
+    }
+    const char *refusal = server_engine_refusal(engine);
+    if (refusal) {
+        fprintf(stderr, "ds4-server: %s\n", refusal);
+        ds4_engine_close(engine);
         return 1;
     }
 

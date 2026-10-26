@@ -537,6 +537,12 @@ typedef enum {
     DS4_VARIANT_FLASH41 = 4,
     DS4_VARIANT_QWEN4_EXP = 5,
     DS4_VARIANT_QWEN4_MINI = 6,
+    /* Mellum 2.1 (`mellum` GGUFs): a sparse-MoE transformer with GQA, YaRN and
+     * a 3:1 sliding/full attention pattern, no GDN, HC, PLE, shared expert or
+     * MTP block.  It takes the QWEN4_EXP family so the Qwen vocabulary, chat
+     * and session paths drive it; every Mellum decision is taken ahead of the
+     * Qwen one. */
+    DS4_VARIANT_MELLUM = 7,
 } ds4_variant;
 
 typedef struct {
@@ -877,6 +883,17 @@ static const ds4_shape DS4_SHAPE_QWEN4_MINI = {
     .rope_orig_ctx = 262144,
 };
 
+/* Mellum 2.1: the widths are read from the GGUF in config_validate_mellum_model.
+ * No hyper-connections (one stream), PLE, GDN, shared expert or MTP block. */
+static const ds4_shape DS4_SHAPE_MELLUM = {
+    .name = "Mellum 2.1",
+    .family = DS4_MODEL_FAMILY_QWEN4_EXP,
+    .variant = DS4_VARIANT_MELLUM,
+    .n_hc = 1,
+    .n_ple_layer = UINT32_MAX,
+    .rms_eps = 1.0e-6f,
+};
+
 static ds4_shape g_ds4_shape = {
     .name = "DeepSeek V4 Flash",
     .family = DS4_MODEL_FAMILY_DEEPSEEK4,
@@ -1008,6 +1025,11 @@ static bool ds4_glm53_layer_is_kda(uint32_t il) {
 
 static bool ds4_model_is_qwen4(void) {
     return DS4_MODEL_FAMILY == DS4_MODEL_FAMILY_QWEN4_EXP;
+}
+
+/* Mellum 2.1.  Also true for ds4_model_is_qwen4(). */
+static bool ds4_model_is_mellum(void) {
+    return DS4_MODEL_VARIANT == DS4_VARIANT_MELLUM;
 }
 
 /* Trunk layers repeat 3 GDN + 1 full attention; the MTP block is attention. */
@@ -7153,6 +7175,14 @@ static void config_validate_qwen4_model(const ds4_model *m) {
     }
 }
 
+/* Mellum 2.1 (arch `mellum`). */
+static void config_validate_mellum_model(const ds4_model *m) {
+    (void)m;
+    g_ds4_shape = DS4_SHAPE_MELLUM;
+    memset(g_ds4_compress_ratios, 0, sizeof(g_ds4_compress_ratios));
+    memset(&g_ds4_qwen4_ple, 0, sizeof(g_ds4_qwen4_ple));
+}
+
 static void config_validate_model(const ds4_model *m) {
     g_ds4_flash_vision_exp = false;
     ds4_str arch = {0};
@@ -7171,6 +7201,10 @@ static void config_validate_model(const ds4_model *m) {
         }
         if (ds4_streq(arch, "qwen4exp")) {
             config_validate_qwen4_model(m);
+            return;
+        }
+        if (ds4_streq(arch, "mellum")) {
+            config_validate_mellum_model(m);
             return;
         }
     }
@@ -71862,6 +71896,12 @@ static int ds4_engine_open_internal(ds4_engine **out,
         return 1;
     }
     config_validate_model(&e->model);
+    if (ds4_model_is_mellum()) {
+        fprintf(stderr, "ds4: Mellum 2.1 is recognized, but its forward pass is not ported yet\n");
+        ds4_engine_close(e);
+        *out = NULL;
+        return 1;
+    }
     if (ds4_model_is_qwen4() && !opt->inspect_only) {
         const bool backend_ok =
 #ifdef DS4_HAS_QWEN4_GPU
@@ -73214,6 +73254,11 @@ bool ds4_engine_is_glm53(ds4_engine *e) {
 bool ds4_engine_is_qwen4(ds4_engine *e) {
     (void)e;
     return ds4_model_is_qwen4();
+}
+
+bool ds4_engine_is_mellum(ds4_engine *e) {
+    (void)e;
+    return ds4_model_is_mellum();
 }
 
 /* The official template's default effort is xhigh; medium adds no text. */

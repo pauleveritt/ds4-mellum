@@ -409,6 +409,14 @@ static int agent_worker_sync_tokens(agent_worker *w, const ds4_tokens *tokens,
 static int agent_read_default_lines(agent_worker *w);
 static int agent_compact_reserve_tokens(agent_worker *w);
 
+/* A loaded model the agent cannot drive yet, or NULL.  Mellum would otherwise
+ * be spoken Flash Next's Qwen3-coder tool syntax (it is a qwen4 engine). */
+static const char *agent_engine_refusal(ds4_engine *engine) {
+    if (ds4_engine_is_mellum(engine))
+        return "Mellum 2.1 is not supported yet: ds4-agent has no Hermes tool-call syntax";
+    return NULL;
+}
+
 static agent_tool_syntax agent_tool_syntax_for_engine(ds4_engine *engine) {
     if (ds4_engine_is_qwen4(engine)) return AGENT_TOOL_SYNTAX_QWEN;
     return ds4_engine_is_glm_dsa(engine) ? AGENT_TOOL_SYNTAX_GLM
@@ -13564,6 +13572,12 @@ int main(int argc, char **argv) {
                     &engine, &cfg.engine, &gpu_cfg) != 0) return 1;
         }
     } else if (ds4_engine_open(&engine, &cfg.engine) != 0) {
+        return 1;
+    }
+    const char *refusal = agent_engine_refusal(engine);
+    if (refusal) {
+        fprintf(stderr, "ds4-agent: %s\n", refusal);
+        ds4_engine_close(engine);
         return 1;
     }
     if (ds4_think_mode_level(cfg.gen.think_mode) >= 0 && !ds4_engine_is_deepseek41(engine)) {

@@ -88,6 +88,7 @@ help:
 	@echo "  make check-mxfp4-half-lut  Verify the checked-in MXFP4 half LUT matches the generator"
 	@echo "  make test-mxfp4-metal  Check the MXFP4 half LUT, then run Metal MXFP4 exactness tests"
 	@echo "  make test-qwen4-kernels  Run the Qwen3.8 Metal kernel tests"
+	@echo "  make test-mellum      Run the Mellum 2.1 model-free tests"
 	@echo "  make test-qwen4-q2       Check exact low-bit decode and prefill tile parity"
 	@echo "  make test-qwen4-vision  Compare the Qwen3.8 vision tower with HF (set DS4_QWEN4_SNAPSHOT, DS4_QWEN4_MMPROJ, DS4_QWEN4_IMAGE)"
 	@echo "  make dspark-verify-depth  Run DSpark speculative verification smoke if support GGUF is present"
@@ -1012,6 +1013,32 @@ tests/test_qwen4_ngrams: tests/test_qwen4_ngrams.o $(filter-out ds4_cpu.o,$(CPU_
 test-qwen4-ngrams: tests/test_qwen4_ngrams
 	./tests/test_qwen4_ngrams
 
+# Mellum 2.1, model-free: recognition, validation and binding on a sparse GGUF
+# (tests/mellum_fixture.h), and how the front ends treat a Mellum engine.
+tests/test_mellum_config.o: tests/test_mellum_config.c tests/mellum_fixture.h ds4.c ds4.h
+	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -Wno-unused-function -DDS4_NO_GPU -I. -c -o $@ $<
+
+tests/test_mellum_config: tests/test_mellum_config.o $(filter-out ds4_cpu.o,$(CPU_CORE_OBJS))
+	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -o $@ $^ $(LDLIBS)
+
+MELLUM_FRONTEND_OBJS = ds4_help.o ds4_prompt_prefix.o ds4_web.o ds4_kvstore.o linenoise.o rax.o \
+	ds4_gpu_args_cpu.o $(filter-out ds4_cpu.o,$(CPU_CORE_OBJS))
+
+tests/test_mellum_frontends_agent.o: tests/test_mellum_frontends.c ds4.c ds4_agent.c ds4.h
+	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -Wno-unused-function -DDS4_NO_GPU -DMELLUM_FRONTEND_AGENT -I. -c -o $@ $<
+
+tests/test_mellum_frontends_server.o: tests/test_mellum_frontends.c ds4.c ds4_server.c ds4.h
+	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -Wno-unused-function -DDS4_NO_GPU -DMELLUM_FRONTEND_SERVER -I. -c -o $@ $<
+
+tests/test_mellum_frontends_agent tests/test_mellum_frontends_server: %: %.o $(MELLUM_FRONTEND_OBJS)
+	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -o $@ $^ $(LDLIBS)
+
+.PHONY: test-mellum
+test-mellum: tests/test_mellum_config tests/test_mellum_frontends_agent tests/test_mellum_frontends_server
+	./tests/test_mellum_config
+	./tests/test_mellum_frontends_agent
+	./tests/test_mellum_frontends_server
+
 tests/test_qwen4_ngram_state.o: tests/test_qwen4_ngram_state.c ds4.c ds4.h
 	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -Wno-unused-function -I. -c -o $@ $<
 
@@ -1349,6 +1376,7 @@ tests/test_session_state_gpu.o: ds4_tool_text.h
 clean:
 	rm -f tests/test_mmvq_cuda tests/test_mmvq_rocm
 	rm -f tests/test_qwen4_ngrams
+	rm -f tests/test_mellum_config tests/test_mellum_frontends_agent tests/test_mellum_frontends_server
 	rm -f tests/test_qwen4_ngram_state
 	rm -f tests/test_web_recovery
 	rm -f tests/test_metal_ssd_experts
