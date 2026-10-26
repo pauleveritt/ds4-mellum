@@ -59,10 +59,14 @@ static void check_variant(void) {
     printf("ok   variant: mellum is its own variant in the QWEN4_EXP family\n");
 }
 
+/* What an open does with the file before the forward pass: validate the
+ * keys, then bind and check every tensor of the full model. */
 static void child_validate(const char *path) {
     ds4_model m;
     model_open(&m, path, false, false);
     config_validate_model(&m);
+    ds4_weights w;
+    weights_bind(&w, &m, false, 0, UINT32_MAX, true, false);
     model_close(&m);
 }
 
@@ -147,9 +151,25 @@ static void check_good_set_in_process(void) {
         }
         g_ds4_shape = saved;
     }
+
+    ds4_weights w;
+    weights_bind(&w, &m, false, 0, UINT32_MAX, true, false);
+    CHECK(w.token_embd && w.output && w.output_norm);
+    CHECK(w.output != w.token_embd);                 /* untied head */
+    CHECK(!w.output_hc_down && !w.output_hc_up && !w.output_hc_norm && !w.ple_embd);
+    CHECK(weights_have_output_head(&w));
+    for (uint32_t il = 0; il < DS4_N_LAYER; il++) {
+        const ds4_layer_weights *l = &w.layer[il];
+        CHECK(l->attn_norm && l->ffn_norm && l->attn_q && l->attn_k && l->attn_v && l->attn_output);
+        CHECK(l->attn_q_norm && l->attn_k_norm && l->ffn_gate_inp);
+        CHECK(l->ffn_gate_exps && l->ffn_up_exps && l->ffn_down_exps);
+        CHECK(!l->ffn_gate_inp_shexp && !l->ffn_gate_shexp && !l->ffn_up_shexp && !l->ffn_down_shexp);
+        CHECK(!l->hc_attn_norm && !l->lin_qkv && !l->indexer_q_proj && !l->ple_key);
+        CHECK(weights_layer_has_required(l, il));
+    }
     model_close(&m);
     unlink(path);
-    printf("ok   good key set: shape, sliding pattern, predicates, stale state reset\n");
+    printf("ok   good key set: shape, sliding pattern, predicates, stale state reset, binding\n");
 }
 
 /* The qwen predicates keep their meaning for the models that already use them. */
@@ -165,6 +185,8 @@ static void check_qwen_predicates_unchanged(void) {
     printf("ok   qwen4exp predicates unchanged\n");
 }
 
+static bool g_open_inspect;
+
 static void child_engine_open(const char *path) {
     ds4_engine *e = NULL;
     ds4_engine_options opt;
@@ -172,21 +194,48 @@ static void child_engine_open(const char *path) {
     opt.model_path = path;
     opt.backend = DS4_BACKEND_CPU;
     opt.context_size = 4096;
+    opt.inspect_only = g_open_inspect;
     const int rc = ds4_engine_open(&e, &opt);
-    _exit(rc == 0 ? 0 : 7);
+    _exit(rc == 0 && (!e || ds4_engine_is_mellum(e)) ? 0 : 7);
 }
 
-/* Until the forward pass is ported, an open is refused, by name. */
+/* Until the forward pass is ported, an open is refused, by name; an
+ * inspect-only open (metadata only) succeeds. */
 static void check_open_refused(void) {
     char path[512], err[4096];
     mellum_fixture_write(MF_NONE, path, sizeof(path));
-    const int rc = run_child(child_engine_open, path, err, sizeof(err));
-    unlink(path);
+    g_open_inspect = false;
+    int rc = run_child(child_engine_open, path, err, sizeof(err));
     if (rc != 7 || !strstr(err, "Mellum 2.1") || !strstr(err, "not ported")) {
         fprintf(stderr, "FAIL open: exit %d, stderr [%s]\n", rc, err);
         exit(1);
     }
-    printf("ok   open: refused by name until the forward pass is ported\n");
+    g_open_inspect = true;
+    rc = run_child(child_engine_open, path, err, sizeof(err));
+    g_open_inspect = false;
+    unlink(path);
+    if (rc != 0) {
+        fprintf(stderr, "FAIL inspect-only open: exit %d, stderr [%s]\n", rc, err);
+        exit(1);
+    }
+    printf("ok   open: refused by name until the forward pass is ported; inspect-only open succeeds\n");
+}
+
+/* With DS4_TEST_MELLUM_MODEL, the real GGUF passes the same validation and
+ * binding (mapped, not read). */
+static void check_real_model(void) {
+    const char *path = getenv("DS4_TEST_MELLUM_MODEL");
+    if (!path || !path[0]) {
+        printf("skip real model: DS4_TEST_MELLUM_MODEL unset\n");
+        return;
+    }
+    char err[4096];
+    const int rc = run_child(child_validate, path, err, sizeof(err));
+    if (rc != 0) {
+        fprintf(stderr, "FAIL real model: exit %d, stderr [%s]\n", rc, err);
+        exit(1);
+    }
+    printf("ok   real model: keys validated, every tensor bound and checked\n");
 }
 
 int main(void) {
@@ -209,7 +258,13 @@ int main(void) {
     expect_refused(MF_ATTN_FACTOR_1, "mellum.rope.scaling.yarn_attn_factor", "yarn_attn_factor 1.0");
     expect_refused(MF_ORIG_CTX_4096, "mellum.rope.scaling.original_context_length", "original context 4096");
     expect_refused(MF_SHEXP_TENSOR, "ffn_gate_inp_shexp", "a shared-expert tensor present");
+    expect_refused(MF_DOWN_Q4K, "ffn_down_exps", "ffn_down_exps not Q8_0");
+    expect_refused(MF_UP_Q4K, "ffn_up_exps", "ffn_up_exps not Q8_0");
+    expect_refused(MF_NO_OUTPUT_NORM, "output_norm.weight", "no output_norm");
+    expect_refused(MF_NO_ATTN_Q_NORM, "blk.5.attn_q_norm.weight", "no attn_q_norm in layer 5");
+    expect_refused(MF_BAD_ATTN_Q_DIM, "blk.5.attn_q.weight", "attn_q of the wrong width");
     check_open_refused();
+    check_real_model();
     printf("test-mellum-config: ok\n");
     return 0;
 }

@@ -5392,7 +5392,8 @@ static void tensor_expect_routed_expert(
 
 static bool weights_have_output_head(const ds4_weights *w) {
     if (DS4_MODEL_FAMILY == DS4_MODEL_FAMILY_GLM_DSA ||
-        DS4_MODEL_FAMILY == DS4_MODEL_FAMILY_DEEPSEEK41) {
+        DS4_MODEL_FAMILY == DS4_MODEL_FAMILY_DEEPSEEK41 ||
+        ds4_model_is_mellum()) {
         return w && w->output_norm && w->output;
     }
     if (ds4_model_is_qwen4()) {
@@ -5408,7 +5409,8 @@ static bool weights_have_output_head(const ds4_weights *w) {
 
 static bool weights_have_partial_output_head(const ds4_weights *w) {
     if (DS4_MODEL_FAMILY == DS4_MODEL_FAMILY_GLM_DSA ||
-        DS4_MODEL_FAMILY == DS4_MODEL_FAMILY_DEEPSEEK41) {
+        DS4_MODEL_FAMILY == DS4_MODEL_FAMILY_DEEPSEEK41 ||
+        ds4_model_is_mellum()) {
         return w && (w->output_norm || w->output);
     }
     if (ds4_model_is_qwen4()) {
@@ -5489,7 +5491,18 @@ static bool weights_glm_dsa_layer_has_required(const ds4_layer_weights *l, uint3
     return true;
 }
 
+/* Mellum: pre-norm GQA attention (q/k norm, no gate, no GDN) and a routed-only
+ * MoE FFN; no shared expert, HC, PLE, indexer or MTP tensors. */
+static bool weights_mellum_layer_has_required(const ds4_layer_weights *l, uint32_t il) {
+    (void)il;
+    return l && l->attn_norm && l->ffn_norm &&
+           l->attn_q && l->attn_k && l->attn_v && l->attn_output &&
+           l->attn_q_norm && l->attn_k_norm &&
+           l->ffn_gate_inp && l->ffn_gate_exps && l->ffn_up_exps && l->ffn_down_exps;
+}
+
 static bool weights_qwen4_layer_has_required(const ds4_layer_weights *l, uint32_t il) {
+    if (ds4_model_is_mellum()) return weights_mellum_layer_has_required(l, il);
     if (!l) return false;
     if (!l->hc_attn_norm || !l->hc_attn_down || !l->hc_attn_up || !l->hc_attn_inject ||
         !l->hc_ffn_norm || !l->hc_ffn_down || !l->hc_ffn_up || !l->hc_ffn_inject) {
@@ -5682,6 +5695,57 @@ static void weights_validate_qwen4_layout(
             tensor_expect_qwen4_dense_layout(l->nextn_hc_head_down, 2, hc_dim, DS4_N_HC_LOWRANK, 0);
             tensor_expect_qwen4_dense_layout(l->nextn_hc_head_up, 2, DS4_N_HC_LOWRANK, hc_dim, 0);
         }
+    }
+}
+
+/* Mellum layout: every projection and routed expert tensor is Q8_0 (the only
+ * quantization the Mellum kernels exist for), norms and the router are F32. */
+static void weights_validate_mellum_layout(
+        const ds4_weights *w,
+        uint32_t           layer_start,
+        uint32_t           layer_end,
+        bool               require_token_embd,
+        bool               require_output) {
+    const uint64_t E = DS4_N_EMBD;
+    const uint64_t q_dim = (uint64_t)DS4_N_HEAD * DS4_N_HEAD_DIM;
+    const uint64_t kv_dim = (uint64_t)DS4_N_HEAD_KV * DS4_N_HEAD_DIM;
+    const uint32_t Q8 = DS4_TENSOR_Q8_0, F32 = DS4_TENSOR_F32;
+
+    if (!w) ds4_die("internal error: missing weights while validating Mellum layout");
+    if (layer_start >= DS4_N_LAYER) ds4_die("invalid first layer in Mellum weight layout validation");
+    if (layer_end == UINT32_MAX) layer_end = DS4_N_LAYER - 1u;
+    if (layer_end >= DS4_N_LAYER || layer_end < layer_start) {
+        ds4_die("invalid layer range in Mellum weight layout validation");
+    }
+    if (require_token_embd && !w->token_embd) ds4_die("required token embedding tensor is missing");
+    if (w->token_embd) tensor_expect_layout(w->token_embd, Q8, 2, E, DS4_N_VOCAB, 0);
+
+    const bool have_output = weights_have_output_head(w);
+    if (require_output && !have_output) ds4_die("required output head tensors are missing");
+    if (weights_have_partial_output_head(w) && !have_output) ds4_die("partial output head in GGUF");
+    if (have_output) {
+        tensor_expect_layout(w->output_norm, F32, 1, E, 0, 0);
+        tensor_expect_layout(w->output, Q8, 2, E, DS4_N_VOCAB, 0);
+    }
+
+    for (uint32_t il = layer_start; il <= layer_end; il++) {
+        const ds4_layer_weights *l = &w->layer[il];
+        if (!weights_mellum_layer_has_required(l, il)) {
+            fprintf(stderr, "ds4: required Mellum tensors for layer %u are missing\n", il);
+            exit(1);
+        }
+        tensor_expect_layout(l->attn_norm, F32, 1, E, 0, 0);
+        tensor_expect_layout(l->ffn_norm, F32, 1, E, 0, 0);
+        tensor_expect_layout(l->attn_q, Q8, 2, E, q_dim, 0);
+        tensor_expect_layout(l->attn_k, Q8, 2, E, kv_dim, 0);
+        tensor_expect_layout(l->attn_v, Q8, 2, E, kv_dim, 0);
+        tensor_expect_layout(l->attn_output, Q8, 2, q_dim, E, 0);
+        tensor_expect_layout(l->attn_q_norm, F32, 1, DS4_N_HEAD_DIM, 0, 0);
+        tensor_expect_layout(l->attn_k_norm, F32, 1, DS4_N_HEAD_DIM, 0, 0);
+        tensor_expect_layout(l->ffn_gate_inp, F32, 2, E, DS4_N_EXPERT, 0);
+        tensor_expect_layout(l->ffn_gate_exps, Q8, 3, E, DS4_N_FF_EXP, DS4_N_EXPERT);
+        tensor_expect_layout(l->ffn_up_exps, Q8, 3, E, DS4_N_FF_EXP, DS4_N_EXPERT);
+        tensor_expect_layout(l->ffn_down_exps, Q8, 3, DS4_N_FF_EXP, E, DS4_N_EXPERT);
     }
 }
 
@@ -5943,6 +6007,11 @@ static void weights_validate_layout(
                                         layer_end,
                                         require_token_embd,
                                         require_output);
+        return;
+    }
+    if (ds4_model_is_mellum()) {
+        weights_validate_mellum_layout(w, layer_start, layer_end,
+                                       require_token_embd, require_output);
         return;
     }
     if (ds4_model_is_qwen4()) {
@@ -7839,7 +7908,16 @@ static void weights_bind_output(
         const ds4_model *m,
         bool             required,
         bool             optional) {
-    if (ds4_model_is_qwen4()) {
+    if (ds4_model_is_mellum()) {
+        /* untied head: output.weight is its own Q8_0 matrix, never the embedding */
+        if (required) {
+            w->output_norm = required_tensor(m, "output_norm.weight");
+            w->output      = required_tensor(m, "output.weight");
+        } else if (optional) {
+            w->output_norm = model_find_tensor(m, "output_norm.weight");
+            w->output      = model_find_tensor(m, "output.weight");
+        }
+    } else if (ds4_model_is_qwen4()) {
         if (required) {
             w->output_hc_norm = required_tensor(m, "output_hc_norm.weight");
             w->output_hc_down = required_tensor(m, "output_hc_down.weight");
@@ -7958,7 +8036,29 @@ static void weights_bind_glm_dsa_layer(ds4_layer_weights *l, const ds4_model *m,
     }
 }
 
+/* Mellum blocks: attn_norm before the GQA mixer (q/k RMS-normed per head, no
+ * output gate), ffn_norm before the routed MoE; no shared expert and no bias
+ * on the router. */
+static void weights_bind_mellum_layer(ds4_layer_weights *l, const ds4_model *m, uint32_t il) {
+    l->attn_norm     = required_tensorf(m, "blk.%u.attn_norm.weight", il);
+    l->ffn_norm      = required_tensorf(m, "blk.%u.ffn_norm.weight", il);
+    l->attn_q        = required_tensorf(m, "blk.%u.attn_q.weight", il);
+    l->attn_k        = required_tensorf(m, "blk.%u.attn_k.weight", il);
+    l->attn_v        = required_tensorf(m, "blk.%u.attn_v.weight", il);
+    l->attn_output   = required_tensorf(m, "blk.%u.attn_output.weight", il);
+    l->attn_q_norm   = required_tensorf(m, "blk.%u.attn_q_norm.weight", il);
+    l->attn_k_norm   = required_tensorf(m, "blk.%u.attn_k_norm.weight", il);
+    l->ffn_gate_inp  = required_tensorf(m, "blk.%u.ffn_gate_inp.weight", il);
+    l->ffn_gate_exps = required_tensorf(m, "blk.%u.ffn_gate_exps.weight", il);
+    l->ffn_up_exps   = required_tensorf(m, "blk.%u.ffn_up_exps.weight", il);
+    l->ffn_down_exps = required_tensorf(m, "blk.%u.ffn_down_exps.weight", il);
+}
+
 static void weights_bind_qwen4_layer(ds4_layer_weights *l, const ds4_model *m, uint32_t il) {
+    if (ds4_model_is_mellum()) {
+        weights_bind_mellum_layer(l, m, il);
+        return;
+    }
     l->hc_attn_norm   = required_tensorf(m, "blk.%u.hc_attn_norm.weight", il);
     l->hc_attn_down   = required_tensorf(m, "blk.%u.hc_attn_down.weight", il);
     l->hc_attn_up     = required_tensorf(m, "blk.%u.hc_attn_up.weight", il);
@@ -8127,7 +8227,7 @@ static void weights_bind(
     } else {
         w->token_embd = model_find_tensor(m, "token_embd.weight");
     }
-    if (ds4_model_is_qwen4()) {
+    if (ds4_model_is_qwen4() && !ds4_model_is_mellum()) {
         w->ple_embd = model_find_tensor(m, "per_layer_token_embd.weight");
     }
     weights_bind_output(w, m, require_output, optional_output);
@@ -72052,7 +72152,7 @@ static int ds4_engine_open_internal(ds4_engine **out,
         return 1;
     }
     config_validate_model(&e->model);
-    if (ds4_model_is_mellum()) {
+    if (ds4_model_is_mellum() && !opt->inspect_only) {
         fprintf(stderr, "ds4: Mellum 2.1 is recognized, but its forward pass is not ported yet\n");
         ds4_engine_close(e);
         *out = NULL;
