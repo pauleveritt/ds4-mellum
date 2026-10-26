@@ -45122,12 +45122,46 @@ static void qwen4_chat_system(const ds4_vocab *vocab, const char *system, ds4_th
     qwen4_chat_close(vocab, out);
 }
 
+/* Mellum 2.1's generation prompt: its template adds nothing after the
+ * assistant tag when thinking is on (the model writes <think> itself) and an
+ * empty think block when off.  Qwen's prefix opens <think> itself. */
+static void mellum_chat_assistant_prefix(const ds4_vocab *vocab, ds4_think_mode think_mode, token_vec *out) {
+    qwen4_chat_open(vocab, "assistant", out);
+    if (!ds4_think_mode_enabled(think_mode)) {
+        token_vec_push(out, vocab->think_start_id);
+        bpe_tokenize_text(vocab, "\n\n", out);
+        token_vec_push(out, vocab->think_end_id);
+        bpe_tokenize_text(vocab, "\n\n", out);
+    }
+}
+
+/* Mellum 2.1's system turn: the caller's text, or none.  Its template has no
+ * reasoning-effort instruction, which Qwen's system turn prepends. */
+static void mellum_chat_system(const ds4_vocab *vocab, const char *system, token_vec *out) {
+    if (!system || !system[0]) return;
+    qwen4_chat_open(vocab, "system", out);
+    bpe_tokenize_text(vocab, system, out);
+    qwen4_chat_close(vocab, out);
+}
+
 static void encode_chat_prompt(
         const ds4_vocab *vocab,
         const char      *system,
         const char      *prompt,
         ds4_think_mode   think_mode,
         token_vec       *out) {
+    if (ds4_model_is_mellum()) {
+        if (vocab->im_start_id < 0 || vocab->im_end_id < 0 ||
+            vocab->think_start_id < 0 || vocab->think_end_id < 0) {
+            ds4_die("this tokenizer does not provide Mellum's chat markers");
+        }
+        mellum_chat_system(vocab, system, out);
+        qwen4_chat_open(vocab, "user", out);
+        bpe_tokenize_text(vocab, prompt, out);
+        qwen4_chat_close(vocab, out);
+        mellum_chat_assistant_prefix(vocab, think_mode, out);
+        return;
+    }
     if (ds4_model_is_qwen4()) {
         if (vocab->im_start_id < 0 || vocab->im_end_id < 0 ||
             vocab->think_start_id < 0 || vocab->think_end_id < 0) {
@@ -45391,6 +45425,10 @@ void ds4_chat_append_message(ds4_engine *e, ds4_tokens *tokens, const char *role
 }
 
 void ds4_chat_append_assistant_prefix(ds4_engine *e, ds4_tokens *tokens, ds4_think_mode think_mode) {
+    if (ds4_model_is_mellum()) {
+        mellum_chat_assistant_prefix(&e->vocab, think_mode, tokens);
+        return;
+    }
     if (ds4_model_is_qwen4()) {
         qwen4_chat_assistant_prefix(&e->vocab, think_mode, tokens);
         return;

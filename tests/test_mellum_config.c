@@ -7,6 +7,11 @@
 #include "mellum_fixture.h"
 #include <sys/wait.h>
 
+typedef struct { const char *role, *content; } fx_msg;
+typedef struct { const char *name; bool think; int nmsg; const fx_msg *msgs; int nids; const int *ids; } fx_case;
+typedef struct { const char *name; bool think; int nids; const int *ids; } fx_prefix;
+#include "mellum_chat_ids.inc"
+
 #define CHECK(c) do { if (!(c)) { fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #c); exit(1); } } while (0)
 
 /* Run fn in a child; return its exit status and what it wrote to stderr. */
@@ -684,6 +689,115 @@ static void check_qwen_stop_classes_tiny(void) {
     printf("ok   qwen4exp (tiny vocabulary): eos EOS, <|endoftext|> EOS-alt, <think> none, is_stop unchanged\n");
 }
 
+/* ---- chat prefix ----------------------------------------------------------------------- */
+static void expect_ids(const char *label, const ds4_tokens *got, const int *want, int n) {
+    bool ok = got->len == n;
+    for (int i = 0; ok && i < n; i++) ok = got->v[i] == want[i];
+    if (!ok) {
+        fprintf(stderr, "FAIL %s: got %d ids [", label, got->len);
+        for (int i = 0; i < got->len; i++) fprintf(stderr, "%s%d", i ? " " : "", got->v[i]);
+        fprintf(stderr, "], want %d [", n);
+        for (int i = 0; i < n; i++) fprintf(stderr, "%s%d", i ? " " : "", want[i]);
+        fprintf(stderr, "]\n");
+        exit(1);
+    }
+}
+
+static int count_id(const ds4_tokens *t, int id) {
+    int n = 0;
+    for (int i = 0; i < t->len; i++) n += t->v[i] == id;
+    return n;
+}
+
+/* Push the byte-level ids of an ASCII string: in the tiny vocabulary byte c is id 35 + c. */
+static void push_bytes(ds4_tokens *t, const char *s) {
+    for (; *s; s++) ds4_tokens_push(t, 35 + (unsigned char)*s);
+}
+
+/* Model-free: 2.1's template opens the assistant turn with nothing after the tag when
+ * thinking is on (the model writes <think> itself) and with an empty think block when off;
+ * the system turn has no reasoning-effort instruction. */
+static void check_mellum_chat_tiny(void) {
+    char path[512];
+    mellum_fixture_write(MF_NONE, path, sizeof(path));
+    ds4_model m;
+    model_open(&m, path, false, false);
+    config_validate_model(&m);
+    static ds4_engine e;
+    memset(&e, 0, sizeof(e));
+    vocab_load(&e.vocab, &m);
+
+    ds4_tokens want = {0}, got = {0};
+    ds4_tokens_push(&want, 27);
+    push_bytes(&want, "assistant\n");
+    ds4_chat_append_assistant_prefix(&e, &got, DS4_THINK_HIGH);
+    expect_ids("tiny: think-on prefix", &got, want.v, want.len);
+    CHECK(count_id(&got, 23) == 0);
+    want.len = got.len = 0;
+    ds4_tokens_push(&want, 27);
+    push_bytes(&want, "assistant\n");
+    ds4_tokens_push(&want, 23); push_bytes(&want, "\n\n"); ds4_tokens_push(&want, 24); push_bytes(&want, "\n\n");
+    ds4_chat_append_assistant_prefix(&e, &got, DS4_THINK_NONE);
+    expect_ids("tiny: think-off prefix", &got, want.v, want.len);
+    /* the CLI -p path: no system turn when none is given, whatever the think mode
+     * (Qwen's adds a reasoning-effort system turn here) */
+    for (int high = 0; high < 2; high++) {
+        want.len = got.len = 0;
+        ds4_encode_chat_prompt(&e, NULL, "hi", high ? DS4_THINK_HIGH : DS4_THINK_LOW, &got);
+        ds4_tokens_push(&want, 27); push_bytes(&want, "user\nhi"); ds4_tokens_push(&want, 28); push_bytes(&want, "\n");
+        ds4_tokens_push(&want, 27); push_bytes(&want, "assistant\n");
+        expect_ids("tiny: encode_chat_prompt think-on", &got, want.v, want.len);
+    }
+    /* sibling: Flash Next keeps its own prefix (<think> and a newline when thinking) */
+    g_ds4_shape = DS4_SHAPE_QWEN4_EXP;
+    want.len = got.len = 0;
+    ds4_tokens_push(&want, 27); push_bytes(&want, "assistant\n"); ds4_tokens_push(&want, 23); push_bytes(&want, "\n");
+    ds4_chat_append_assistant_prefix(&e, &got, DS4_THINK_HIGH);
+    expect_ids("tiny: Flash Next think-on prefix", &got, want.v, want.len);
+    ds4_tokens_free(&want); ds4_tokens_free(&got);
+    vocab_free(&e.vocab);
+    model_close(&m);
+    unlink(path);
+    printf("ok   chat (tiny vocabulary): prefix arms, no effort turn; Flash Next keeps its prefix\n");
+}
+
+/* The real GGUF: the renderer against ids from 2.1's own template (tests/gen_mellum_chat_ids.py). */
+static void check_mellum_chat_model(const char *model_path) {
+    ds4_model m;
+    model_open(&m, model_path, false, false);
+    config_validate_model(&m);
+    static ds4_engine e;
+    memset(&e, 0, sizeof(e));
+    vocab_load(&e.vocab, &m);
+    CHECK(e.vocab.im_start_id == 27 && e.vocab.im_end_id == 28);
+    for (size_t i = 0; i < N_OF(fx_prefixes); i++) {
+        ds4_tokens got = {0};
+        ds4_chat_append_assistant_prefix(&e, &got, fx_prefixes[i].think ? DS4_THINK_HIGH : DS4_THINK_NONE);
+        expect_ids(fx_prefixes[i].name, &got, fx_prefixes[i].ids, fx_prefixes[i].nids);
+        ds4_tokens_free(&got);
+    }
+    for (size_t i = 0; i < N_OF(fx_cases); i++) {
+        const fx_case *fc = &fx_cases[i];
+        ds4_tokens got = {0};
+        for (int j = 0; j < fc->nmsg; j++) ds4_chat_append_message(&e, &got, fc->msgs[j].role, fc->msgs[j].content);
+        ds4_chat_append_assistant_prefix(&e, &got, fc->think ? DS4_THINK_HIGH : DS4_THINK_NONE);
+        expect_ids(fc->name, &got, fc->ids, fc->nids);
+        ds4_tokens_free(&got);
+    }
+    {   /* the CLI -p path: system and prompt through encode_chat_prompt */
+        ds4_tokens got = {0};
+        ds4_encode_chat_prompt(&e, "You are a helpful assistant.", "Hello, world!", DS4_THINK_HIGH, &got);
+        expect_ids("encode_chat_prompt think on", &got, fx_cases[0].ids, fx_cases[0].nids);
+        got.len = 0;
+        ds4_encode_chat_prompt(&e, "You are a helpful assistant.", "Hello, world!", DS4_THINK_NONE, &got);
+        expect_ids("encode_chat_prompt think off", &got, fx_cases[1].ids, fx_cases[1].nids);
+        ds4_tokens_free(&got);
+    }
+    vocab_free(&e.vocab);
+    model_close(&m);
+    printf("ok   Mellum (real GGUF): %zu renders and 2 prefixes equal 2.1's template ids\n", N_OF(fx_cases));
+}
+
 /* The real vocabulary: the same classes over every one of its 98,304 ids. */
 static void check_mellum_stops_model(const char *path) {
     ds4_model m;
@@ -714,6 +828,7 @@ static void check_real_model(void) {
     }
     printf("ok   real model: keys validated, every tensor bound and checked\n");
     check_mellum_stops_model(path);
+    check_mellum_chat_model(path);
 }
 
 int main(void) {
@@ -755,6 +870,7 @@ int main(void) {
     check_mellum_stops_tiny();
     check_mellum_unnamed_control_is_protocol();
     check_qwen_stop_classes_tiny();
+    check_mellum_chat_tiny();
     check_real_model();
     printf("test-mellum-config: ok\n");
     return 0;

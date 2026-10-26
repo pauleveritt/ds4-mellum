@@ -1015,7 +1015,7 @@ test-qwen4-ngrams: tests/test_qwen4_ngrams
 
 # Mellum 2.1, model-free: recognition, validation and binding on a sparse GGUF
 # (tests/mellum_fixture.h), and how the front ends treat a Mellum engine.
-tests/test_mellum_config.o: tests/test_mellum_config.c tests/mellum_fixture.h ds4.c ds4.h
+tests/test_mellum_config.o: tests/test_mellum_config.c tests/mellum_fixture.h tests/mellum_chat_ids.inc ds4.c ds4.h
 	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -Wno-unused-function -DDS4_NO_GPU -I. -c -o $@ $<
 
 tests/test_mellum_config: tests/test_mellum_config.o $(filter-out ds4_cpu.o,$(CPU_CORE_OBJS))
