@@ -7,8 +7,30 @@ from the model's training, and what is not covered.
 
 ## Status
 
-Nothing of Mellum is ported yet. Recorded so far: the baseline and the
-dependency audit below.
+Phase 1 (recognize and load) is done: a `mellum` GGUF is detected,
+validated, bound and planned, and a Metal session can be created. The forward
+pass is not ported, so every forward entry refuses by name, and ds4-server and
+ds4-agent refuse a Mellum engine at startup (no Hermes tool syntax yet).
+
+Model-free tests: `make test-mellum`. With `DS4_TEST_MELLUM_MODEL` set,
+`./tests/test_mellum_config` also validates and binds the real GGUF, and
+`./ds4_test --mellum-session` checks session allocation against the plan.
+
+## Commits
+
+Phase 0: `15824be` baseline, `57278db` dependency audit.
+
+Phase 1:
+- `e8ba0ac` recognize `general.architecture = mellum`; refuse it by name.
+- `5109a6d` validate the hyperparameters, each refusal naming its key.
+- `34b5d44` bind the tensors by name and check their Q8_0 layout.
+- `f4d1ef1` memory plan and session allocation; the forward entries refuse.
+
+## Measured
+
+| what | command | result | n |
+|---|---|---|---|
+| session bytes allocated vs planned, Q8_0 GGUF | `DS4_TEST_MELLUM_MODEL=... ./ds4_test --mellum-session` | equal at ctx 20,000 / 65,536 / 131,072 for chunks 1,024 and 512 (601,513,984 / 1,254,318,080 / 2,193,842,176 bytes at chunk 1,024) | 1 |
 
 ## Backends covered
 
@@ -64,6 +86,10 @@ upstream `5379c1c`, or in the fork commits `0aaea5a..ebdcb0f`. The audit lists
 the third group. Method: every identifier in the added lines of that diff,
 checked against trees of `5379c1c` and `ebdcb0f` (found in the fork, absent
 upstream), then each hit read in context.
+
+Addendum (found at step 4): the old port also relied on the fork raising
+`DS4_MAX_HEAD_KV` from 2 to 4 (`6a015c6`, for Qwen3.5's 27B). Mellum has 4 KV
+heads; upstream reads the limit nowhere else, so `5109a6d` raises it.
 
 ### Fork-only Metal code to re-home under Mellum names
 
