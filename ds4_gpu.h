@@ -3739,6 +3739,36 @@ int ds4_gpu_mellum_ring_commit_tensor(
         const ds4_gpu_tensor *k, const ds4_gpu_tensor *v,
         uint32_t n_rows, uint32_t width, uint32_t pos0, uint32_t ring_slots);
 
+/* Mellum 2.1 full attention without a gate, on the qwen4 decode kernels with
+ * their `ungated` word set (head_dim 128 only: the gated 256 path has a
+ * matrix-tile kernel that does not know the word).  The caches are
+ * [ctx][n_head_kv * head_dim] f16 with position p at row p.
+ *
+ * decode_ungated: the single-row dispatch for the row at `pos` (pos + 1 keys);
+ * part holds ds4_gpu_qwen4_attn_part_floats(1, n_head, head_dim) floats.
+ *
+ * full_rows: n_rows rows at pos0 .. pos0 + n_rows - 1, each with the splits
+ * the single-row dispatch gives its key count, so a row equals the decode
+ * dispatch of that position bit for bit.  Works in slices of 64 rows (the rows
+ * kernels' limit): the call uses table entries entry0 .. entry0 + n_rows - 1
+ * (DS4_GPU_QWEN4_ATTN_ROW_BYTES each), so table holds at least entry0 + n_rows
+ * entries.  The CPU writes those entries when the call encodes and the GPU reads
+ * them when the command buffer runs: two calls in one command buffer (two full
+ * layers) must not share a table region, or the later call's cache addresses
+ * replace the earlier one's.  Give each full layer its own entry0.  part is
+ * scratch the kernels finish with before the next dispatch, so calls may share it:
+ * ds4_gpu_qwen4_attn_part_floats(min(n_rows, 64), n_head, head_dim) floats.
+ * q and out are [n_rows][n_head * head_dim] f32. */
+int ds4_gpu_qwen4_attn_decode_ungated_tensor(
+        ds4_gpu_tensor *out, const ds4_gpu_tensor *q,
+        const ds4_gpu_tensor *k_cache, const ds4_gpu_tensor *v_cache, ds4_gpu_tensor *part,
+        uint32_t n_head, uint32_t n_head_kv, uint32_t head_dim, uint32_t pos, float scale);
+int ds4_gpu_mellum_attn_full_rows_tensor(
+        ds4_gpu_tensor *out, const ds4_gpu_tensor *q,
+        const ds4_gpu_tensor *k_cache, const ds4_gpu_tensor *v_cache,
+        ds4_gpu_tensor *table, uint64_t entry0, ds4_gpu_tensor *part,
+        uint32_t n_rows, uint32_t pos0, uint32_t n_head, uint32_t n_head_kv, uint32_t head_dim, float scale);
+
 #ifdef __cplusplus
 }
 #endif

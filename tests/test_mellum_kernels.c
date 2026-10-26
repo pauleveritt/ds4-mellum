@@ -5,7 +5,8 @@
  * q/k norm + RoPE: per-head RMS norm and NeoX RoPE, plain on sliding layers
  * and YaRN on full layers.  The reference is llama.cpp's YaRN formulas
  * (rope_yarn_corr_dims and the ramp blend) in double.  Then attention: the
- * sliding window over a ring, and the ring commit. */
+ * sliding window over a ring, the ring commit, and the full layers' ungated
+ * attention on upstream's qwen4 decode kernels. */
 
 #include <math.h>
 #include <stdbool.h>
@@ -857,6 +858,345 @@ static void test_swa_refusals(void) {
 
 #define CTX 1100u
 
+/* A full layer's cache: rows [0, n) of K and V as f16 at their position rows, written with the one op the forward
+ * pass will use (ds4_gpu_tensor_copy_f32_to_f16 at dst_offset = pos0 * KV_W * 2). */
+static void full_cache_write(ds4_gpu_tensor *kc, ds4_gpu_tensor *vc, const seq_t *s, uint32_t pos0, uint32_t n) {
+    ds4_gpu_tensor *kt = upload(s->k + (uint64_t)pos0 * KV_W, (uint64_t)n * KV_W);
+    ds4_gpu_tensor *vt = upload(s->v + (uint64_t)pos0 * KV_W, (uint64_t)n * KV_W);
+    require_ok(ds4_gpu_tensor_copy_f32_to_f16(kc, (uint64_t)pos0 * KV_W * 2u, kt, 0, (uint64_t)n * KV_W), "full k write");
+    require_ok(ds4_gpu_tensor_copy_f32_to_f16(vc, (uint64_t)pos0 * KV_W * 2u, vt, 0, (uint64_t)n * KV_W), "full v write");
+    ds4_gpu_tensor_free(kt);
+    ds4_gpu_tensor_free(vt);
+}
+
+/* Every position p in [0, n) through the single-row dispatch: out is [n][Q_W]. */
+static void full_single_rows(const seq_t *s, ds4_gpu_tensor *kc, ds4_gpu_tensor *vc, uint32_t n, float *out) {
+    ds4_gpu_tensor *q1 = ds4_gpu_tensor_alloc(Q_W * 4u), *o1 = ds4_gpu_tensor_alloc(Q_W * 4u);
+    ds4_gpu_tensor *part = ds4_gpu_tensor_alloc(ds4_gpu_qwen4_attn_part_floats(1, MELLUM_N_HEAD, MELLUM_HEAD_DIM) * 4u);
+    require_ok(q1 && o1 && part, "single-row tensors");
+    for (uint32_t p = 0; p < n; p++) {
+        require_ok(ds4_gpu_tensor_write(q1, 0, s->q + (uint64_t)p * Q_W, Q_W * 4u), "q upload");
+        require_ok(ds4_gpu_qwen4_attn_decode_ungated_tensor(o1, q1, kc, vc, part, MELLUM_N_HEAD, MELLUM_N_HEAD_KV,
+                                                            MELLUM_HEAD_DIM, p, attn_scale()), "ungated single-row");
+        require_ok(ds4_gpu_tensor_read(o1, 0, out + (uint64_t)p * Q_W, Q_W * 4u), "out download");
+    }
+    ds4_gpu_tensor_free(q1); ds4_gpu_tensor_free(o1); ds4_gpu_tensor_free(part);
+}
+
+/* rows [pos0, pos0 + rows) through the rows path: out is [rows][Q_W]. */
+static void full_rows(const seq_t *s, ds4_gpu_tensor *kc, ds4_gpu_tensor *vc, uint32_t pos0, uint32_t rows, float *out) {
+    const uint32_t slice = rows < 64u ? rows : 64u;
+    ds4_gpu_tensor *qt = upload(s->q + (uint64_t)pos0 * Q_W, (uint64_t)rows * Q_W), *ot = ds4_gpu_tensor_alloc((uint64_t)rows * Q_W * 4u);
+    ds4_gpu_tensor *table = ds4_gpu_tensor_alloc((uint64_t)rows * DS4_GPU_QWEN4_ATTN_ROW_BYTES);
+    ds4_gpu_tensor *part = ds4_gpu_tensor_alloc(ds4_gpu_qwen4_attn_part_floats(slice, MELLUM_N_HEAD, MELLUM_HEAD_DIM) * 4u);
+    require_ok(ot && table && part, "rows tensors");
+    if (g_batched) require_ok(ds4_gpu_begin_commands(), "begin commands");
+    require_ok(ds4_gpu_mellum_attn_full_rows_tensor(ot, qt, kc, vc, table, 0, part, rows, pos0, MELLUM_N_HEAD, MELLUM_N_HEAD_KV,
+                                                    MELLUM_HEAD_DIM, attn_scale()), "ungated rows");
+    if (g_batched) require_ok(ds4_gpu_end_commands(), "end commands");
+    require_ok(ds4_gpu_tensor_read(ot, 0, out, (uint64_t)rows * Q_W * 4u), "out download");
+    ds4_gpu_tensor_free(qt); ds4_gpu_tensor_free(ot); ds4_gpu_tensor_free(table); ds4_gpu_tensor_free(part);
+}
+
+/* Full attention, ungated, at n keys: the last rows of the single-row dispatch and of the rows path against the
+ * reference (window none); then every position's row from the rows path bit-identical to its single-row step. */
+static void test_full_session(uint32_t n) {
+    seq_t s = make_seq(n);
+    const uint64_t cache_rows = n > CTX ? n : CTX;   /* 2,100 and 4,100 keys outgrow the 1,100-row cache of the other tests */
+    ds4_gpu_tensor *kc = zeroed(cache_rows * KV_W * 2u), *vc = zeroed(cache_rows * KV_W * 2u);
+    full_cache_write(kc, vc, &s, 0, n);
+    /* the cache holds f16 K at position rows */
+    uint16_t *raw = malloc((uint64_t)n * KV_W * 2u);
+    require_ok(raw && ds4_gpu_tensor_read(kc, 0, raw, (uint64_t)n * KV_W * 2u), "cache read");
+    uint64_t wrong = 0;
+    for (uint64_t i = 0; i < (uint64_t)n * KV_W; i++) {
+        __fp16 h;
+        memcpy(&h, &raw[i], 2);
+        if ((float)h != s.kr[i]) wrong++;
+    }
+    CHECK(wrong == 0, "the full cache must hold K rounded to f16 at position rows: %llu of %llu words differ",
+          (unsigned long long)wrong, (unsigned long long)n * KV_W);
+    free(raw);
+    float *one = malloc((uint64_t)n * Q_W * 4u), *many = malloc((uint64_t)n * Q_W * 4u);
+    require_ok(one && many, "malloc");
+    full_single_rows(&s, kc, vc, n, one);
+    full_rows(&s, kc, vc, 0, n, many);
+    uint64_t first = 0;
+    const uint64_t d = bit_diffs(one, many, (uint64_t)n * Q_W, &first);
+    const uint32_t tail = n < 8u ? n : 8u;
+    const double e1 = rows_vs_ref(&s, one, n - tail, n, 0, true), e2 = rows_vs_ref(&s, many, n - tail, n, 0, true);
+    CHECK(all_finite(one, (uint64_t)n * Q_W), "full attention at %u keys produced a non-finite value", n);
+    CHECK(e1 <= ATTN_TOL && e2 <= ATTN_TOL, "full ungated at %u keys vs the reference: single-row %.3e rows %.3e (tol %.0e)", n, e1, e2, ATTN_TOL);
+    CHECK(d == 0, "full rows path at %u keys differs from the single-row dispatch in %llu words, first at row %llu", n,
+          (unsigned long long)d, (unsigned long long)(first / Q_W));
+    printf("  full     %4u keys: last %u rows vs reference single-row %.2e rows %.2e (tol %.0e); identity rows vs single-row: %llu of %llu words differ\n",
+           n, tail, e1, e2, ATTN_TOL, (unsigned long long)d, (unsigned long long)n * Q_W);
+    {
+        /* the rows path inside one command buffer: the CPU writes each slice's table entries while the earlier slices
+         * have not run yet, so a slice that reused entries would read the last slice's rows */
+        float *bat = malloc((uint64_t)n * Q_W * 4u);
+        require_ok(bat != NULL, "malloc");
+        g_batched = true;
+        full_rows(&s, kc, vc, 0, n, bat);
+        g_batched = false;
+        const uint64_t db = bit_diffs(one, bat, (uint64_t)n * Q_W, &first);
+        CHECK(db == 0, "full rows path in one command buffer at %u keys differs from the single-row dispatch in %llu words, first at row %llu",
+              n, (unsigned long long)db, (unsigned long long)(first / Q_W));
+        printf("  full     %4u keys: rows path in one command buffer: %llu of %llu words differ from the single-row steps\n",
+               n, (unsigned long long)db, (unsigned long long)n * Q_W);
+        free(bat);
+    }
+    {
+        /* the 32-lane merge, which the single-row dispatch takes off an M5 (the rows path always runs the wide one):
+         * the identity must hold there too, and the merge kernel must not change the single-row output */
+        float *one0 = malloc((uint64_t)n * Q_W * 4u), *many0 = malloc((uint64_t)n * Q_W * 4u);
+        require_ok(one0 && many0, "malloc");
+        setenv("DS4_QWEN4_ATTN_MERGE_WIDE", "0", 1);
+        full_single_rows(&s, kc, vc, n, one0);
+        full_rows(&s, kc, vc, 0, n, many0);
+        unsetenv("DS4_QWEN4_ATTN_MERGE_WIDE");
+        const uint64_t d_id = bit_diffs(one0, many0, (uint64_t)n * Q_W, &first), d_x = bit_diffs(one0, one, (uint64_t)n * Q_W, NULL);
+        const double e0 = rows_vs_ref(&s, one0, n - tail, n, 0, true);
+        CHECK(d_id == 0, "with the 32-lane merge, the rows path at %u keys differs from the single-row dispatch in %llu words, first at row %llu",
+              n, (unsigned long long)d_id, (unsigned long long)(first / Q_W));
+        CHECK(d_x == 0, "the single-row output at %u keys changed with the merge kernel: %llu words", n, (unsigned long long)d_x);
+        CHECK(e0 <= ATTN_TOL, "32-lane merge, single-row at %u keys vs the reference: %.3e (tol %.0e)", n, e0, ATTN_TOL);
+        printf("  full     %4u keys: 32-lane merge: rows vs single-row %llu, single-row vs the wide merge's %llu of %llu words differ; vs reference %.2e\n",
+               n, (unsigned long long)d_id, (unsigned long long)d_x, (unsigned long long)n * Q_W, e0);
+        free(one0); free(many0);
+    }
+    if (n == 1025) {
+        /* a chunk that does not start at 0: rows [961, 1025) of the same cache */
+        float *chunk = malloc(64ull * Q_W * 4u);
+        require_ok(chunk != NULL, "malloc");
+        full_rows(&s, kc, vc, 961, 64, chunk);
+        const uint64_t dc = bit_diffs(chunk, one + 961ull * Q_W, 64ull * Q_W, NULL);
+        CHECK(dc == 0, "full rows [961,1025) differ from the single-row dispatch in %llu words", (unsigned long long)dc);
+        printf("  full     rows [961,1025) from pos0=961: %llu of %llu words differ from the single-row steps\n",
+               (unsigned long long)dc, 64ull * Q_W);
+        free(chunk);
+    }
+    free(one); free(many);
+    ds4_gpu_tensor_free(kc); ds4_gpu_tensor_free(vc);
+    free_seq(&s);
+}
+
+/* Two full layers in one command buffer, as the forward pass runs them: layers with different caches, one rows
+ * table, each call with its own entries.  The CPU writes the table when a call encodes and the GPU reads it when
+ * the buffer runs, so calls that shared entries would all see the last call's cache addresses (control). */
+static void test_full_two_layers(void) {
+    const uint32_t n = 100;
+    seq_t a = make_seq(n), b = make_seq(n);
+    ds4_gpu_tensor *kca = zeroed((uint64_t)CTX * KV_W * 2u), *vca = zeroed((uint64_t)CTX * KV_W * 2u);
+    ds4_gpu_tensor *kcb = zeroed((uint64_t)CTX * KV_W * 2u), *vcb = zeroed((uint64_t)CTX * KV_W * 2u);
+    full_cache_write(kca, vca, &a, 0, n);
+    full_cache_write(kcb, vcb, &b, 0, n);
+    float *ref_a = malloc((uint64_t)n * Q_W * 4u), *ref_b = malloc((uint64_t)n * Q_W * 4u);
+    float *got_a = malloc((uint64_t)n * Q_W * 4u), *got_b = malloc((uint64_t)n * Q_W * 4u);
+    require_ok(ref_a && ref_b && got_a && got_b, "malloc");
+    full_single_rows(&a, kca, vca, n, ref_a);
+    full_single_rows(&b, kcb, vcb, n, ref_b);
+    ds4_gpu_tensor *qa = upload(a.q, (uint64_t)n * Q_W), *qb = upload(b.q, (uint64_t)n * Q_W);
+    ds4_gpu_tensor *oa = ds4_gpu_tensor_alloc((uint64_t)n * Q_W * 4u), *ob = ds4_gpu_tensor_alloc((uint64_t)n * Q_W * 4u);
+    ds4_gpu_tensor *table = zeroed(2ull * n * DS4_GPU_QWEN4_ATTN_ROW_BYTES);
+    ds4_gpu_tensor *part = zeroed(ds4_gpu_qwen4_attn_part_floats(64, MELLUM_N_HEAD, MELLUM_HEAD_DIM) * 4u);
+    require_ok(qa && qb && oa && ob, "layer tensors");
+    uint64_t d_a = 0, d_b = 0, d_ctl = 0;
+    for (int shared = 0; shared <= 1; shared++) {
+        require_ok(ds4_gpu_begin_commands(), "begin commands");
+        require_ok(ds4_gpu_mellum_attn_full_rows_tensor(oa, qa, kca, vca, table, 0, part, n, 0, MELLUM_N_HEAD, MELLUM_N_HEAD_KV,
+                                                        MELLUM_HEAD_DIM, attn_scale()), "layer A");
+        require_ok(ds4_gpu_mellum_attn_full_rows_tensor(ob, qb, kcb, vcb, table, shared ? 0 : n, part, n, 0, MELLUM_N_HEAD,
+                                                        MELLUM_N_HEAD_KV, MELLUM_HEAD_DIM, attn_scale()), "layer B");
+        require_ok(ds4_gpu_end_commands(), "end commands");
+        require_ok(ds4_gpu_tensor_read(oa, 0, got_a, (uint64_t)n * Q_W * 4u), "read A");
+        require_ok(ds4_gpu_tensor_read(ob, 0, got_b, (uint64_t)n * Q_W * 4u), "read B");
+        if (!shared) {
+            d_a = bit_diffs(ref_a, got_a, (uint64_t)n * Q_W, NULL);
+            d_b = bit_diffs(ref_b, got_b, (uint64_t)n * Q_W, NULL);
+        } else {
+            d_ctl = bit_diffs(ref_a, got_a, (uint64_t)n * Q_W, NULL);
+        }
+    }
+    CHECK(d_a == 0 && d_b == 0, "two layers with separate table regions in one command buffer differ from their single-row steps: A %llu, B %llu words",
+          (unsigned long long)d_a, (unsigned long long)d_b);
+    CHECK(d_ctl > 0, "control: two layers sharing one table region in one command buffer must corrupt layer A, but it matched");
+    printf("  full     two layers (two caches, one table) in one command buffer: entry0 0 and %u: A %llu, B %llu of %llu words differ; sharing entries: A %llu differ (the control)\n",
+           n, (unsigned long long)d_a, (unsigned long long)d_b, (unsigned long long)n * Q_W, (unsigned long long)d_ctl);
+    free(ref_a); free(ref_b); free(got_a); free(got_b);
+    ds4_gpu_tensor_free(kca); ds4_gpu_tensor_free(vca); ds4_gpu_tensor_free(kcb); ds4_gpu_tensor_free(vcb);
+    ds4_gpu_tensor_free(qa); ds4_gpu_tensor_free(qb); ds4_gpu_tensor_free(oa); ds4_gpu_tensor_free(ob);
+    ds4_gpu_tensor_free(table); ds4_gpu_tensor_free(part);
+    free_seq(&a); free_seq(&b);
+}
+
+static void fill_f32(ds4_gpu_tensor *t, uint64_t n, float v) {
+    float *h = malloc(n * 4u);
+    require_ok(h != NULL, "malloc");
+    for (uint64_t i = 0; i < n; i++) h[i] = v;
+    require_ok(ds4_gpu_tensor_write(t, 0, h, n * 4u), "fill");
+    free(h);
+}
+
+static double max_abs(const float *v, uint64_t n) {
+    double m = 0.0;
+    for (uint64_t i = 0; i < n; i++) if (fabs((double)v[i]) > m) m = fabs((double)v[i]);
+    return m;
+}
+
+/* The qwen sibling.  The gated path keeps its signature and its arithmetic (the evidence directory hashes it
+ * before and after the change, bit for bit); here the flag's two sides meet: a gate of +20 has
+ * sigmoid(20) == 1.0f exactly in f32, so the gated kernels must give the ungated output bit for bit (the tile
+ * written directly at 26 keys, the merge at 1,025 keys, the wide and the 32-lane merge, and the rows kernel),
+ * and a gate of -20 must still gate (output about 2e-9 of the ungated), and a real gate must match the
+ * reference times sigmoid(gate).  A NULL gate is refused by the gated entry and accepted by the ungated one. */
+static void test_qwen_sibling(void) {
+    static const uint32_t counts[] = { 26, 1025 };
+    for (size_t c = 0; c < sizeof(counts) / sizeof(counts[0]); c++) {
+        const uint32_t n = counts[c];
+        seq_t s = make_seq(n);
+        ds4_gpu_tensor *kc = zeroed((uint64_t)CTX * KV_W * 2u), *vc = zeroed((uint64_t)CTX * KV_W * 2u);
+        full_cache_write(kc, vc, &s, 0, n);
+        ds4_gpu_tensor *q = upload(s.q + (uint64_t)(n - 1) * Q_W, Q_W), *o = ds4_gpu_tensor_alloc(Q_W * 4u);
+        ds4_gpu_tensor *gate = ds4_gpu_tensor_alloc(Q_W * 4u);
+        ds4_gpu_tensor *part = ds4_gpu_tensor_alloc(ds4_gpu_qwen4_attn_part_floats(1, MELLUM_N_HEAD, MELLUM_HEAD_DIM) * 4u);
+        require_ok(o && gate && part, "sibling tensors");
+        float *ung = malloc(Q_W * 4u), *g20 = malloc(Q_W * 4u), *gm20 = malloc(Q_W * 4u), *gr = malloc(Q_W * 4u);
+        require_ok(ung && g20 && gm20 && gr, "malloc");
+        require_ok(ds4_gpu_qwen4_attn_decode_ungated_tensor(o, q, kc, vc, part, MELLUM_N_HEAD, MELLUM_N_HEAD_KV, MELLUM_HEAD_DIM,
+                                                            n - 1, attn_scale()), "ungated");
+        require_ok(ds4_gpu_tensor_read(o, 0, ung, Q_W * 4u), "read");
+        fill_f32(gate, Q_W, 20.0f);
+        for (int wide = 0; wide <= 1; wide++) {
+            setenv("DS4_QWEN4_ATTN_MERGE_WIDE", wide ? "1" : "0", 1);
+            require_ok(ds4_gpu_qwen4_attn_decode_tensor(o, q, gate, kc, vc, NULL, NULL, part, 1, MELLUM_N_HEAD, MELLUM_N_HEAD_KV,
+                                                        MELLUM_HEAD_DIM, n - 1, false, 0, attn_scale()), "gated +20");
+            require_ok(ds4_gpu_tensor_read(o, 0, g20, Q_W * 4u), "read");
+            const uint64_t d = bit_diffs(ung, g20, Q_W, NULL);
+            CHECK(d == 0, "gate +20 (sigmoid exactly 1) at %u keys, %s merge: the gated path differs from the ungated in %llu words", n,
+                  wide ? "wide" : "32-lane", (unsigned long long)d);
+            /* the ungated output itself does not depend on which merge kernel runs */
+            require_ok(ds4_gpu_qwen4_attn_decode_ungated_tensor(o, q, kc, vc, part, MELLUM_N_HEAD, MELLUM_N_HEAD_KV, MELLUM_HEAD_DIM,
+                                                                n - 1, attn_scale()), "ungated");
+            require_ok(ds4_gpu_tensor_read(o, 0, gr, Q_W * 4u), "read");
+            CHECK(bit_diffs(ung, gr, Q_W, NULL) == 0, "the ungated output at %u keys changed with the merge kernel (%s)", n, wide ? "wide" : "32-lane");
+        }
+        unsetenv("DS4_QWEN4_ATTN_MERGE_WIDE");
+        /* the rows kernel with a gate of +20 */
+        {
+            ds4_gpu_tensor *table = ds4_gpu_tensor_alloc(DS4_GPU_QWEN4_ATTN_ROW_BYTES);
+            ds4_gpu_qwen4_attn_row row;
+            row.k_cache = kc; row.v_cache = vc; row.ik_cache = kc; row.block_key = kc; row.pos3 = kc; row.pos = n - 1; row.use_sel = 0;
+            require_ok(table && ds4_gpu_qwen4_attn_rows_stage(table, 0, &row, 1, 1u), "stage");
+            require_ok(ds4_gpu_qwen4_attn_decode_rows_tensor(o, q, gate, q, q, part, table, 0, &row, 1, MELLUM_N_HEAD, MELLUM_N_HEAD_KV,
+                                                            MELLUM_HEAD_DIM, 0, attn_scale()), "gated rows");
+            require_ok(ds4_gpu_tensor_read(o, 0, g20, Q_W * 4u), "read");
+            const uint64_t d = bit_diffs(ung, g20, Q_W, NULL);
+            CHECK(d == 0, "gate +20 through the gated rows kernel at %u keys differs from the ungated in %llu words", n, (unsigned long long)d);
+            ds4_gpu_tensor_free(table);
+        }
+        fill_f32(gate, Q_W, -20.0f);
+        require_ok(ds4_gpu_qwen4_attn_decode_tensor(o, q, gate, kc, vc, NULL, NULL, part, 1, MELLUM_N_HEAD, MELLUM_N_HEAD_KV,
+                                                    MELLUM_HEAD_DIM, n - 1, false, 0, attn_scale()), "gated -20");
+        require_ok(ds4_gpu_tensor_read(o, 0, gm20, Q_W * 4u), "read");
+        const double ratio = max_abs(gm20, Q_W) / max_abs(ung, Q_W);
+        CHECK(ratio < 1e-8 && ratio > 0.0, "gate -20 at %u keys must still gate: output / ungated = %.3e (want about 2e-9)", n, ratio);
+        /* a real gate: reference times sigmoid(gate) */
+        float *gh = rand_vec(Q_W, 2.0f);
+        require_ok(ds4_gpu_tensor_write(gate, 0, gh, Q_W * 4u), "gate upload");
+        require_ok(ds4_gpu_qwen4_attn_decode_tensor(o, q, gate, kc, vc, NULL, NULL, part, 1, MELLUM_N_HEAD, MELLUM_N_HEAD_KV,
+                                                    MELLUM_HEAD_DIM, n - 1, false, 0, attn_scale()), "gated real");
+        require_ok(ds4_gpu_tensor_read(o, 0, gr, Q_W * 4u), "read");
+        double *ref = malloc(Q_W * 8u);
+        require_ok(ref != NULL, "malloc");
+        ref_attn_row(s.q + (uint64_t)(n - 1) * Q_W, s.kr, s.vr, n - 1, 0, ref);
+        for (uint32_t i = 0; i < Q_W; i++) ref[i] *= 1.0 / (1.0 + exp(-(double)gh[i]));
+        const double e_gate = max_rel(gr, ref, Q_W);
+        CHECK(e_gate <= ATTN_TOL, "the gated path at %u keys vs reference * sigmoid(gate): %.3e (tol %.0e)", n, e_gate, ATTN_TOL);
+        /* NULL gate: the gated entry refuses, the ungated has none to refuse */
+        CHECK(ds4_gpu_qwen4_attn_decode_tensor(o, q, NULL, kc, vc, NULL, NULL, part, 1, MELLUM_N_HEAD, MELLUM_N_HEAD_KV,
+                                               MELLUM_HEAD_DIM, n - 1, false, 0, attn_scale()) == 0, "the gated entry refuses a NULL gate");
+        CHECK(ds4_gpu_qwen4_attn_decode_tensor(o, q, gate, kc, vc, NULL, NULL, part, 1, MELLUM_N_HEAD, MELLUM_N_HEAD_KV,
+                                               MELLUM_HEAD_DIM, n - 1, false, 0, attn_scale()) != 0, "the gated entry accepts a real gate");
+        printf("  qwen     %4u keys: gate +20 == ungated (wide and 32-lane merge, and rows): 0 words differ; gate -20 gives %.1e of ungated; real gate vs ref*sigmoid %.2e\n",
+               n, ratio, e_gate);
+        free(gh); free(ref); free(ung); free(g20); free(gm20); free(gr);
+        ds4_gpu_tensor_free(kc); ds4_gpu_tensor_free(vc); ds4_gpu_tensor_free(q); ds4_gpu_tensor_free(o);
+        ds4_gpu_tensor_free(gate); ds4_gpu_tensor_free(part);
+        free_seq(&s);
+    }
+}
+
+static void test_full_refusals(void) {
+    ds4_gpu_tensor *kc = zeroed((uint64_t)CTX * KV_W * 2u), *vc = zeroed((uint64_t)CTX * KV_W * 2u);
+    ds4_gpu_tensor *q = zeroed(Q_W * 4u * 2u), *o = zeroed(Q_W * 4u * 2u);
+    ds4_gpu_tensor *part = zeroed(ds4_gpu_qwen4_attn_part_floats(2, MELLUM_N_HEAD, MELLUM_HEAD_DIM) * 4u);
+    ds4_gpu_tensor *table = zeroed(2ull * DS4_GPU_QWEN4_ATTN_ROW_BYTES), *small = zeroed(64);
+    const float sc = attn_scale();
+    CHECK(ds4_gpu_qwen4_attn_decode_ungated_tensor(o, q, kc, vc, part, 32, 4, 128, 5, sc) != 0, "a valid ungated single-row call succeeds");
+    CHECK(ds4_gpu_qwen4_attn_decode_ungated_tensor(o, q, kc, vc, part, 32, 4, 128, CTX, sc) == 0, "a position past the cache is refused");
+    CHECK(ds4_gpu_qwen4_attn_decode_ungated_tensor(o, q, kc, vc, part, 32, 4, 128, CTX - 1u, sc) != 0, "the last cache row is accepted");
+    CHECK(ds4_gpu_qwen4_attn_decode_ungated_tensor(o, q, kc, vc, part, 30, 4, 128, 5, sc) == 0, "30 heads over 4 is refused");
+    CHECK(ds4_gpu_qwen4_attn_decode_ungated_tensor(o, q, kc, vc, part, 16, 2, 256, 5, sc) == 0,
+          "head_dim 256 is refused when ungated (the gated 256 path has a matrix-tile kernel that is not told about the flag)");
+    CHECK(ds4_gpu_mellum_attn_full_rows_tensor(o, q, kc, vc, table, 0, part, 2, 5, 16, 2, 256, sc) == 0, "head_dim 256 rows are refused");
+    CHECK(ds4_gpu_qwen4_attn_decode_ungated_tensor(o, small, kc, vc, part, 32, 4, 128, 5, sc) == 0, "an undersized q is refused");
+    CHECK(ds4_gpu_qwen4_attn_decode_ungated_tensor(small, q, kc, vc, part, 32, 4, 128, 5, sc) == 0, "an undersized out is refused");
+    CHECK(ds4_gpu_qwen4_attn_decode_ungated_tensor(o, q, small, vc, part, 32, 4, 128, 5, sc) == 0, "an undersized k cache is refused");
+    CHECK(ds4_gpu_qwen4_attn_decode_ungated_tensor(o, q, kc, vc, small, 32, 4, 128, 1000, sc) == 0, "undersized partials are refused when the row splits");
+    CHECK(ds4_gpu_mellum_attn_full_rows_tensor(o, q, kc, vc, table, 0, part, 2, 5, 32, 4, 128, sc) != 0, "a valid rows call succeeds");
+    CHECK(ds4_gpu_mellum_attn_full_rows_tensor(o, q, kc, vc, table, 0, part, 0, 5, 32, 4, 128, sc) == 0, "zero rows are refused");
+    CHECK(ds4_gpu_mellum_attn_full_rows_tensor(o, q, kc, vc, table, 0, part, 2, CTX - 1u, 32, 4, 128, sc) == 0, "rows past the cache are refused");
+    CHECK(ds4_gpu_mellum_attn_full_rows_tensor(o, q, kc, vc, small, 0, part, 2, 5, 32, 4, 128, sc) == 0, "an undersized rows table is refused");
+    {
+        /* the entries are entry0 .. entry0 + n_rows - 1: a table of two does not hold two rows from entry 1 (sibling: three does);
+         * a huge entry0 is refused (its byte offset would wrap) */
+        ds4_gpu_tensor *table3 = zeroed(3ull * DS4_GPU_QWEN4_ATTN_ROW_BYTES);
+        CHECK(ds4_gpu_mellum_attn_full_rows_tensor(o, q, kc, vc, table, 1, part, 2, 5, 32, 4, 128, sc) == 0,
+              "two rows from entry 1 do not fit a table of two entries");
+        CHECK(ds4_gpu_mellum_attn_full_rows_tensor(o, q, kc, vc, table3, 1, part, 2, 5, 32, 4, 128, sc) != 0,
+              "two rows from entry 1 fit a table of three entries");
+        CHECK(ds4_gpu_mellum_attn_full_rows_tensor(o, q, kc, vc, table3, 1ull << 58, part, 2, 5, 32, 4, 128, sc) == 0,
+              "an entry0 whose byte offset wraps 64-bit arithmetic (2^58: the size check would see 128 bytes) is refused");
+        ds4_gpu_tensor_free(table3);
+    }
+    {
+        /* 100 rows are two slices of the rows kernels: a table that holds only the first slice must be refused
+         * before the first dispatch, so out is left as it was (sibling: a table for 100 rows is accepted) */
+        ds4_gpu_tensor *q100 = zeroed(100ull * Q_W * 4u), *o100 = zeroed(100ull * Q_W * 4u);
+        ds4_gpu_tensor *part64 = zeroed(ds4_gpu_qwen4_attn_part_floats(64, MELLUM_N_HEAD, MELLUM_HEAD_DIM) * 4u);
+        ds4_gpu_tensor *table64 = zeroed(64ull * DS4_GPU_QWEN4_ATTN_ROW_BYTES), *table100 = zeroed(100ull * DS4_GPU_QWEN4_ATTN_ROW_BYTES);
+        float *mark = malloc(100ull * Q_W * 4u), *back = malloc(100ull * Q_W * 4u);
+        require_ok(q100 && o100 && part64 && table64 && table100 && mark && back, "slice tensors");
+        for (uint64_t i = 0; i < 100ull * Q_W; i++) mark[i] = 7.0f;
+        require_ok(ds4_gpu_tensor_write(o100, 0, mark, 100ull * Q_W * 4u), "mark out");
+        CHECK(ds4_gpu_mellum_attn_full_rows_tensor(o100, q100, kc, vc, table64, 0, part64, 100, 5, 32, 4, 128, sc) == 0,
+              "a rows table for 64 rows is refused for 100 rows");
+        require_ok(ds4_gpu_tensor_read(o100, 0, back, 100ull * Q_W * 4u), "read out");
+        CHECK(memcmp(mark, back, 100ull * Q_W * 4u) == 0, "a refused rows call must not have run its first slice");
+        CHECK(ds4_gpu_mellum_attn_full_rows_tensor(o100, q100, kc, vc, table100, 0, part64, 100, 5, 32, 4, 128, sc) != 0,
+              "a rows table for 100 rows is accepted for 100 rows");
+        /* the same from entry 10: 110 entries are needed, a table of 100 holds the first slice only (sibling: 110 is accepted) */
+        ds4_gpu_tensor *table110 = zeroed(110ull * DS4_GPU_QWEN4_ATTN_ROW_BYTES);
+        require_ok(table110 != NULL, "table110");
+        require_ok(ds4_gpu_tensor_write(o100, 0, mark, 100ull * Q_W * 4u), "mark out");
+        CHECK(ds4_gpu_mellum_attn_full_rows_tensor(o100, q100, kc, vc, table100, 10, part64, 100, 5, 32, 4, 128, sc) == 0,
+              "100 rows from entry 10 do not fit a table of 100 entries");
+        require_ok(ds4_gpu_tensor_read(o100, 0, back, 100ull * Q_W * 4u), "read out");
+        CHECK(memcmp(mark, back, 100ull * Q_W * 4u) == 0, "a call refused for its entry0 must not have run its first slice");
+        CHECK(ds4_gpu_mellum_attn_full_rows_tensor(o100, q100, kc, vc, table110, 10, part64, 100, 5, 32, 4, 128, sc) != 0,
+              "100 rows from entry 10 fit a table of 110 entries");
+        ds4_gpu_tensor_free(table110);
+        free(mark); free(back);
+        ds4_gpu_tensor_free(q100); ds4_gpu_tensor_free(o100); ds4_gpu_tensor_free(part64);
+        ds4_gpu_tensor_free(table64); ds4_gpu_tensor_free(table100);
+    }
+    CHECK(ds4_gpu_mellum_attn_full_rows_tensor(o, small, kc, vc, table, 0, part, 2, 5, 32, 4, 128, sc) == 0, "an undersized q is refused");
+    CHECK(ds4_gpu_mellum_attn_full_rows_tensor(o, q, kc, vc, table, 0, small, 2, 5, 32, 4, 128, sc) == 0, "undersized partials are refused");
+    ds4_gpu_tensor_free(kc); ds4_gpu_tensor_free(vc); ds4_gpu_tensor_free(q); ds4_gpu_tensor_free(o);
+    ds4_gpu_tensor_free(part); ds4_gpu_tensor_free(table); ds4_gpu_tensor_free(small);
+}
+
 int main(void) {
     fixture_t f;
     memset(&f, 0, sizeof(f));
@@ -893,6 +1233,16 @@ int main(void) {
     test_swa_tags();
     test_swa_refusals();
     test_swa_rewind_one();
+    static const uint32_t full_counts[] = { 26, 1000, 1024, 1025 };
+    for (size_t i = 0; i < sizeof(full_counts) / sizeof(full_counts[0]); i++) test_full_session(full_counts[i]);
+    test_full_two_layers();
+    test_qwen_sibling();
+    test_full_refusals();
+
+    /* 2,100 and 4,100 keys are past 64 splits of 32 keys: the splits stop growing at their cap
+     * (QWEN4_ATTN_MAX_SPLITS), so a key count past 2,048 runs more keys per split than any count below it */
+    static const uint32_t long_full_counts[] = { 2100, 4100 };
+    for (size_t i = 0; i < sizeof(long_full_counts) / sizeof(long_full_counts[0]); i++) test_full_session(long_full_counts[i]);
 
     printf("%d checks, %d failures\n", g_checks, g_failures);
     return g_failures ? 1 : 0;

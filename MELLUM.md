@@ -28,6 +28,18 @@ and `chat_template.jinja` are byte-identical to the Hugging Face snapshot
 `tests/mellum_tokenizer_cases.inc` (`tests/gen_mellum_tokenizer_cases.py`),
 `tests/mellum_chat_ids.inc` (`tests/gen_mellum_chat_ids.py`).
 
+## Changes to upstream code other models run
+
+- The Qwen3.8 attention decode kernels (`metal/qwen4.metal`) gained an
+  `ungated` word in place of `pad0` and a branch in the decode tile and the two
+  merge kernels, for Mellum's ungated full layers (step 17). The gated path is
+  unchanged: a probe hashing the raw output of `ds4_gpu_qwen4_attn_decode_tensor`
+  and `ds4_gpu_qwen4_attn_decode_rows_tensor` on fixed inputs (head dims 128
+  and 256, 26 to 2,100 keys, one and two rows, both merge kernels, with and
+  without partials: 60 cases) gave identical bytes before and after, and
+  `make test-qwen4-kernels` passes. Flash Next's decode speed was not
+  re-measured: there is no Flash Next GGUF on this machine.
+
 ## Commits
 
 Phase 0: `15824be` baseline, `57278db` dependency audit.

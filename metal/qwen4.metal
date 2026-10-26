@@ -2098,7 +2098,7 @@ struct ds4_metal_args_qwen4_attn_decode {
     float    scale;
     uint32_t n_splits;    /* key ranges per (token, kv head); > 1 writes partials */
     uint32_t keys_per_split;
-    uint32_t pad0;
+    uint32_t ungated;     /* 1: no gate (Mellum's full layers), the output is acc / l; 0: times sigmoid(gate) */
     uint32_t pad1;
 };
 
@@ -2171,10 +2171,15 @@ static inline void qwen4_attn_decode_tile(
         const uint h = kvh * group + g0 + g;
         if (n_splits == 1) {
             device float *dst = out + ((uint64_t)tok * H + h) * D + tiisg * NPT;
-            device const float *gt = gate + ((uint64_t)tok * H + h) * D + tiisg * NPT;
             const float inv = l[g] > 0.0f ? 1.0f / l[g] : 0.0f;
+            if (args.ungated != 0u) {
 #pragma unroll
-            for (uint i = 0; i < NPT; i++) dst[i] = acc[g][i] * inv * qwen4_sigmoid(gt[i]);
+                for (uint i = 0; i < NPT; i++) dst[i] = acc[g][i] * inv;
+            } else {
+                device const float *gt = gate + ((uint64_t)tok * H + h) * D + tiisg * NPT;
+#pragma unroll
+                for (uint i = 0; i < NPT; i++) dst[i] = acc[g][i] * inv * qwen4_sigmoid(gt[i]);
+            }
         } else {
             device float *dst = part + ((((uint64_t)tok * Hkv + kvh) * part_splits + split) * group + g0 + g) * (2u + D);
             if (tiisg == 0) { dst[0] = m[g]; dst[1] = l[g]; }
@@ -2282,6 +2287,11 @@ kernel void kernel_qwen4_attn_merge(
     }
     const float inv = ll > 0.0f ? 1.0f / ll : 0.0f;
     device float *dst = out + ((uint64_t)tok * H + h) * D + tiisg * NPT;
+    if (args.ungated != 0u) {
+#pragma unroll
+        for (uint i = 0; i < NPT; i++) dst[i] = o[i] * inv;
+        return;
+    }
     device const float *gt = gate + ((uint64_t)tok * H + h) * D + tiisg * NPT;
 #pragma unroll
     for (uint i = 0; i < NPT; i++) dst[i] = o[i] * inv * qwen4_sigmoid(gt[i]);
@@ -2323,6 +2333,10 @@ static inline void qwen4_attn_merge_wide_head(
     }
     const float inv = ll > 0.0f ? 1.0f / ll : 0.0f;
     const uint64_t at = ((uint64_t)tok * H + h) * D + tid;
+    if (args.ungated != 0u) {
+        out[at] = o * inv;
+        return;
+    }
     out[at] = o * inv * qwen4_sigmoid(gate[at]);
 }
 
