@@ -1030,19 +1030,24 @@ tests/test_mellum_tokenizer: tests/test_mellum_tokenizer.o $(filter-out ds4_cpu.
 MELLUM_FRONTEND_OBJS = ds4_help.o ds4_prompt_prefix.o ds4_web.o ds4_kvstore.o linenoise.o rax.o \
 	ds4_gpu_args_cpu.o $(filter-out ds4_cpu.o,$(CPU_CORE_OBJS))
 
+tests/test_mellum_frontends_cli.o: tests/test_mellum_frontends.c ds4.c ds4_cli.c ds4.h
+	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -Wno-unused-function -DDS4_NO_GPU -DMELLUM_FRONTEND_CLI -I. -c -o $@ $<
+
 tests/test_mellum_frontends_agent.o: tests/test_mellum_frontends.c ds4.c ds4_agent.c ds4.h
 	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -Wno-unused-function -DDS4_NO_GPU -DMELLUM_FRONTEND_AGENT -I. -c -o $@ $<
 
 tests/test_mellum_frontends_server.o: tests/test_mellum_frontends.c ds4.c ds4_server.c ds4.h
 	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -Wno-unused-function -DDS4_NO_GPU -DMELLUM_FRONTEND_SERVER -I. -c -o $@ $<
 
-tests/test_mellum_frontends_agent tests/test_mellum_frontends_server: %: %.o $(MELLUM_FRONTEND_OBJS)
+tests/test_mellum_frontends_cli tests/test_mellum_frontends_agent tests/test_mellum_frontends_server: %: %.o $(MELLUM_FRONTEND_OBJS)
 	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -o $@ $^ $(LDLIBS)
 
 .PHONY: test-mellum
-test-mellum: tests/test_mellum_config tests/test_mellum_tokenizer tests/test_mellum_frontends_agent tests/test_mellum_frontends_server
+test-mellum: tests/test_mellum_config tests/test_mellum_tokenizer tests/test_mellum_frontends_cli \
+		tests/test_mellum_frontends_agent tests/test_mellum_frontends_server
 	./tests/test_mellum_config
 	./tests/test_mellum_tokenizer
+	./tests/test_mellum_frontends_cli
 	./tests/test_mellum_frontends_agent
 	./tests/test_mellum_frontends_server
 
@@ -1383,7 +1388,7 @@ tests/test_session_state_gpu.o: ds4_tool_text.h
 clean:
 	rm -f tests/test_mmvq_cuda tests/test_mmvq_rocm
 	rm -f tests/test_qwen4_ngrams
-	rm -f tests/test_mellum_config tests/test_mellum_tokenizer tests/test_mellum_frontends_agent tests/test_mellum_frontends_server
+	rm -f tests/test_mellum_config tests/test_mellum_tokenizer tests/test_mellum_frontends_cli tests/test_mellum_frontends_agent tests/test_mellum_frontends_server
 	rm -f tests/test_qwen4_ngram_state
 	rm -f tests/test_web_recovery
 	rm -f tests/test_metal_ssd_experts

@@ -310,6 +310,11 @@ bool ds4_engine_is_glm53(ds4_engine *e);
 bool ds4_engine_is_qwen4(ds4_engine *e);
 /* True for Mellum 2.1, which is also a qwen4 engine: check it first. */
 bool ds4_engine_is_mellum(ds4_engine *e);
+/* The loaded model's sampler defaults, for the knobs a caller leaves unset:
+ * DS4_DEFAULT_* with no top_k, except Mellum 2.1 (temperature 1.0, top_p 1.0,
+ * min_p 0, no top_k).  The CLI, agent and server all read it. */
+void ds4_engine_sampling_defaults(ds4_engine *e, float *temperature,
+                                  int *top_k, float *top_p, float *min_p);
 /* Qwen3.8 reasoning-effort system instruction for a think mode (NULL when none) */
 const char *ds4_qwen4_reasoning_effort_text(ds4_think_mode mode);
 const char *ds4_backend_name(ds4_backend backend);

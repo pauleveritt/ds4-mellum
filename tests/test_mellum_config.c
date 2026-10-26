@@ -798,6 +798,26 @@ static void check_mellum_chat_model(const char *model_path) {
     printf("ok   Mellum (real GGUF): %zu renders and 2 prefixes equal 2.1's template ids\n", N_OF(fx_cases));
 }
 
+/* The engine's one sampling call: Mellum's tuple (2.1's generation_config.json carries no
+ * sampler keys; temperature 1.0, top_p 1.0, min_p 0, no top_k), the generic DS4_DEFAULT_*
+ * for the others. */
+static void check_sampling_defaults(void) {
+    static ds4_engine e;
+    float t = -1, p = -1, m = -1;
+    int k = -1;
+    g_ds4_shape = DS4_SHAPE_MELLUM;
+    ds4_engine_sampling_defaults(&e, &t, &k, &p, &m);
+    CHECK(t == 1.0f && k == 0 && p == 1.0f && m == 0.0f);
+    static const ds4_shape *const others[] = { &DS4_SHAPE_QWEN4_EXP, &DS4_SHAPE_GLM52 };
+    for (size_t i = 0; i < N_OF(others); i++) {
+        g_ds4_shape = *others[i];
+        t = p = m = -1; k = -1;
+        ds4_engine_sampling_defaults(&e, &t, &k, &p, &m);
+        CHECK(t == DS4_DEFAULT_TEMPERATURE && k == 0 && p == DS4_DEFAULT_TOP_P && m == DS4_DEFAULT_MIN_P);
+    }
+    printf("ok   sampling: Mellum (1.0, top_k 0, 1.0, 0.0); Flash Next and GLM the generic defaults\n");
+}
+
 /* The real vocabulary: the same classes over every one of its 98,304 ids. */
 static void check_mellum_stops_model(const char *path) {
     ds4_model m;
@@ -871,6 +891,7 @@ int main(void) {
     check_mellum_unnamed_control_is_protocol();
     check_qwen_stop_classes_tiny();
     check_mellum_chat_tiny();
+    check_sampling_defaults();
     check_real_model();
     printf("test-mellum-config: ok\n");
     return 0;

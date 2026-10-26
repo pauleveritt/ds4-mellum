@@ -74075,6 +74075,20 @@ bool ds4_engine_is_mellum(ds4_engine *e) {
     return ds4_model_is_mellum();
 }
 
+void ds4_engine_sampling_defaults(ds4_engine *e, float *temperature,
+                                  int *top_k, float *top_p, float *min_p) {
+    (void)e;
+    *temperature = DS4_DEFAULT_TEMPERATURE;
+    *top_k = 0;
+    *top_p = DS4_DEFAULT_TOP_P;
+    *min_p = DS4_DEFAULT_MIN_P;
+    if (ds4_model_is_mellum()) {
+        /* Mellum 2.1's generation_config.json carries no sampler keys: plain
+         * temperature 1.0 sampling, with no min_p floor (the generic 0.05). */
+        *min_p = 0.0f;
+    }
+}
+
 /* The official template's default effort is xhigh; medium adds no text. */
 const char *ds4_qwen4_reasoning_effort_text(ds4_think_mode mode) {
     switch (mode) {

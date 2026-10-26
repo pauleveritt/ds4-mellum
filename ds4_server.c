@@ -13409,6 +13409,22 @@ static void *decode_worker_main(void *arg) {
  * shorter than the full prompt, we prefill to that boundary, store it, and
  * immediately continue to the real prompt.  The live graph therefore always
  * moves forward. */
+/* The sampler knobs for one request: a request value wins, and a knob the
+ * client left out takes the model's default (ds4_engine_sampling_defaults).
+ * For every model but Mellum those defaults are the DS4_DEFAULT_* a request
+ * starts from, so this is what thinking mode always forced and what a
+ * non-thinking request already held; an explicit request value (e.g.
+ * temperature 0 from a benchmark harness) must win, or the same greedy
+ * request returns different text on every call. */
+static void server_sampling_for_request(ds4_engine *engine, const request *r, float *temperature,
+                                        int *top_k, float *top_p, float *min_p) {
+    ds4_engine_sampling_defaults(engine, temperature, top_k, top_p, min_p);
+    if (r->temperature_set) *temperature = r->temperature;
+    if (r->top_k_set) *top_k = r->top_k;
+    if (r->top_p_set) *top_p = r->top_p;
+    if (r->min_p_set) *min_p = r->min_p;
+}
+
 static void generate_job_inner(server *s, server_slot *slot, job *j) {
     char err[160];
     err[0] = '\0';
@@ -13953,20 +13969,9 @@ decode_again:
         if (!(j->req.kind == REQ_CHAT && j->req.has_tools && (saw_tool_start || in_tool_call))) {
             if (!multimodal) kv_cache_maybe_store_continued(s, slot);
         }
-        float temperature = j->req.temperature;
-        int top_k = j->req.top_k;
-        float top_p = j->req.top_p;
-        float min_p = j->req.min_p;
-        if (ds4_think_mode_enabled(j->req.think_mode)) {
-            /* Thinking keeps the fixed DeepSeek-style sampling defaults, but
-             * only for knobs the client left out: an explicit request value
-             * (e.g. temperature 0 from a benchmark harness) must win, or the
-             * same greedy request returns different text on every call. */
-            if (!j->req.temperature_set) temperature = DS4_DEFAULT_TEMPERATURE;
-            if (!j->req.top_k_set) top_k = 0;
-            if (!j->req.top_p_set) top_p = DS4_DEFAULT_TOP_P;
-            if (!j->req.min_p_set) min_p = DS4_DEFAULT_MIN_P;
-        }
+        float temperature, top_p, min_p;
+        int top_k;
+        server_sampling_for_request(s->engine, &j->req, &temperature, &top_k, &top_p, &min_p);
         const bool greedy_tool_syntax = !thinking.inside && in_tool_call &&
             !dsml_decode_state_uses_payload_sampling(dsml_state);
         const float payload_temperature = temperature;

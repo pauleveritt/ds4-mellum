@@ -529,11 +529,22 @@ static void build_prompt(ds4_engine *engine, const cli_generation_options *gen, 
 static void cli_apply_model_sampling_defaults(
         ds4_engine             *engine,
         cli_generation_options *gen) {
-    if (!engine || !gen || !ds4_engine_is_glm_dsa(engine)) return;
+    if (!engine || !gen) return;
 
-    if (!gen->temperature_set) gen->temperature = 1.0f;
-    if (!gen->top_p_set) gen->top_p = 0.95f;
-    if (!gen->min_p_set) gen->min_p = 0.0f;
+    if (ds4_engine_is_glm_dsa(engine)) {
+        if (!gen->temperature_set) gen->temperature = 1.0f;
+        if (!gen->top_p_set) gen->top_p = 0.95f;
+        if (!gen->min_p_set) gen->min_p = 0.0f;
+        return;
+    }
+    /* The engine's table (Mellum: 1.0, 1.0, min_p 0).  This front end has no
+     * top_k option, so top_k stays unset. */
+    float temperature, top_p, min_p;
+    int top_k;
+    ds4_engine_sampling_defaults(engine, &temperature, &top_k, &top_p, &min_p);
+    if (!gen->temperature_set) gen->temperature = temperature;
+    if (!gen->top_p_set) gen->top_p = top_p;
+    if (!gen->min_p_set) gen->min_p = min_p;
 }
 
 static int run_sampled_generation(ds4_engine *engine, const cli_config *cfg, const ds4_tokens *prompt) {
