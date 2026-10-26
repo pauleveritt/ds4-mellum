@@ -746,7 +746,7 @@ test-qwen4-cuda: tests/test_qwen4_cuda
 	./tests/test_qwen4_cuda
 endif
 
-ds4.o: ds4.c ds4.h ds4_ssd.h ds4_distributed.h ds4_gpu.h ds4_gpu_copy.h ds4_gpu_tp.h ds4_deepseek41_gpu.h ds4_deepseek41_dspark.h ds4_linux_memory.h ds4_engram.h
+ds4.o: ds4.c ds4.h ds4_mellum_unicode.inc ds4_ssd.h ds4_distributed.h ds4_gpu.h ds4_gpu_copy.h ds4_gpu_tp.h ds4_deepseek41_gpu.h ds4_deepseek41_dspark.h ds4_linux_memory.h ds4_engram.h
 	$(CC) $(CFLAGS) -c -o $@ ds4.c
 
 ds4_image.o: ds4_image.c ds4_image.h third_party/iris/jpeg.h third_party/iris/png.h
@@ -812,7 +812,7 @@ rax.o: rax.c rax.h rax_malloc.h
 linenoise.o: linenoise.c linenoise.h
 	$(CC) $(CFLAGS) -c -o $@ linenoise.c
 
-ds4_cpu.o: ds4.c ds4.h ds4_ssd.h ds4_distributed.h ds4_gpu.h ds4_gpu_tp.h
+ds4_cpu.o: ds4.c ds4.h ds4_mellum_unicode.inc ds4_ssd.h ds4_distributed.h ds4_gpu.h ds4_gpu_tp.h
 	$(CC) $(CFLAGS) -Wno-unused-function -DDS4_NO_GPU -c -o $@ ds4.c
 
 ds4_cli_cpu.o: ds4_cli.c ds4.h ds4_ssd.h ds4_distributed.h ds4_help.h ds4_prompt_prefix.h linenoise.h
@@ -1021,6 +1021,12 @@ tests/test_mellum_config.o: tests/test_mellum_config.c tests/mellum_fixture.h ds
 tests/test_mellum_config: tests/test_mellum_config.o $(filter-out ds4_cpu.o,$(CPU_CORE_OBJS))
 	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -o $@ $^ $(LDLIBS)
 
+tests/test_mellum_tokenizer.o: tests/test_mellum_tokenizer.c tests/mellum_tokenizer_cases.inc ds4_mellum_unicode.inc ds4.c ds4.h
+	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -Wno-unused-function -DDS4_NO_GPU -I. -c -o $@ $<
+
+tests/test_mellum_tokenizer: tests/test_mellum_tokenizer.o $(filter-out ds4_cpu.o,$(CPU_CORE_OBJS))
+	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -o $@ $^ $(LDLIBS)
+
 MELLUM_FRONTEND_OBJS = ds4_help.o ds4_prompt_prefix.o ds4_web.o ds4_kvstore.o linenoise.o rax.o \
 	ds4_gpu_args_cpu.o $(filter-out ds4_cpu.o,$(CPU_CORE_OBJS))
 
@@ -1034,8 +1040,9 @@ tests/test_mellum_frontends_agent tests/test_mellum_frontends_server: %: %.o $(M
 	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -o $@ $^ $(LDLIBS)
 
 .PHONY: test-mellum
-test-mellum: tests/test_mellum_config tests/test_mellum_frontends_agent tests/test_mellum_frontends_server
+test-mellum: tests/test_mellum_config tests/test_mellum_tokenizer tests/test_mellum_frontends_agent tests/test_mellum_frontends_server
 	./tests/test_mellum_config
+	./tests/test_mellum_tokenizer
 	./tests/test_mellum_frontends_agent
 	./tests/test_mellum_frontends_server
 
@@ -1376,7 +1383,7 @@ tests/test_session_state_gpu.o: ds4_tool_text.h
 clean:
 	rm -f tests/test_mmvq_cuda tests/test_mmvq_rocm
 	rm -f tests/test_qwen4_ngrams
-	rm -f tests/test_mellum_config tests/test_mellum_frontends_agent tests/test_mellum_frontends_server
+	rm -f tests/test_mellum_config tests/test_mellum_tokenizer tests/test_mellum_frontends_agent tests/test_mellum_frontends_server
 	rm -f tests/test_qwen4_ngram_state
 	rm -f tests/test_web_recovery
 	rm -f tests/test_metal_ssd_experts
