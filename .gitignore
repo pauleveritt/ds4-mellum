@@ -83,6 +83,13 @@
 /tests/test_linux_memory
 /tests/test_rocm_memory
 /tests/test_qwen4_kernels
+/tests/test_mellum_kernels
+/tests/test_mellum_config
+/tests/test_mellum_tokenizer
+/tests/test_mellum_frontends_cli
+/tests/test_mellum_frontends_agent
+/tests/test_mellum_frontends_server
+/tests/mellum_trace
 /tests/test_qwen4_moe_mm_specialize
 /tests/test_qwen4_vision
 /tests/test_deepseek4_vision_image
