@@ -818,6 +818,51 @@ static void check_sampling_defaults(void) {
     printf("ok   sampling: Mellum (1.0, top_k 0, 1.0, 0.0); Flash Next and GLM the generic defaults\n");
 }
 
+/* Session save and load refuse Mellum by name at every entry point (the payload layout of its
+ * rings is not written yet); a Flash Next session reaches its own checks instead. */
+static void check_payload_refused(void) {
+    static ds4_engine e;
+    static ds4_session s;
+    memset(&s, 0, sizeof(s));
+    s.engine = &e;
+    char err[256];
+    FILE *fp = tmpfile();
+    CHECK(fp != NULL);
+    const char *msg = "Mellum 2.1 session save and load are not supported yet";
+    ds4_session_payload_file pf;
+    ds4_session_snapshot snap;
+    uint8_t byte = 0;
+    const int toks[1] = {0};
+
+    g_ds4_shape = DS4_SHAPE_MELLUM;
+    CHECK(ds4_session_payload_bytes(&s) == 0);
+    CHECK(ds4_session_layer_payload_bytes(&s, 0, 1) == 0);
+    err[0] = '\0'; CHECK(ds4_session_save_payload(&s, fp, err, sizeof(err)) == 1 && !strcmp(err, msg));
+    err[0] = '\0'; CHECK(ds4_session_load_payload(&s, fp, 64, err, sizeof(err)) == 1 && !strcmp(err, msg));
+    err[0] = '\0'; CHECK(ds4_session_stage_payload(&s, &pf, err, sizeof(err)) == 1 && !strcmp(err, msg));
+    memset(&snap, 0, sizeof(snap));
+    err[0] = '\0'; CHECK(ds4_session_save_snapshot(&s, &snap, err, sizeof(err)) == 1 && !strcmp(err, msg));
+    snap.ptr = &byte; snap.len = 1;
+    err[0] = '\0'; CHECK(ds4_session_load_snapshot(&s, &snap, err, sizeof(err)) == 1 && !strcmp(err, msg));
+    err[0] = '\0'; CHECK(ds4_session_save_layer_payload(&s, fp, 0, 1, err, sizeof(err)) == 1 && !strcmp(err, msg));
+    err[0] = '\0';
+    CHECK(ds4_session_load_layer_payload(&s, fp, 64, toks, 1, 0, 1, err, sizeof(err)) == 1 && !strcmp(err, msg));
+
+    /* siblings: the same calls on a Flash Next session fail on their own checks, not on Mellum's */
+    g_ds4_shape = DS4_SHAPE_QWEN4_EXP;
+    err[0] = '\0'; CHECK(ds4_session_save_payload(&s, fp, err, sizeof(err)) == 1 && strcmp(err, msg) != 0);
+    err[0] = '\0'; CHECK(ds4_session_load_payload(&s, fp, 64, err, sizeof(err)) == 1 && strcmp(err, msg) != 0);
+    err[0] = '\0'; CHECK(ds4_session_stage_payload(&s, &pf, err, sizeof(err)) == 1 && strcmp(err, msg) != 0);
+    snap.ptr = NULL; snap.len = 0;
+    err[0] = '\0'; CHECK(ds4_session_save_snapshot(&s, &snap, err, sizeof(err)) == 1 && strcmp(err, msg) != 0);
+    err[0] = '\0'; CHECK(ds4_session_load_snapshot(&s, &snap, err, sizeof(err)) == 1 && strcmp(err, msg) != 0);
+    err[0] = '\0'; CHECK(ds4_session_save_layer_payload(&s, fp, 0, 1, err, sizeof(err)) == 1 && strcmp(err, msg) != 0);
+    err[0] = '\0';
+    CHECK(ds4_session_load_layer_payload(&s, fp, 64, toks, 1, 0, 1, err, sizeof(err)) == 1 && strcmp(err, msg) != 0);
+    fclose(fp);
+    printf("ok   session payload and snapshot: Mellum refused by name at every entry; Flash Next unchanged\n");
+}
+
 /* The real vocabulary: the same classes over every one of its 98,304 ids. */
 static void check_mellum_stops_model(const char *path) {
     ds4_model m;
@@ -892,6 +937,7 @@ int main(void) {
     check_qwen_stop_classes_tiny();
     check_mellum_chat_tiny();
     check_sampling_defaults();
+    check_payload_refused();
     check_real_model();
     printf("test-mellum-config: ok\n");
     return 0;

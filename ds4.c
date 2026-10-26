@@ -63163,6 +63163,15 @@ static void session_cpu_reset_cache(ds4_session *s) {
     kv_cache_init(&s->cpu_cache, (uint32_t)s->ctx_size, 0);
 }
 
+/* Mellum's sessions cannot be saved or loaded yet: its payload would have to
+ * carry the sliding layers' rings and their position tags, and that layout is
+ * not written.  Every entry point refuses with this one message, ahead of the
+ * Qwen3.8 code its family would otherwise reach. */
+static int mellum_payload_refused(char *err, size_t errlen) {
+    payload_set_err(err, errlen, "Mellum 2.1 session save and load are not supported yet");
+    return 1;
+}
+
 static bool ds4_layer_payload_range_valid(uint32_t layer_start, uint32_t layer_end) {
     const uint32_t n_layers = ds4_model_normal_layer_count();
     return n_layers != 0 && layer_start <= layer_end && layer_end < n_layers;
@@ -63171,6 +63180,7 @@ static bool ds4_layer_payload_range_valid(uint32_t layer_start, uint32_t layer_e
 uint64_t ds4_session_layer_payload_bytes(ds4_session *s,
                                          uint32_t layer_start,
                                          uint32_t layer_end) {
+    if (ds4_model_is_mellum()) return 0;
     if (!s || !s->checkpoint_valid ||
         !ds4_layer_payload_range_valid(layer_start, layer_end))
         return 0;
@@ -63240,6 +63250,7 @@ uint64_t ds4_session_layer_payload_bytes(ds4_session *s,
 int ds4_session_save_layer_payload(ds4_session *s, FILE *fp,
                                    uint32_t layer_start, uint32_t layer_end,
                                    char *err, size_t errlen) {
+    if (ds4_model_is_mellum()) return mellum_payload_refused(err, errlen);
     if (!s || !fp || !s->checkpoint_valid ||
         !ds4_layer_payload_range_valid(layer_start, layer_end)) {
         payload_set_err(err, errlen, "invalid session layer payload save");
@@ -63508,6 +63519,7 @@ int ds4_session_load_layer_payload(ds4_session *s, FILE *fp,
                                    const int *tokens, uint32_t n_tokens,
                                    uint32_t layer_start, uint32_t layer_end,
                                    char *err, size_t errlen) {
+    if (ds4_model_is_mellum()) return mellum_payload_refused(err, errlen);
     if (!s || !fp || !tokens ||
         !ds4_layer_payload_range_valid(layer_start, layer_end)) {
         payload_set_err(err, errlen, "invalid session layer payload load");
@@ -64329,6 +64341,7 @@ static uint64_t qwen4_payload_tensor_bytes(uint32_t rows, uint32_t mtp_rows);
 #endif
 
 uint64_t ds4_session_payload_bytes(ds4_session *s) {
+    if (ds4_model_is_mellum()) return 0;
     if (s && !s->distributed && ds4_session_is_qwen4(s)) {
 #ifndef DS4_HAS_QWEN4_GPU
         return 0;
@@ -64431,6 +64444,7 @@ int ds4_session_stage_payload(ds4_session *s, ds4_session_payload_file *out,
         return 1;
     }
     memset(out, 0, sizeof(*out));
+    if (ds4_model_is_mellum()) return mellum_payload_refused(err, errlen);
     if (!s || !s->checkpoint_valid) {
         payload_set_err(err, errlen, "session has no valid checkpoint to stage");
         return 1;
@@ -64714,6 +64728,7 @@ static int qwen4_session_load_payload(ds4_session *s, FILE *fp, const uint32_t *
 #endif
 
 int ds4_session_save_payload(ds4_session *s, FILE *fp, char *err, size_t errlen) {
+    if (ds4_model_is_mellum()) return mellum_payload_refused(err, errlen);
     if (!s || !fp || !s->checkpoint_valid) {
         payload_set_err(err, errlen, "session has no valid checkpoint to save");
         return 1;
@@ -65065,6 +65080,7 @@ int ds4_session_save_payload(ds4_session *s, FILE *fp, char *err, size_t errlen)
 }
 
 int ds4_session_load_payload(ds4_session *s, FILE *fp, uint64_t payload_bytes, char *err, size_t errlen) {
+    if (ds4_model_is_mellum()) return mellum_payload_refused(err, errlen);
     if (!s || !fp) {
         payload_set_err(err, errlen, "invalid session payload load");
         return 1;
@@ -65698,6 +65714,7 @@ int ds4_session_save_snapshot(ds4_session *s, ds4_session_snapshot *snap, char *
         payload_set_err(err, errlen, "invalid session snapshot save");
         return 1;
     }
+    if (ds4_model_is_mellum()) return mellum_payload_refused(err, errlen);
     if (s->distributed) {
         payload_set_err(err, errlen, "distributed session snapshots are not supported yet");
         return 1;
@@ -65744,6 +65761,7 @@ int ds4_session_load_snapshot(ds4_session *s, const ds4_session_snapshot *snap, 
         payload_set_err(err, errlen, "invalid session snapshot load");
         return 1;
     }
+    if (ds4_model_is_mellum()) return mellum_payload_refused(err, errlen);
     if (s->distributed) {
         payload_set_err(err, errlen, "distributed session snapshots are not supported yet");
         return 1;
