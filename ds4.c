@@ -17427,6 +17427,184 @@ static void print_vec_stats(const char *name, const float *x, uint64_t n) {
         name, minv, maxv, sqrt(ss / (double)n));
 }
 
+/* ---------------------------------------------------------------------
+ * Mellum 2.1 memory plan and session allocation.
+ *
+ * One table is the single source of truth for every GPU tensor a Mellum
+ * session holds: mellum_requests lists them with their sizes, the plan
+ * (mellum_context_memory, behind ds4_context_memory_estimate) sums the table
+ * by class, and mellum_graph_alloc (GPU build) walks the same table to
+ * allocate.  A tensor the session allocates is in the plan because there is
+ * no second list.
+ *
+ * Layout.  Full-attention layers (il % 4 == 3) hold K and V for every
+ * position, [ctx][n_head_kv * head_dim] f16.  Sliding layers hold a ring of
+ * DS4_N_SWA slots, the same row shape: position p lives in slot p % window,
+ * and each ring carries an int32 position tag per slot (one array per ring: a
+ * row's K and V share it) so a stale slot is never read as a live row.
+ * Attention reads the ring before the chunk is committed to it, so a ring of
+ * exactly the window survives a one-token rewind: after a forward ending at
+ * P - 1 the ring holds P - W .. P - 1, and a query at P - 1 needs only
+ * P - W .. P - 2 of it.  The prefill and MoE transients are sized for
+ * cap_tokens rows and allocated at session create, never at the first sync.
+ * The full-attention layers' two scratch buffers (the rows table and the
+ * 64-row partials) are in the table too.
+ *
+ * The chunk.  Mellum's prefill chunk is min(requested, DS4_N_SWA): the ring
+ * commit refuses more rows than the ring holds, and DS4_QWEN4_PREFILL_CHUNK
+ * accepts up to 65,536, so an unclamped value would fail a forward with no
+ * message naming the cause.
+ * --------------------------------------------------------------------- */
+typedef enum {
+    MELLUM_CLASS_KV,        /* K/V caches, rings and ring tags: the session's KV state */
+    MELLUM_CLASS_PREFILL,   /* cap_tokens rows of activations */
+    MELLUM_CLASS_MOE,       /* cap_tokens rows of routing and expert transients */
+    MELLUM_CLASS_LOGITS,    /* the row a caller reads back */
+} mellum_class;
+
+typedef enum {
+    MELLUM_REQ_K,           /* index = layer: full cache [ctx] or ring [window], f16 */
+    MELLUM_REQ_V,
+    MELLUM_REQ_TAG,         /* index = sliding layer: int32 position tag per ring slot (K and V rows share it) */
+    MELLUM_REQ_SCRATCH,     /* index = mellum_scratch_id */
+    MELLUM_REQ_LOGITS,
+} mellum_req_kind;
+
+typedef enum {
+    /* prefill */
+    MELLUM_S_TOKENS,
+    MELLUM_S_HIDDEN, MELLUM_S_ATTN_NORM, MELLUM_S_ATTN_PROJ,
+    MELLUM_S_ATTN_RES, MELLUM_S_FFN_NORM, MELLUM_S_MOE_OUT,
+    MELLUM_S_Q, MELLUM_S_HEADS, MELLUM_S_K, MELLUM_S_V, MELLUM_S_K16, MELLUM_S_V16,
+    /* full attention: one rows-table region per full layer, and the partials of one 64-row slice (shared) */
+    MELLUM_S_ATTN_TABLE, MELLUM_S_ATTN_PART,
+    /* MoE: the router logits, the selection and its weights, the experts' mid and partial outputs */
+    MELLUM_S_ROUTER_LOGITS, MELLUM_S_SELECTED, MELLUM_S_WEIGHTS,
+    MELLUM_S_MID, MELLUM_S_PARTIAL,
+    MELLUM_SCRATCH_COUNT
+} mellum_scratch_id;
+
+typedef struct {
+    mellum_req_kind kind;
+    mellum_class cls;
+    uint32_t index;
+    uint64_t bytes;
+} mellum_req;
+
+#define MELLUM_MAX_REQS (3u * DS4_MAX_LAYER + MELLUM_SCRATCH_COUNT + 1u)
+
+/* Full attention's rows kernels work in slices of 64 rows and split each row's keys
+ * into at most 64 parts (QWEN4_ATTN_MAX_SPLITS, ds4_metal.m; mellum_graph_alloc checks
+ * the product against ds4_gpu_qwen4_attn_part_floats, which this model-free table cannot call). */
+#define MELLUM_ATTN_SLICE_ROWS 64u
+#define MELLUM_ATTN_MAX_SPLITS 64u
+#define MELLUM_ATTN_ROW_BYTES 64u   /* one rows-table entry (DS4_GPU_QWEN4_ATTN_ROW_BYTES, checked at allocation) */
+
+/* Mellum's chunk, one place: min(requested, window).  Says once per engine
+ * that it clamped (ds4_engine_open re-arms the flag, so a /model reopen says it
+ * again), so a DS4_QWEN4_PREFILL_CHUNK=4096 or a host --prefill-chunk=4096
+ * is visible and not a silent change. */
+static bool g_mellum_clamp_said;
+
+static uint32_t mellum_clamp_chunk(uint32_t requested) {
+    const uint32_t window = DS4_N_SWA;
+    if (requested <= window) return requested;
+    if (!g_mellum_clamp_said) {
+        g_mellum_clamp_said = true;
+        fprintf(stderr,
+                "ds4: Mellum prefill chunk %u clamped to %u (the sliding-window ring holds %u rows)\n",
+                requested, window, window);
+    }
+    return window;
+}
+
+/* The rows a Mellum session allocates its transients for, and prefills in:
+ * the host's chunk, else DS4_QWEN4_PREFILL_CHUNK, else the window; never more
+ * than the window or the context. */
+static uint32_t mellum_prefill_cap(uint32_t ctx, uint32_t requested) {
+    uint32_t chunk = requested;
+    if (chunk == 0) {
+        const char *env = getenv("DS4_QWEN4_PREFILL_CHUNK");
+        const unsigned long v = env && env[0] ? strtoul(env, NULL, 10) : 0ul;
+        chunk = v == 0 || v > 65536ul ? DS4_N_SWA : (uint32_t)v;
+    }
+    chunk = mellum_clamp_chunk(chunk);
+    if (chunk > ctx) chunk = ctx;
+    return chunk ? chunk : 1u;
+}
+
+/* Every GPU tensor of a Mellum session, in allocation order.  Returns the
+ * count; out holds MELLUM_MAX_REQS entries. */
+static uint32_t mellum_requests(uint32_t ctx, uint32_t cap_tokens, mellum_req *out) {
+    const uint64_t E = DS4_N_EMBD, T = cap_tokens, window = DS4_N_SWA;
+    const uint64_t q_dim = (uint64_t)DS4_N_HEAD * DS4_N_HEAD_DIM;
+    const uint64_t kv_dim = (uint64_t)DS4_N_HEAD_KV * DS4_N_HEAD_DIM;
+    const uint64_t n_exp = DS4_N_EXPERT, n_used = DS4_N_EXPERT_USED, ff = DS4_N_FF_EXP;
+    uint32_t n = 0;
+#define MELLUM_ADD(kind_, cls_, index_, bytes_) \
+    do { out[n].kind = (kind_); out[n].cls = (cls_); out[n].index = (uint32_t)(index_); \
+         out[n].bytes = (bytes_); n++; } while (0)
+    for (uint32_t il = 0; il < DS4_N_LAYER; il++) {
+        const bool ring = ds4_mellum_layer_is_sliding(il);
+        const uint64_t rows = ring ? window : ctx;
+        MELLUM_ADD(MELLUM_REQ_K, MELLUM_CLASS_KV, il, rows * kv_dim * sizeof(uint16_t));
+        MELLUM_ADD(MELLUM_REQ_V, MELLUM_CLASS_KV, il, rows * kv_dim * sizeof(uint16_t));
+        if (ring) MELLUM_ADD(MELLUM_REQ_TAG, MELLUM_CLASS_KV, il, window * sizeof(int32_t));
+    }
+    uint64_t n_full = 0;
+    for (uint32_t il = 0; il < DS4_N_LAYER; il++) n_full += !ds4_mellum_layer_is_sliding(il);
+    const uint64_t slice = T < MELLUM_ATTN_SLICE_ROWS ? T : MELLUM_ATTN_SLICE_ROWS;
+#define MELLUM_SCRATCH(id_, cls_, bytes_) MELLUM_ADD(MELLUM_REQ_SCRATCH, cls_, id_, bytes_)
+    MELLUM_SCRATCH(MELLUM_S_TOKENS, MELLUM_CLASS_PREFILL, T * sizeof(int32_t));
+    MELLUM_SCRATCH(MELLUM_S_HIDDEN, MELLUM_CLASS_PREFILL, T * E * sizeof(float));
+    MELLUM_SCRATCH(MELLUM_S_ATTN_NORM, MELLUM_CLASS_PREFILL, T * E * sizeof(float));
+    MELLUM_SCRATCH(MELLUM_S_ATTN_PROJ, MELLUM_CLASS_PREFILL, T * E * sizeof(float));
+    MELLUM_SCRATCH(MELLUM_S_ATTN_RES, MELLUM_CLASS_PREFILL, T * E * sizeof(float));
+    MELLUM_SCRATCH(MELLUM_S_FFN_NORM, MELLUM_CLASS_PREFILL, T * E * sizeof(float));
+    MELLUM_SCRATCH(MELLUM_S_MOE_OUT, MELLUM_CLASS_PREFILL, T * E * sizeof(float));
+    MELLUM_SCRATCH(MELLUM_S_Q, MELLUM_CLASS_PREFILL, T * q_dim * sizeof(float));
+    MELLUM_SCRATCH(MELLUM_S_HEADS, MELLUM_CLASS_PREFILL, T * q_dim * sizeof(float));
+    MELLUM_SCRATCH(MELLUM_S_K, MELLUM_CLASS_PREFILL, T * kv_dim * sizeof(float));
+    MELLUM_SCRATCH(MELLUM_S_V, MELLUM_CLASS_PREFILL, T * kv_dim * sizeof(float));
+    MELLUM_SCRATCH(MELLUM_S_K16, MELLUM_CLASS_PREFILL, T * kv_dim * sizeof(uint16_t));
+    MELLUM_SCRATCH(MELLUM_S_V16, MELLUM_CLASS_PREFILL, T * kv_dim * sizeof(uint16_t));
+    /* region j of the table (j = the j-th full layer) is entries j * T .. j * T + T - 1: each layer of one
+     * command buffer needs its own, because the CPU writes the table when the layer is encoded and the GPU
+     * reads it when the command buffer runs */
+    MELLUM_SCRATCH(MELLUM_S_ATTN_TABLE, MELLUM_CLASS_PREFILL, n_full * T * MELLUM_ATTN_ROW_BYTES);
+    MELLUM_SCRATCH(MELLUM_S_ATTN_PART, MELLUM_CLASS_PREFILL,
+                   slice * DS4_N_HEAD * MELLUM_ATTN_MAX_SPLITS * (2u + DS4_N_HEAD_DIM) * sizeof(float));
+    MELLUM_SCRATCH(MELLUM_S_ROUTER_LOGITS, MELLUM_CLASS_MOE, T * n_exp * sizeof(float));
+    MELLUM_SCRATCH(MELLUM_S_SELECTED, MELLUM_CLASS_MOE, T * n_used * sizeof(int32_t));
+    MELLUM_SCRATCH(MELLUM_S_WEIGHTS, MELLUM_CLASS_MOE, T * n_used * sizeof(float));
+    MELLUM_SCRATCH(MELLUM_S_MID, MELLUM_CLASS_MOE, T * n_used * ff * sizeof(float));
+    MELLUM_SCRATCH(MELLUM_S_PARTIAL, MELLUM_CLASS_MOE, T * n_used * E * sizeof(float));
+#undef MELLUM_SCRATCH
+    MELLUM_ADD(MELLUM_REQ_LOGITS, MELLUM_CLASS_LOGITS, 0, (uint64_t)DS4_N_VOCAB * sizeof(float));
+#undef MELLUM_ADD
+    return n;
+}
+
+/* The plan: the table summed by class.  KV state is raw_bytes (the startup
+ * line's "KV"), everything else scratch_bytes (its "buffers"); the weights are
+ * the caller's.  ctx_size <= 0 plans a one-token context. */
+static ds4_context_memory mellum_context_memory(int ctx_size, uint32_t requested_chunk) {
+    ds4_context_memory m = {0};
+    const uint32_t ctx = ctx_size > 0 ? (uint32_t)ctx_size : 1u;
+    const uint32_t cap = mellum_prefill_cap(ctx, requested_chunk);
+    mellum_req reqs[MELLUM_MAX_REQS];
+    const uint32_t n = mellum_requests(ctx, cap, reqs);
+    for (uint32_t i = 0; i < n; i++) {
+        if (reqs[i].cls == MELLUM_CLASS_KV) m.raw_bytes += reqs[i].bytes;
+        else m.scratch_bytes += reqs[i].bytes;
+    }
+    m.prefill_cap = cap;
+    m.raw_cap = ctx;
+    m.total_bytes = m.raw_bytes + m.scratch_bytes;
+    return m;
+}
+
+
 #ifndef DS4_NO_GPU
 /*
  * Metal stores the persistent attention-compressed KV cache in F16. Producers
@@ -40702,6 +40880,7 @@ static ds4_context_memory glm_graph_context_memory_estimate_for_compact_cap(
 static ds4_context_memory ds41_graph_memory(uint32_t ctx);
 #endif
 static uint32_t qwen4_prefill_chunk_tokens(uint32_t ctx) {
+    if (ds4_model_is_mellum()) return mellum_prefill_cap(ctx, 0);
     const char *env = getenv("DS4_QWEN4_PREFILL_CHUNK");
     const unsigned long v = env && env[0] ? strtoul(env, NULL, 10) : 8192ul;
     uint32_t chunk = v == 0 || v > 65536ul ? 8192u : (uint32_t)v;
@@ -40714,6 +40893,8 @@ ds4_context_memory ds4_context_memory_estimate_with_prefill_mode(
         uint32_t    prefill_chunk,
         bool        ssd_streaming) {
     ds4_context_memory m = {0};
+    /* Mellum's own table (mellum_requests), never a Flash Next formula. */
+    if (ds4_model_is_mellum()) return mellum_context_memory(ctx_size, prefill_chunk);
     uint32_t ctx = ctx_size > 0 ? (uint32_t)ctx_size : 1u;
     if (ds4_backend_uses_graph(backend) && ds4_model_is_qwen4()) {
         /* per-token f16 K/V and raw indexer keys per attention layer, pooled
@@ -58830,6 +59011,14 @@ typedef struct ds4_qwen4_gpu_graph {
     ds4_gpu_tensor *router, *selected, *weights, *mid, *part, *sh_gate_logit;
     ds4_gpu_tensor *moe_lists, *moe_counts, *sh_gate, *sh_up, *sh_mid, *sh_out, *hc_u, *hc_lo_act;
     ds4_gpu_tensor *logits;
+    /* Mellum (mellum_graph_alloc).  The K/V caches and rings are layer_k_cache
+     * and layer_v_cache; the rest of its tensors are here, in the order of
+     * mellum_requests: the ring position tags of the sliding layers (one array
+     * per ring, shared by its K and V rows), the prefill, attention and MoE
+     * transients, and the bytes the allocator took. */
+    ds4_gpu_tensor *mellum_tag[DS4_MAX_LAYER];
+    ds4_gpu_tensor *mellum_scratch[MELLUM_SCRATCH_COUNT];
+    uint64_t mellum_allocated_bytes;
     /* Arena only, grown on demand: one logit row per batch member, the
      * attention rows' cache table (one entry per row and layer) and their
      * split partials. */
@@ -58919,8 +59108,108 @@ static bool qwen4_graph_expert_ok(const ds4_tensor *t) {
                   (t->dim[0] % 256u) == 0));
 }
 
+static void qwen4_graph_free(ds4_qwen4_gpu_graph *g);
+
+/* Mellum's tensors were validated at load (weights_validate_mellum_layout:
+ * Q8_0 projections and experts, F32 norms and router); what the session
+ * needs is that every layer and the output head are bound, and Metal. */
+static bool mellum_graph_weights_supported(const ds4_weights *w) {
+#if !defined(__APPLE__)
+    (void)w;
+    fprintf(stderr, "ds4: Mellum runs on the Metal graph only\n");
+    return false;
+#else
+    if (!w || !w->token_embd || !w->output || !w->output_norm) {
+        fprintf(stderr, "ds4: Mellum GPU graph: the embedding or output head is not bound\n");
+        return false;
+    }
+    for (uint32_t il = 0; il < DS4_N_LAYER; il++) {
+        if (!weights_mellum_layer_has_required(&w->layer[il], il)) {
+            fprintf(stderr, "ds4: Mellum GPU graph: layer %u is missing a tensor\n", il);
+            return false;
+        }
+    }
+    return true;
+#endif
+}
+
+/* A ring slot with tag -1 holds no row.  Runs at allocation and at reset: a
+ * session that rewinds or restarts must not read the previous run's slots. */
+static bool mellum_graph_forget_ring(ds4_qwen4_gpu_graph *g) {
+    const uint32_t window = DS4_N_SWA;
+    int32_t empty[1024];
+    if (window > sizeof(empty) / sizeof(empty[0])) return false;
+    for (uint32_t i = 0; i < window; i++) empty[i] = -1;
+    for (uint32_t il = 0; il < DS4_N_LAYER; il++) {
+        if (g->mellum_tag[il] &&
+            !ds4_gpu_tensor_write(g->mellum_tag[il], 0, empty, (uint64_t)window * sizeof(empty[0]))) return false;
+    }
+    return true;
+}
+
+/* Every GPU tensor a Mellum session holds, from the one table the plan sums
+ * (mellum_requests).  Allocated at create for cap_tokens rows, never at the
+ * first sync.  Prints once: allocated (the sum of the bytes requested from the
+ * device for these tensors, ds4_gpu_tensor_bytes; not the pages Metal rounds
+ * them up to) against planned (the estimate the startup line reports). */
+static bool mellum_graph_alloc(ds4_qwen4_gpu_graph *g, uint32_t ctx_cap, uint32_t cap_tokens) {
+    g->ctx_cap = ctx_cap;
+    g->cap_tokens = cap_tokens;
+    g->n_logit_rows = 1u;
+    g->owns_scratch = true;
+    mellum_req reqs[MELLUM_MAX_REQS];
+    const uint32_t n = mellum_requests(ctx_cap, cap_tokens, reqs);
+    bool ok = true;
+    uint64_t allocated = 0;
+    for (uint32_t i = 0; i < n && ok; i++) {
+        ds4_gpu_tensor *t = ds4_gpu_tensor_alloc(reqs[i].bytes);
+        if (!t) { ok = false; break; }
+        allocated += ds4_gpu_tensor_bytes(t);
+        const uint32_t x = reqs[i].index;
+        switch (reqs[i].kind) {
+        case MELLUM_REQ_K: g->layer_k_cache[x] = t; break;
+        case MELLUM_REQ_V: g->layer_v_cache[x] = t; break;
+        case MELLUM_REQ_TAG: g->mellum_tag[x] = t; break;
+        case MELLUM_REQ_SCRATCH: g->mellum_scratch[x] = t; break;
+        case MELLUM_REQ_LOGITS: g->logits = t; break;
+        }
+    }
+    ok = ok && mellum_graph_forget_ring(g);
+#if defined(__APPLE__)
+    /* the table's partials are MELLUM_ATTN_MAX_SPLITS wide; the kernels' own count decides what they need */
+    if (ok) {
+        const uint32_t slice = cap_tokens < MELLUM_ATTN_SLICE_ROWS ? cap_tokens : MELLUM_ATTN_SLICE_ROWS;
+        const uint64_t need = ds4_gpu_qwen4_attn_part_floats(slice, DS4_N_HEAD, DS4_N_HEAD_DIM) * sizeof(float);
+        const ds4_gpu_tensor *part = g->mellum_scratch[MELLUM_S_ATTN_PART];
+        if (MELLUM_ATTN_ROW_BYTES != DS4_GPU_QWEN4_ATTN_ROW_BYTES) {
+            fprintf(stderr, "ds4: Mellum rows-table entries are %u bytes in the plan, the kernels use %u\n",
+                    MELLUM_ATTN_ROW_BYTES, (unsigned)DS4_GPU_QWEN4_ATTN_ROW_BYTES);
+            ok = false;
+        } else if (!part || ds4_gpu_tensor_bytes(part) != need) {
+            fprintf(stderr, "ds4: Mellum attention partials are %" PRIu64 " bytes in the plan, the kernels need %" PRIu64 "\n",
+                    part ? ds4_gpu_tensor_bytes(part) : 0u, need);
+            ok = false;
+        }
+    }
+#endif
+    g->host_logits = xmalloc((uint64_t)DS4_N_VOCAB * sizeof(float));
+    g->mellum_allocated_bytes = allocated;
+    if (!ok) {
+        fprintf(stderr, "ds4: Mellum graph allocation failed (ctx %u, chunk %u, %" PRIu64 " bytes taken)\n",
+                ctx_cap, cap_tokens, allocated);
+        qwen4_graph_free(g);
+        return false;
+    }
+    const ds4_context_memory plan =
+        ds4_context_memory_estimate_with_prefill_mode(DS4_BACKEND_METAL, (int)ctx_cap, cap_tokens, false);
+    fprintf(stderr, "mellum: session allocated %" PRIu64 " bytes, planned %" PRIu64 " bytes\n",
+            allocated, plan.total_bytes);
+    return true;
+}
+
 /* The Metal graph runs a subset of what the loader accepts. */
 static bool qwen4_graph_weights_supported(const ds4_weights *w) {
+    if (ds4_model_is_mellum()) return mellum_graph_weights_supported(w);
     if (!qwen4_graph_dense_ok(w->token_embd) || !qwen4_graph_dense_ok(w->output) ||
         !qwen4_graph_dense_ok(w->output_hc_down) || !qwen4_graph_dense_ok(w->output_hc_up)) {
         fprintf(stderr, "ds4: Qwen3.8 GPU graph needs Q8_0/Q4_0/F16/BF16/F32 dense weights\n");
@@ -59032,7 +59321,9 @@ static void qwen4_graph_free(ds4_qwen4_gpu_graph *g) {
         ds4_gpu_tensor_free(g->snap2_lin_hist[il]);
         ds4_gpu_tensor_free(g->snap0_lin_state[il]);
         ds4_gpu_tensor_free(g->snap0_lin_hist[il]);
+        ds4_gpu_tensor_free(g->mellum_tag[il]);
     }
+    for (uint32_t i = 0; i < MELLUM_SCRATCH_COUNT; i++) ds4_gpu_tensor_free(g->mellum_scratch[i]);
     free(g->host_logits);
     memset(g, 0, sizeof(*g));
 }
@@ -59131,6 +59422,7 @@ static bool qwen4_graph_alloc(ds4_qwen4_gpu_graph *g, const ds4_weights *w, uint
                               ds4_gpu_tensor *const *hist_pool, uint32_t slot) {
     memset(g, 0, sizeof(*g));
     if (!qwen4_graph_weights_supported(w)) return false;
+    if (ds4_model_is_mellum()) return mellum_graph_alloc(g, ctx_cap, cap_tokens);
     mtp = mtp && DS4_N_NEXTN_PREDICT != 0;
     const uint64_t E = DS4_N_EMBD, hc = DS4_N_HC, hc_dim = E * hc, T = cap_tokens;
     const uint64_t conv_dim = DS4_N_LIN_CONV_DIM;
@@ -59370,6 +59662,7 @@ static void qwen4_graph_reset(ds4_qwen4_gpu_graph *g) {
     g->snap0_valid = false;
     g->snap_after_first = false;
     g->snap_after_second = false;
+    if (ds4_model_is_mellum()) (void)mellum_graph_forget_ring(g);
 }
 
 /* rows > 0 limits the product to a contiguous leading prefix of w. */
@@ -59957,6 +60250,12 @@ static bool qwen4_graph_stage_inputs(ds4_qwen4_gpu_graph *g, const ds4_model *m,
 static bool qwen4_graph_forward_tokens(ds4_qwen4_gpu_graph *g, const ds4_model *m, const ds4_weights *w,
                                        const int *tokens, uint32_t T, float *logits_out, bool all_rows) {
     if (!g || T == 0 || T > g->cap_tokens || g->pos + T > g->ctx_cap) return false;
+    if (ds4_model_is_mellum()) {
+        /* the session entries refuse by name first; this keeps a missed one
+         * from staging into host_row, which Mellum never allocates */
+        fprintf(stderr, "ds4: the Mellum 2.1 forward pass is not ported yet\n");
+        return false;
+    }
     if (all_rows && T > g->n_logit_rows) return false;
     for (uint32_t t = 0; t < T; t++) {
         if (tokens[t] < 0 || tokens[t] >= (int)DS4_N_VOCAB) {
@@ -60737,6 +61036,7 @@ ds4_context_memory ds4_context_memory_estimate_with_prefill_mode(
     (void)prefill_chunk;
     (void)ssd_streaming;
     ds4_context_memory m = {0};
+    if (ds4_model_is_mellum()) return mellum_context_memory(ctx_size, prefill_chunk);
     uint32_t ctx = ctx_size > 0 ? (uint32_t)ctx_size : 1u;
 
     m.raw_cap = ds4_default_raw_cap(ctx);
@@ -65914,8 +66214,20 @@ static bool ds4_session_greedy_splitkv_replay_exact(
 }
 #endif
 
+/* A Mellum session can be created (the plan and the allocation) but has no
+ * forward pass yet.  Every entry that would run one refuses here, by name:
+ * the Qwen forward it would otherwise reach stages the embedding into a host
+ * buffer Mellum never allocates. */
+static bool ds4_session_mellum_forward_refuses(const char *what, char *err, size_t errlen) {
+    if (!ds4_model_is_mellum()) return false;
+    if (err && errlen) snprintf(err, errlen, "%s refused: the Mellum 2.1 forward pass is not ported yet", what);
+    fprintf(stderr, "ds4: the Mellum 2.1 forward pass is not ported yet (%s refused)\n", what);
+    return true;
+}
+
 int ds4_session_eval_argmax(ds4_session *s, int token, char *err, size_t errlen) {
     if (!s) return -1;
+    if (ds4_session_mellum_forward_refuses("eval", err, errlen)) return -1;
     if (ds4_session_is_cpu(s) || ds4_session_is_glm(s) || ds4_session_is_ds41(s)) {
         if (ds4_session_eval(s, token, err, errlen) != 0) return -1;
         return ds4_session_argmax(s);
@@ -72152,11 +72464,30 @@ static int ds4_engine_open_internal(ds4_engine **out,
         return 1;
     }
     config_validate_model(&e->model);
-    if (ds4_model_is_mellum() && !opt->inspect_only) {
-        fprintf(stderr, "ds4: Mellum 2.1 is recognized, but its forward pass is not ported yet\n");
+    /* qwen4_graph_load_steering allocates steer_dirs outside mellum_requests, so
+     * a steered Mellum session would hold a tensor its plan does not count. */
+    if (ds4_model_is_mellum() && !opt->inspect_only &&
+        ((opt->directional_steering_file && opt->directional_steering_file[0]) ||
+         opt->directional_steering_attn != 0.0f || opt->directional_steering_ffn != 0.0f)) {
+        fprintf(stderr, "ds4: directional steering is not supported for Mellum 2.1 "
+                        "(its session plan does not count the steering tensor)\n");
         ds4_engine_close(e);
         *out = NULL;
         return 1;
+    }
+    if (ds4_model_is_mellum() && !opt->inspect_only && e->backend != DS4_BACKEND_METAL) {
+        fprintf(stderr, "ds4: Mellum 2.1 runs on the Metal graph only (backend %s)\n",
+                ds4_backend_name(e->backend));
+        ds4_engine_close(e);
+        *out = NULL;
+        return 1;
+    }
+    /* The chunk the host passes (--prefill-chunk) is read as it stands by the
+     * estimate and session create; clamp it here, once, with the one stderr
+     * line, so every reader and ds4_engine_prefill_chunk agree. */
+    g_mellum_clamp_said = false;                 /* per engine: a reopen says it again */
+    if (ds4_model_is_mellum() && e->prefill_chunk != 0) {
+        e->prefill_chunk = mellum_clamp_chunk(e->prefill_chunk);
     }
     if (ds4_model_is_qwen4() && !opt->inspect_only) {
         const bool backend_ok =
@@ -74630,7 +74961,11 @@ int ds4_session_create(ds4_session **out, ds4_engine *e, int ctx_size) {
             free(s);
             return 1;
         }
-        const uint32_t cap_tokens = e->prefill_chunk && e->prefill_chunk < (uint32_t)ctx_size ?
+        /* Mellum's chunk is clamped to its window whichever way it arrives
+         * (host-passed or DS4_QWEN4_PREFILL_CHUNK); the plan uses the same call. */
+        const uint32_t cap_tokens = ds4_model_is_mellum() ?
+            mellum_prefill_cap((uint32_t)ctx_size, e->prefill_chunk) :
+            e->prefill_chunk && e->prefill_chunk < (uint32_t)ctx_size ?
             e->prefill_chunk : qwen4_prefill_chunk_tokens((uint32_t)ctx_size);
         /* Every slot of a batched server has the same shape, so one arena of
          * transients serves them all and each extra session then costs only
@@ -74638,8 +74973,13 @@ int ds4_session_create(ds4_session **out, ds4_engine *e, int ctx_size) {
          * when no live session borrows it (a new context size once the
          * previous sessions closed) and keeps private transients otherwise. */
         const uint32_t block_cap = (uint32_t)ctx_size / 4u + 1u;
+        /* Mellum never shares a prefill workspace, so it never batches with
+         * other sessions: qwen4_graph_native_session_batch_check refuses only
+         * when no shared workspace exists, and a shared one would let Flash
+         * Next's batched decode run on Mellum. */
         const bool share = e->share_session_prefill_workspace &&
-                           e->backend == DS4_BACKEND_METAL;
+                           e->backend == DS4_BACKEND_METAL &&
+                           !ds4_model_is_mellum();
         const bool arena_fits = e->qwen4_shared_workspace &&
             e->qwen4_shared_workspace->cap_tokens >= cap_tokens &&
             e->qwen4_shared_workspace->n_block_cap >= block_cap;
@@ -76836,6 +77176,7 @@ static int ds4_session_sync_lockstep(ds4_session *s, const ds4_tokens *prompt,
  * once its matching prefill completes, surfacing worker-side failures
  * here instead of as a gate timeout mid-decode. */
 int ds4_session_sync(ds4_session *s, const ds4_tokens *prompt, char *err, size_t errlen) {
+    if (ds4_session_mellum_forward_refuses("sync", err, errlen)) return 1;
 #ifndef DS4_NO_GPU
     if (s) s->dspark_rewind_end = 0;
 #endif
@@ -76933,6 +77274,7 @@ int ds4_session_sync_multimodal(
         size_t image_count,
         char *err,
         size_t errlen) {
+    if (ds4_session_mellum_forward_refuses("sync", err, errlen)) return 1;
     if (!s || !prompt || (image_count != 0 && !images)) {
         snprintf(err, errlen, "invalid multimodal prompt");
         return 1;
@@ -79450,6 +79792,7 @@ static int ds4_session_eval_probe_tp(ds4_session *s, int token, bool probe_mtp,
 }
 
 int ds4_session_eval(ds4_session *s, int token, char *err, size_t errlen) {
+    if (ds4_session_mellum_forward_refuses("eval", err, errlen)) return 1;
     bool probe_mtp = true;
 #ifndef DS4_NO_GPU
     if (s && s->engine && s->engine->support_kind == DS4_SUPPORT_DSPARK) {
@@ -81826,6 +82169,7 @@ static bool qwen4_batch_spec_next(const ds4_engine *e) {
 int ds4_sessions_eval_batch_speculative_argmax(ds4_decode_item *items, int count,
                                                int (*accepted)[2], int *n_accepted,
                                                char *err, size_t errlen) {
+    if (ds4_session_mellum_forward_refuses("speculative decode", err, errlen)) return 1;
     if (!items || count <= 0 || !accepted || !n_accepted) {
         if (err && errlen) snprintf(err, errlen, "empty speculative decode batch");
         return 1;
@@ -82013,6 +82357,7 @@ int ds4_sessions_eval_batch_speculative_argmax(ds4_decode_item *items, int count
 
 int ds4_sessions_eval_batch(ds4_decode_item *items, int count,
                             char *err, size_t errlen) {
+    if (ds4_session_mellum_forward_refuses("batch decode", err, errlen)) return 1;
     if (!items || count <= 0) {
         if (err && errlen) snprintf(err, errlen, "empty decode batch");
         return 1;
@@ -82092,6 +82437,7 @@ int ds4_sessions_eval_batch_with_prefill(
         const ds4_tokens *prefill_prompt,
         char *err,
         size_t errlen) {
+    if (ds4_session_mellum_forward_refuses("mixed prefill", err, errlen)) return 1;
     if (!items || count <= 0 || !prefill_session || !prefill_prompt ||
         !prefill_session->engine) {
         if (err && errlen) snprintf(err, errlen, "invalid mixed model batch");
@@ -86502,6 +86848,7 @@ static int ds4_session_eval_speculative_argmax_impl(
         bool ignore_eos, ds4_think_mode think_mode,
         int *accepted, int accepted_cap,
         char *err, size_t errlen) {
+    if (ds4_session_mellum_forward_refuses("speculative decode", err, errlen)) return -1;
     if (!s || max_tokens <= 0 || accepted_cap <= 0) return 0;
     if (!s->checkpoint_valid) {
         payload_set_err(err, errlen, "speculative decode requires a synchronized checkpoint");
@@ -87377,6 +87724,7 @@ int ds4_session_eval_speculative(ds4_session *s, int first_token,
                                  float top_p, float min_p, uint64_t *rng,
                                  int *accepted, int accepted_cap,
                                  char *err, size_t errlen) {
+    if (ds4_session_mellum_forward_refuses("speculative decode", err, errlen)) return -1;
     if (temperature <= 0.0f) {
         return ds4_session_eval_speculative_argmax(
             s, first_token, max_tokens, eos_token,

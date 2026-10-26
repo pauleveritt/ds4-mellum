@@ -185,40 +185,363 @@ static void check_qwen_predicates_unchanged(void) {
     printf("ok   qwen4exp predicates unchanged\n");
 }
 
+/* The open gate: CPU and CUDA are refused for Mellum by name, inspect_only is not. */
+static ds4_backend g_open_backend;
 static bool g_open_inspect;
+static const char *g_open_steer_file;
+static float g_open_steer_attn;
 
 static void child_engine_open(const char *path) {
     ds4_engine *e = NULL;
     ds4_engine_options opt;
     memset(&opt, 0, sizeof(opt));
     opt.model_path = path;
-    opt.backend = DS4_BACKEND_CPU;
+    opt.backend = g_open_backend;
     opt.context_size = 4096;
     opt.inspect_only = g_open_inspect;
+    opt.directional_steering_file = (char *)g_open_steer_file;
+    opt.directional_steering_attn = g_open_steer_attn;
     const int rc = ds4_engine_open(&e, &opt);
-    _exit(rc == 0 && (!e || ds4_engine_is_mellum(e)) ? 0 : 7);
+    _exit(rc == 0 && e && ds4_engine_is_mellum(e) ? 0 : 7);
 }
 
-/* Until the forward pass is ported, an open is refused, by name; an
- * inspect-only open (metadata only) succeeds. */
-static void check_open_refused(void) {
+static void expect_open(ds4_backend be, bool inspect, bool refused, const char *label) {
     char path[512], err[4096];
     mellum_fixture_write(MF_NONE, path, sizeof(path));
-    g_open_inspect = false;
-    int rc = run_child(child_engine_open, path, err, sizeof(err));
-    if (rc != 7 || !strstr(err, "Mellum 2.1") || !strstr(err, "not ported")) {
-        fprintf(stderr, "FAIL open: exit %d, stderr [%s]\n", rc, err);
-        exit(1);
-    }
-    g_open_inspect = true;
-    rc = run_child(child_engine_open, path, err, sizeof(err));
-    g_open_inspect = false;
+    g_open_backend = be;
+    g_open_inspect = inspect;
+    const int rc = run_child(child_engine_open, path, err, sizeof(err));
     unlink(path);
-    if (rc != 0) {
-        fprintf(stderr, "FAIL inspect-only open: exit %d, stderr [%s]\n", rc, err);
+    if (refused ? rc != 7 || !strstr(err, "Mellum 2.1") || !strstr(err, "Metal graph only") : rc != 0) {
+        fprintf(stderr, "FAIL %s: exit %d, stderr [%s]\n", label, rc, err);
         exit(1);
     }
-    printf("ok   open: refused by name until the forward pass is ported; inspect-only open succeeds\n");
+    printf("ok   open: %s\n", label);
+}
+
+/* Steering allocates a tensor outside mellum_requests, so a Mellum open that asks for it is
+ * refused by name.  The CPU backend would also be refused, by a different message, so the
+ * message text tells the two gates apart; the siblings are the same open without steering
+ * (refused by the backend gate, not the steering one) and an inspect-only open with it. */
+static void check_mellum_steering_refused(void) {
+    char path[512], err[4096];
+    mellum_fixture_write(MF_NONE, path, sizeof(path));
+    g_open_backend = DS4_BACKEND_CPU;
+    g_open_inspect = false;
+    g_open_steer_file = "/nonexistent/steer.f32";
+    g_open_steer_attn = 1.0f;
+    int rc = run_child(child_engine_open, path, err, sizeof(err));
+    CHECK(rc == 7 && strstr(err, "directional steering is not supported for Mellum 2.1"));
+    g_open_steer_file = NULL;
+    g_open_steer_attn = 0.0f;
+    rc = run_child(child_engine_open, path, err, sizeof(err));
+    CHECK(rc == 7 && strstr(err, "Metal graph only") && !strstr(err, "directional steering"));
+    g_open_inspect = true;
+    g_open_steer_file = "/nonexistent/steer.f32";
+    g_open_steer_attn = 1.0f;
+    rc = run_child(child_engine_open, path, err, sizeof(err));
+    CHECK(rc == 0);
+    g_open_inspect = false;
+    g_open_steer_file = NULL;
+    g_open_steer_attn = 0.0f;
+    unlink(path);
+    printf("ok   open: steering refused for Mellum by name; the same open without it reaches the backend gate\n");
+}
+
+/* The startup line: Mellum prints the same "GiB planned" line the other models do. */
+static void child_print_memory(const char *path) {
+    (void)path;
+    static ds4_engine e;
+    memset(&e, 0, sizeof(e));
+    e.backend = DS4_BACKEND_METAL;
+    ds4_engine_print_startup_memory(&e, 4096);
+}
+
+static void check_memory_plan(void) {
+    char path[512], err[4096];
+    mellum_fixture_write(MF_NONE, path, sizeof(path));
+    ds4_model m;
+    model_open(&m, path, false, false);
+    config_validate_model(&m);
+    const ds4_context_memory est = ds4_context_memory_estimate_with_prefill_mode(DS4_BACKEND_METAL, 4096, 0, false);
+    CHECK(est.total_bytes > 0 && est.raw_bytes > 0 && est.scratch_bytes > 0);
+    CHECK(run_child(child_print_memory, "", err, sizeof(err)) == 0);
+    CHECK(strstr(err, "GiB planned") != NULL);
+    CHECK(strstr(err, "prefill_cap=1024 raw_kv_rows=4096") != NULL);
+    model_close(&m);
+    unlink(path);
+
+    /* sibling: a model that always had a plan still prints one */
+    g_ds4_shape = DS4_SHAPE_QWEN4_EXP;
+    const ds4_context_memory q = ds4_context_memory_estimate_with_prefill_mode(DS4_BACKEND_METAL, 4096, 0, false);
+    CHECK(q.total_bytes > 0);
+    CHECK(run_child(child_print_memory, "", err, sizeof(err)) == 0);
+    CHECK(strstr(err, "GiB planned") != NULL);
+    printf("ok   memory plan: Mellum and qwen4exp both print a plan line\n");
+}
+
+
+/* ---- Mellum memory plan ---------------------------------------------------------------
+ * Expectations are written out here from the model's dims, not read from the shape the
+ * plan reads: E 2304, 32 q heads x 128, 4 kv heads x 128, 64 experts / 8 used, expert
+ * width 896, a 1024-slot ring on 21 of 28 layers (full attention on the 7 others), one int32 tag
+ * array per ring (K and V rows share it), and for the full layers' attention a rows table of 64 B per
+ * row per full layer plus the partials of one slice of at most 64 rows (64 splits of 2 + 128 floats
+ * per head: the kernels' own constants, ds4_gpu_qwen4_attn_part_floats, which the live group checks). */
+enum { T_E = 2304, T_QDIM = 4096, T_KVDIM = 512, T_EXPERTS = 64, T_USED = 8, T_FF = 896, T_RING = 1024 };
+
+static uint64_t expect_kv(uint64_t ctx) {
+    return 7ull * ctx * (2ull * T_KVDIM * 2u) +
+           21ull * T_RING * (2ull * T_KVDIM * 2u + sizeof(int32_t));
+}
+
+/* bytes per prefill row (activations and MoE transients) */
+static uint64_t expect_per_row(void) {
+    return 4ull                                        /* the token id */
+         + 6ull * T_E * 4u                             /* the six residual-width activations */
+         + 2ull * T_QDIM * 4u                          /* q, heads */
+         + 2ull * T_KVDIM * 4u + 2ull * T_KVDIM * 2u   /* k, v f32; staged k, v f16 */
+         + (uint64_t)T_EXPERTS * 4u                    /* router logits */
+         + 2ull * T_USED * 4u                          /* selected, weights */
+         + (uint64_t)T_USED * T_FF * 4u                /* mid */
+         + (uint64_t)T_USED * T_E * 4u                 /* per-expert partial outputs */
+         + 7ull * 64u;                                 /* full attention's rows table: 64 B a row, 7 full layers */
+}
+
+/* the partials of one slice of min(cap, 64) rows of 32 heads: 64 splits, 2 + 128 floats each */
+static uint64_t expect_attn_part(uint64_t cap) {
+    return (cap < 64u ? cap : 64u) * 32ull * 64u * (2u + 128u) * 4u;
+}
+
+static uint64_t expect_fixed(uint64_t cap) {
+    return 98304ull * 4u + expect_attn_part(cap);      /* the logits row; the shared attention partials */
+}
+
+static uint64_t sum_requests(uint32_t ctx, uint32_t cap, uint32_t *n_out) {
+    mellum_req reqs[MELLUM_MAX_REQS];
+    const uint32_t n = mellum_requests(ctx, cap, reqs);
+    uint64_t total = 0;
+    for (uint32_t i = 0; i < n; i++) total += reqs[i].bytes;
+    if (n_out) *n_out = n;
+    return total;
+}
+
+static void check_mellum_plan_sums(void) {
+    static const uint32_t ctxs[] = {4096, 20000, 65536, 131072};
+    for (size_t c = 0; c < sizeof(ctxs) / sizeof(ctxs[0]); c++) {
+        for (int chunk_one = 0; chunk_one < 2; chunk_one++) {
+            const uint32_t ctx = ctxs[c], cap = chunk_one ? 1u : 1024u;
+            const ds4_context_memory m =
+                ds4_context_memory_estimate_with_prefill_mode(DS4_BACKEND_METAL, (int)ctx, chunk_one ? 1u : 0u, false);
+            /* the plan is exactly what the allocator will request */
+            CHECK(m.total_bytes == sum_requests(ctx, cap, NULL));
+            CHECK(m.prefill_cap == cap && m.raw_cap == ctx && m.compressed_bytes == 0);
+            /* and exactly what the dims say */
+            CHECK(m.raw_bytes == expect_kv(ctx));
+            CHECK(m.scratch_bytes == cap * expect_per_row() + expect_fixed(cap));
+            CHECK(m.total_bytes == m.raw_bytes + m.scratch_bytes);
+        }
+    }
+    /* KV at 20,000: 7 full layers x 20,000 rows x 2,048 B, plus 21 rings of 1,024 rows x 2,048 B and a 4 B tag */
+    const ds4_context_memory m20 = ds4_context_memory_estimate_with_prefill_mode(DS4_BACKEND_METAL, 20000, 0, false);
+    CHECK(m20.raw_bytes == 7ull * 20000 * 2048 + 21ull * 1024 * (2048 + 4));
+    CHECK(m20.raw_bytes == 330846208ull);
+    printf("ok   plan == sum of the allocator's requests == the dims, at 4 contexts x chunk {1024, 1}\n");
+}
+
+/* The prefill scratch scales with cap_tokens and is part of the create-time table: the
+ * allocator walks the same table when the session is created; nothing is allocated at a sync. */
+static void check_mellum_plan_scales_with_chunk(void) {
+    const ds4_context_memory a = ds4_context_memory_estimate_with_prefill_mode(DS4_BACKEND_METAL, 20000, 1, false);
+    const ds4_context_memory b = ds4_context_memory_estimate_with_prefill_mode(DS4_BACKEND_METAL, 20000, 512, false);
+    const ds4_context_memory c = ds4_context_memory_estimate_with_prefill_mode(DS4_BACKEND_METAL, 20000, 1024, false);
+    CHECK(a.raw_bytes == b.raw_bytes && b.raw_bytes == c.raw_bytes);      /* KV does not depend on the chunk */
+    CHECK(b.scratch_bytes - a.scratch_bytes == 511ull * expect_per_row() + expect_attn_part(512) - expect_attn_part(1));
+    CHECK(c.scratch_bytes - b.scratch_bytes == 512ull * expect_per_row());   /* both past 64 rows: the same partials */
+    /* a context shorter than the chunk plans for the context */
+    const ds4_context_memory s = ds4_context_memory_estimate_with_prefill_mode(DS4_BACKEND_METAL, 300, 0, false);
+    CHECK(s.prefill_cap == 300 && s.scratch_bytes == 300 * expect_per_row() + expect_fixed(300));
+
+    mellum_req reqs[MELLUM_MAX_REQS];
+    const uint32_t n = mellum_requests(20000, 1024, reqs);
+    uint32_t k = 0, v = 0, tags = 0, scratch = 0, logits = 0;
+    uint64_t moe = 0;
+    for (uint32_t i = 0; i < n; i++) {
+        switch (reqs[i].kind) {
+        case MELLUM_REQ_K: k++; break;
+        case MELLUM_REQ_V: v++; break;
+        case MELLUM_REQ_TAG: tags++; CHECK(reqs[i].bytes == T_RING * 4u); break;
+        case MELLUM_REQ_SCRATCH: scratch++; break;
+        case MELLUM_REQ_LOGITS: logits++; break;
+        }
+        if (reqs[i].cls == MELLUM_CLASS_MOE) moe += reqs[i].bytes;
+    }
+    CHECK(k == 28 && v == 28 && tags == 21 && scratch == MELLUM_SCRATCH_COUNT && logits == 1);
+    /* the per-expert partial outputs are in the table, and counted */
+    CHECK(moe > 72ull * 1024 * 1024);
+    for (uint32_t i = 0; i < n; i++) {
+        if (reqs[i].kind == MELLUM_REQ_K && ds4_mellum_layer_is_sliding(reqs[i].index)) {
+            CHECK(reqs[i].bytes == (uint64_t)T_RING * T_KVDIM * 2u);       /* a ring */
+        } else if (reqs[i].kind == MELLUM_REQ_K) {
+            CHECK(reqs[i].index % 4 == 3 && reqs[i].bytes == 20000ull * T_KVDIM * 2u);   /* full */
+        }
+    }
+    printf("ok   plan scales with cap_tokens; 28 K + 28 V + 21 tags + %u scratch + logits\n", (unsigned)MELLUM_SCRATCH_COUNT);
+}
+
+/* The chunk clamp.  DS4_QWEN4_PREFILL_CHUNK reaches the plan through qwen4_prefill_chunk_tokens
+ * in a GPU build and through mellum_prefill_cap here; the host's chunk reaches the estimate as
+ * its argument and the engine as e->prefill_chunk. */
+static const char *g_chunk_env;
+static uint32_t g_chunk_arg;
+
+static int count_str(const char *hay, const char *needle) {
+    int n = 0;
+    for (const char *p = hay; (p = strstr(p, needle)) != NULL; p += strlen(needle)) n++;
+    return n;
+}
+
+static void child_plan_chunk(const char *path) {
+    (void)path;
+    if (g_chunk_env) setenv("DS4_QWEN4_PREFILL_CHUNK", g_chunk_env, 1);
+    const ds4_context_memory m = ds4_context_memory_estimate_with_prefill_mode(DS4_BACKEND_METAL, 20000, g_chunk_arg, false);
+    /* a second and a third reader: the clamp message must still be one line */
+    (void)ds4_context_memory_estimate_with_prefill_mode(DS4_BACKEND_METAL, 20000, g_chunk_arg, false);
+    (void)mellum_prefill_cap(20000, g_chunk_arg);
+    _exit(m.prefill_cap == 1024 ? 40 : (m.prefill_cap == 512 ? 41 : 42));
+}
+
+static int run_plan_chunk(const char *env, uint32_t arg, char *err, size_t cap) {
+    g_chunk_env = env;
+    g_chunk_arg = arg;
+    return run_child(child_plan_chunk, "", err, cap);
+}
+
+static void child_open_chunk(const char *path) {
+    ds4_engine *e = NULL;
+    ds4_engine_options opt;
+    memset(&opt, 0, sizeof(opt));
+    opt.model_path = path;
+    opt.backend = DS4_BACKEND_CPU;
+    opt.context_size = 4096;
+    opt.inspect_only = true;
+    opt.prefill_chunk = g_chunk_arg;
+    if (ds4_engine_open(&e, &opt) != 0) _exit(7);
+    _exit(ds4_engine_prefill_chunk(e) == 1024 ? 40 : (ds4_engine_prefill_chunk(e) == 512 ? 41 : 42));
+}
+
+static void check_mellum_chunk_clamp(void) {
+    char err[4096];
+    const char *say = "Mellum prefill chunk 4096 clamped to 1024";
+
+    /* the env value: 4096 is used as 1024, and one line says so */
+    CHECK(run_plan_chunk("4096", 0, err, sizeof(err)) == 40);
+    CHECK(count_str(err, say) == 1);
+    /* the host-passed value, which the estimate and session create read directly */
+    CHECK(run_plan_chunk(NULL, 4096, err, sizeof(err)) == 40);
+    CHECK(count_str(err, say) == 1);
+    /* the largest value the env accepts */
+    CHECK(run_plan_chunk("65536", 0, err, sizeof(err)) == 40);
+    CHECK(count_str(err, "clamped to 1024") == 1);
+    /* sibling success: a chunk at or under the window is used as asked and says nothing */
+    CHECK(run_plan_chunk("512", 0, err, sizeof(err)) == 41);
+    CHECK(strstr(err, "clamped") == NULL);
+    CHECK(run_plan_chunk(NULL, 512, err, sizeof(err)) == 41);
+    CHECK(strstr(err, "clamped") == NULL);
+    CHECK(run_plan_chunk("1024", 0, err, sizeof(err)) == 40);
+    CHECK(strstr(err, "clamped") == NULL);
+    CHECK(run_plan_chunk(NULL, 0, err, sizeof(err)) == 40);        /* the default */
+    CHECK(strstr(err, "clamped") == NULL);
+
+    /* engine open: the chunk the host passes is clamped where it is stored */
+    char path[512];
+    mellum_fixture_write(MF_NONE, path, sizeof(path));
+    g_chunk_arg = 4096;
+    CHECK(run_child(child_open_chunk, path, err, sizeof(err)) == 40);
+    CHECK(count_str(err, say) == 1);
+    g_chunk_arg = 512;
+    CHECK(run_child(child_open_chunk, path, err, sizeof(err)) == 41);
+    CHECK(strstr(err, "clamped") == NULL);
+    unlink(path);
+    printf("ok   chunk 4096 (env, host argument, engine open) used as 1024 with one line; 512 and 1024 untouched\n");
+}
+
+/* The clamp line is per engine: a /model reopen in the same process says it again. */
+static void child_open_twice(const char *path) {
+    for (int i = 0; i < 2; i++) {
+        ds4_engine *e = NULL;
+        ds4_engine_options opt;
+        memset(&opt, 0, sizeof(opt));
+        opt.model_path = path;
+        opt.backend = DS4_BACKEND_CPU;
+        opt.context_size = 4096;
+        opt.inspect_only = true;
+        opt.prefill_chunk = 4096;
+        if (ds4_engine_open(&e, &opt) != 0) _exit(7);
+        ds4_engine_close(e);
+    }
+    _exit(40);
+}
+
+static void check_mellum_clamp_per_engine(void) {
+    char path[512], err[8192];
+    mellum_fixture_write(MF_NONE, path, sizeof(path));
+    CHECK(run_child(child_open_twice, path, err, sizeof(err)) == 40);
+    CHECK(count_str(err, "Mellum prefill chunk 4096 clamped to 1024") == 2);
+    unlink(path);
+    printf("ok   the clamp line is per engine (two opens, two lines)\n");
+}
+
+/* Full attention's two scratch buffers, from the dims and not from the table's own formula.
+ * The rows table has one region per full layer, because the CPU writes
+ * the table when a layer is encoded and the GPU reads it when the command buffer runs, so two full layers of
+ * one command buffer cannot share entries; the partials are shared (each layer's kernels finish with them). */
+static void check_mellum_attention_scratch(void) {
+    static const uint32_t caps[] = {1, 63, 64, 100, 1024};
+    uint32_t n_full = 0;
+    for (uint32_t il = 0; il < 28; il++) n_full += il % 4 == 3;
+    CHECK(n_full == 7);
+    for (size_t c = 0; c < sizeof(caps) / sizeof(caps[0]); c++) {
+        mellum_req reqs[MELLUM_MAX_REQS];
+        const uint32_t n = mellum_requests(20000, caps[c], reqs);
+        int tables = 0, parts = 0;
+        for (uint32_t i = 0; i < n; i++) {
+            if (reqs[i].kind != MELLUM_REQ_SCRATCH) continue;
+            if (reqs[i].index == MELLUM_S_ATTN_TABLE) {
+                tables++;
+                CHECK(reqs[i].bytes == (uint64_t)n_full * caps[c] * 64u && reqs[i].cls == MELLUM_CLASS_PREFILL);
+            }
+            if (reqs[i].index == MELLUM_S_ATTN_PART) {
+                parts++;
+                CHECK(reqs[i].bytes == expect_attn_part(caps[c]) && reqs[i].cls == MELLUM_CLASS_PREFILL);
+            }
+        }
+        CHECK(tables == 1 && parts == 1);
+    }
+    /* at the default chunk: 7 x 1,024 x 64 B = 448 KiB, and 65.0 MiB of partials */
+    mellum_req reqs[MELLUM_MAX_REQS];
+    const uint32_t n = mellum_requests(20000, 1024, reqs);
+    for (uint32_t i = 0; i < n; i++) {
+        if (reqs[i].kind == MELLUM_REQ_SCRATCH && reqs[i].index == MELLUM_S_ATTN_TABLE) CHECK(reqs[i].bytes == 458752ull);
+        if (reqs[i].kind == MELLUM_REQ_SCRATCH && reqs[i].index == MELLUM_S_ATTN_PART) CHECK(reqs[i].bytes == 68157440ull);
+    }
+    printf("ok   full attention scratch: rows table 7 x cap x 64 B, partials min(cap, 64) rows (448 KiB and 65.0 MiB at 1,024)\n");
+}
+
+static void check_mellum_plan(void) {
+    char path[512];
+    mellum_fixture_write(MF_NONE, path, sizeof(path));
+    ds4_model m;
+    model_open(&m, path, false, false);
+    config_validate_model(&m);
+    CHECK(ds4_model_is_mellum() && DS4_N_VOCAB == 98304 && DS4_N_SWA == T_RING);
+    check_mellum_plan_sums();
+    check_mellum_plan_scales_with_chunk();
+    model_close(&m);
+    unlink(path);
+    check_mellum_chunk_clamp();
+    check_mellum_clamp_per_engine();
+    check_mellum_attention_scratch();
 }
 
 /* With DS4_TEST_MELLUM_MODEL, the real GGUF passes the same validation and
@@ -263,7 +586,12 @@ int main(void) {
     expect_refused(MF_NO_OUTPUT_NORM, "output_norm.weight", "no output_norm");
     expect_refused(MF_NO_ATTN_Q_NORM, "blk.5.attn_q_norm.weight", "no attn_q_norm in layer 5");
     expect_refused(MF_BAD_ATTN_Q_DIM, "blk.5.attn_q.weight", "attn_q of the wrong width");
-    check_open_refused();
+    expect_open(DS4_BACKEND_CPU, false, true, "CPU backend refused, naming Mellum");
+    expect_open(DS4_BACKEND_CUDA, false, true, "CUDA backend refused, naming Mellum");
+    expect_open(DS4_BACKEND_CPU, true, false, "inspect-only open succeeds");
+    check_mellum_steering_refused();
+    check_mellum_plan();
+    check_memory_plan();
     check_real_model();
     printf("test-mellum-config: ok\n");
     return 0;

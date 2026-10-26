@@ -442,6 +442,125 @@ cleanup:
     test_restore_env("DS4_QWEN4_PREFILL_CHUNK", saved_chunk);
 }
 
+/* Mellum's session allocation, on the real 2.1 GGUF (DS4_TEST_MELLUM_MODEL;
+ * skipped without it).  The allocator prints "mellum: session allocated N
+ * bytes, planned M bytes" at create; N is the sum of the bytes it requested,
+ * M the estimate the startup line reports.  They must be equal at every
+ * context, with the chunk the host passes clamped to the window, Metal's own
+ * tally of live tensors must move by N and come back, and every forward entry
+ * must refuse by name until the forward pass is ported. */
+typedef struct { FILE *tmp; int saved; } test_stderr_capture;
+
+static test_stderr_capture test_stderr_begin(void) {
+    test_stderr_capture c = {0};
+    fflush(stderr);
+    c.tmp = tmpfile();
+    TEST_ASSERT(c.tmp != NULL);
+    c.saved = dup(2);
+    TEST_ASSERT(c.saved >= 0);
+    TEST_ASSERT(dup2(fileno(c.tmp), 2) >= 0);
+    return c;
+}
+
+/* Restores stderr and returns what was written (NUL-terminated, caller frees). */
+static char *test_stderr_end(test_stderr_capture c) {
+    fflush(stderr);
+    dup2(c.saved, 2);
+    close(c.saved);
+    const long n = ftell(c.tmp);
+    char *text = xmalloc((size_t)(n > 0 ? n : 0) + 1);
+    rewind(c.tmp);
+    const size_t got = n > 0 ? fread(text, 1, (size_t)n, c.tmp) : 0;
+    text[got] = '\0';
+    fclose(c.tmp);
+    return text;
+}
+
+/* Metal's own count of live tensor bytes (its allocator's tally, not the
+ * session's), through the memory report, at the report's 0.01 MiB resolution. */
+static double test_live_tensor_mib(void) {
+    test_stderr_capture c = test_stderr_begin();
+    ds4_gpu_print_memory_report("mellum-session");
+    char *text = test_stderr_end(c);
+    double mib = -1.0;
+    const char *p = strstr(text, "runtime tensors live ");
+    if (p) sscanf(p, "runtime tensors live %lf MiB", &mib);
+    free(text);
+    TEST_ASSERT(mib >= 0.0);
+    return mib;
+}
+
+static bool test_capture_session_line(ds4_engine *engine, uint32_t ctx, uint64_t *allocated, uint64_t *planned) {
+    const double live0 = test_live_tensor_mib();
+    test_stderr_capture c = test_stderr_begin();
+    ds4_session *s = NULL;
+    const int rc = ds4_session_create(&s, engine, (int)ctx);
+    char *text = test_stderr_end(c);
+    TEST_ASSERT(rc == 0 && s != NULL);
+    unsigned long long a = 0, p = 0;
+    const char *line = strstr(text, "mellum: session allocated ");
+    const bool found = line && sscanf(line, "mellum: session allocated %llu bytes, planned %llu bytes", &a, &p) == 2;
+    free(text);
+    const double live1 = test_live_tensor_mib();
+    TEST_ASSERT(fabs((live1 - live0) - (double)a / 1048576.0) < 0.015);
+    /* the forward entries refuse by name: a sync and an eval */
+    {
+        ds4_tokens prompt = {0};
+        ds4_tokens_push(&prompt, 27);
+        char err[256] = {0};
+        TEST_ASSERT(ds4_session_sync(s, &prompt, err, sizeof(err)) != 0 && strstr(err, "Mellum 2.1"));
+        err[0] = '\0';
+        TEST_ASSERT(ds4_session_eval(s, 27, err, sizeof(err)) != 0 && strstr(err, "Mellum 2.1"));
+        ds4_tokens_free(&prompt);
+    }
+    ds4_session_free(s);
+    const double live2 = test_live_tensor_mib();
+    TEST_ASSERT(fabs(live2 - live0) < 0.015);
+    *allocated = a;
+    *planned = p;
+    return found;
+}
+
+static void test_mellum_session_allocation(void) {
+    const char *model = getenv("DS4_TEST_MELLUM_MODEL");
+    if (!model || !model[0]) {
+        puts("mellum-session: DS4_TEST_MELLUM_MODEL unset, skipped");
+        return;
+    }
+    static const uint32_t ctxs[] = {20000, 65536, 131072};
+    /* the chunk arrives three ways: the host's --prefill-chunk, DS4_QWEN4_PREFILL_CHUNK, neither */
+    static const struct { const char *name; uint32_t host; const char *env; uint32_t used; } arms[] = {
+        {"default", 0, NULL, 1024}, {"host 4096", 4096, NULL, 1024}, {"env 4096", 0, "4096", 1024},
+        {"host 512", 512, NULL, 512},
+    };
+    for (size_t a = 0; a < sizeof(arms) / sizeof(arms[0]); a++) {
+        for (size_t i = 0; i < sizeof(ctxs) / sizeof(ctxs[0]); i++) {
+            if (arms[a].env) setenv("DS4_QWEN4_PREFILL_CHUNK", arms[a].env, 1);
+            ds4_engine *engine = NULL;
+            ds4_engine_options opt = {
+                .model_path = model,
+                .backend = DS4_BACKEND_METAL,
+                .context_size = (int)ctxs[i],
+                .prefill_chunk = arms[a].host,
+            };
+            TEST_ASSERT(ds4_engine_open(&engine, &opt) == 0);
+            if (!engine) { unsetenv("DS4_QWEN4_PREFILL_CHUNK"); return; }
+            TEST_ASSERT(ds4_engine_prefill_chunk(engine) == (arms[a].host ? arms[a].used : 0u));
+            uint64_t allocated = 0, planned = 0;
+            TEST_ASSERT(test_capture_session_line(engine, ctxs[i], &allocated, &planned));
+            const ds4_context_memory plan = ds4_context_memory_estimate_with_prefill_mode(
+                DS4_BACKEND_METAL, (int)ctxs[i], ds4_engine_prefill_chunk(engine), false);
+            TEST_ASSERT(planned == plan.total_bytes);
+            TEST_ASSERT(allocated == planned);
+            TEST_ASSERT(plan.prefill_cap == arms[a].used);
+            printf("mellum-session: ctx %u chunk %s allocated %llu planned %llu\n", ctxs[i],
+                   arms[a].name, (unsigned long long)allocated, (unsigned long long)planned);
+            ds4_engine_close(engine);
+            unsetenv("DS4_QWEN4_PREFILL_CHUNK");
+        }
+    }
+}
+
 static void test_qwen_restore_reused_session(void) {
     ds4_engine *engine = test_get_engine(false);
     if (!engine || !ds4_engine_is_qwen4(engine) || !test_env_bool("DS4_TEST_GLM_MTP")) {
@@ -7324,6 +7443,7 @@ typedef struct {
 static const ds4_test_entry test_entries[] = {
 #ifndef DS4_NO_GPU
     {"--qwen4-prefill-checkpoints", "qwen4-prefill-checkpoints", "Qwen chunk checkpoints restore matching logits and state", test_qwen_prefill_checkpoints},
+    {"--mellum-session", "mellum-session", "Mellum session allocation equals its plan (DS4_TEST_MELLUM_MODEL)", test_mellum_session_allocation},
     {"--qwen4-restore-reuse", "qwen4-restore-reuse", "Qwen restore discards old verifier state and rejects truncated payloads", test_qwen_restore_reused_session},
     {"--session-snapshot", "session-snapshot", "session snapshot and recurrent-state round trip", test_session_snapshot_roundtrip},
     {"--session-rewind", "session-rewind", "Qwen3.8 rewind by snapshot restore and by replay", test_session_rewind_replay},
