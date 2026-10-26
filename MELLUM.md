@@ -7,13 +7,16 @@ from the model's training, and what is not covered.
 
 ## Status
 
-Phases 1 (recognize and load) and 2 (text) are done: a `mellum` GGUF is
-detected, validated, bound and planned, and a Metal session can be created;
-the `mellum2` pre-tokenizer, the stop classes, the chat prefix and the sampling
-defaults match the model's own tokenizer and template. The forward pass is not
-ported, so every forward entry refuses by name, session save/load refuses by
-name, and ds4-server and ds4-agent refuse a Mellum engine at startup (no
-Hermes tool syntax yet).
+Phases 1 (recognize and load), 2 (text) and 3a up to the oracle (steps 15-20)
+are done: a `mellum` GGUF is detected, validated, bound and planned; the
+`mellum2` pre-tokenizer, the stop classes, the chat prefix and the sampling
+defaults match the model's own tokenizer and template; the Metal forward pass
+gives logits byte-identical to the old port's on three prompts in prefill and
+decode, and 64 equal greedy tokens (Checkpoint 2). The forward pass is reachable
+only from the trace driver (`tests/mellum_trace`, while `DS4_MELLUM_TRACE` is
+set): every other forward entry still refuses by name until step 22. Session
+save/load refuses by name, and ds4-server and ds4-agent refuse a Mellum engine
+at startup (no Hermes tool syntax yet).
 
 Model-free tests: `make test-mellum`. With `DS4_TEST_MELLUM_MODEL` set,
 `./tests/test_mellum_config` also validates, binds and renders against the real
@@ -67,12 +70,23 @@ Phase 2:
   server (step 13).
 - `a74bafe` session save and load refuse Mellum by name (step 14).
 
+Phase 3a (forward pass on Metal, identical to the old engine):
+- `f58b776` q/k norm and RoPE kernel, YaRN on full layers only (step 15).
+- `bb2a2f3` ring commit and sliding-window attention kernels (step 16).
+- `f0332e3` ungated full attention on upstream's qwen4 decode kernels (step 17).
+- `2712e56` MoE, top-8 of 64 routed experts, no shared expert (step 18).
+- `b3f9897` the forward pass behind `DS4_MELLUM_TRACE`, and its trace driver (step 19).
+- `f86c6b4`, this commit: the oracle's token files and comparison script (step 20).
+
 ## Measured
 
 | what | command | result | n |
 |---|---|---|---|
 | tokenizer ids vs the model's own tokenizer, 30 strings | `DS4_TEST_MELLUM_MODEL=... ./tests/test_mellum_tokenizer` | 30/30 equal | 1 |
 | chat renders vs the model's own template, 3 conversations + 2 prefixes | `DS4_TEST_MELLUM_MODEL=... ./tests/test_mellum_config` | all equal | 1 |
+| forward pass vs the old port (`refs/old/mellum21-stage1`), session logits | `tests/mellum_oracle_compare.sh ORACLE_DIR $MODEL 64` | byte-equal (`cmp`) on 29, 1,100 and 2,200 templated tokens, prefill and decode; prefill equals decode in this engine on all three; 64 of 64 greedy tokens equal, with equal logits at each step | 1 |
+| Metal kernels vs double references | `make test-mellum-kernels` | 379 checks, 0 failures | 1 |
+| MoE on real layers 0/13/27 vs double | `DS4_TEST_MELLUM_MODEL=... ./ds4_test --mellum-moe` | same experts selected; weights 1.7e-7, output 3.4e-7 | 1 |
 | session bytes allocated vs planned, Q8_0 GGUF | `DS4_TEST_MELLUM_MODEL=... ./ds4_test --mellum-session` | equal at ctx 20,000 / 65,536 / 131,072 for chunks 1,024 and 512 (601,513,984 / 1,254,318,080 / 2,193,842,176 bytes at chunk 1,024) | 1 |
 
 ## Backends covered
