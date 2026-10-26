@@ -3769,6 +3769,46 @@ int ds4_gpu_mellum_attn_full_rows_tensor(
         ds4_gpu_tensor *table, uint64_t entry0, ds4_gpu_tensor *part,
         uint32_t n_rows, uint32_t pos0, uint32_t n_head, uint32_t n_head_kv, uint32_t head_dim, float scale);
 
+/* Mellum 2.1's FFN for n_tokens rows, the routed experts only: no shared
+ * expert and no hyper-connection, so no tensor and no offset for either exists
+ * in this interface.  Five ops, each over all rows and none batching rows
+ * into a shared tile, so a row's arithmetic does not depend on n_tokens:
+ *   1. logits = F32 router row dots (ds4_gpu_qwen4_multi_gemv_tensor, type 0)
+ *   2. softmax over all n_expert, top n_used (a tie goes to the lower index),
+ *      weights renormalized to sum to 1 (ds4_gpu_qwen4_router_topk_tensor,
+ *      in_dim 0: no shared gate logit); selected and weights are ordered by
+ *      descending probability
+ *   3. mid[t][s] = silu(gate_row . x) * (up_row . x) for the selected expert
+ *   4. part[t][s] = down_row . mid[t][s]
+ *   5. out[t] = sum_s weights[t][s] * part[t][s], in slot order
+ * Shapes (all f32 unless noted): x and out [n_tokens][n_embd]; logits
+ * [n_tokens][n_expert]; selected int32 and weights [n_tokens][n_used]; mid
+ * [n_tokens][n_used][ff_dim]; part [n_tokens][n_used][n_embd].  The router is
+ * F32 [n_expert][n_embd]; the experts are Q8_0 (expert_type 8), gate and up
+ * [n_expert][ff_dim][n_embd], down [n_expert][n_embd][ff_dim], each expert
+ * contiguous.  Every offset is into model_map.  Checked before the first
+ * dispatch (a refused call writes nothing): sizes, ranges (overflow-safe),
+ * expert_type, n_embd % 128 == 0 (the router's row dot), ff_dim % 32 == 0,
+ * 1 <= n_used <= min(n_expert, 16), n_expert <= 512.  Uses no scratch of its
+ * own: every buffer is the caller's. */
+typedef struct {
+    uint32_t n_embd;       /* 2304 */
+    uint32_t n_expert;     /* 64 */
+    uint32_t n_used;       /* 8 */
+    uint32_t ff_dim;       /* 896 */
+    uint32_t expert_type;  /* 8: Q8_0 */
+    uint32_t pad0;
+    uint64_t router_offset;
+    uint64_t gate_offset;
+    uint64_t up_offset;
+    uint64_t down_offset;
+} ds4_gpu_mellum_moe;
+
+int ds4_gpu_mellum_moe_tensor(
+        ds4_gpu_tensor *out, const ds4_gpu_tensor *x, ds4_gpu_tensor *logits,
+        ds4_gpu_tensor *selected, ds4_gpu_tensor *weights, ds4_gpu_tensor *mid, ds4_gpu_tensor *part,
+        const void *model_map, uint64_t model_size, const ds4_gpu_mellum_moe *p, uint32_t n_tokens);
+
 #ifdef __cplusplus
 }
 #endif

@@ -799,7 +799,7 @@ ds4_web.o: ds4_web.c ds4_web.h
 ds4_kvstore.o: ds4_kvstore.c ds4_kvstore.h ds4.h ds4_ssd.h
 	$(CC) $(CFLAGS) -c -o $@ ds4_kvstore.c
 
-ds4_test.o: tests/ds4_test.c ds4_server.c ds4.h ds4_image.h ds4_ssd.h ds4_distributed.h ds4_help.h ds4_kvstore.h rax.h
+ds4_test.o: tests/ds4_test.c tests/mellum_moe_ref.inc ds4_server.c ds4.h ds4_image.h ds4_ssd.h ds4_distributed.h ds4_help.h ds4_kvstore.h rax.h
 	$(CC) $(CFLAGS) -Wno-unused-function -c -o $@ tests/ds4_test.c
 
 ds4_agent_test.o: tests/ds4_agent_test.c ds4_agent.c ds4.h ds4_ssd.h ds4_distributed.h ds4_tp.h ds4_help.h ds4_prompt_prefix.h ds4_kvstore.h ds4_web.h linenoise.h
@@ -893,7 +893,7 @@ $(QWEN4_KERNEL_TEST): tests/test_qwen4_kernels.o ds4_metal.o ds4_image.o
 	$(CC) $(CFLAGS) -o $@ $^ $(METAL_LDLIBS)
 
 # Mellum's model-free Metal kernel tests: no model, no session.
-tests/test_mellum_kernels.o: tests/test_mellum_kernels.c ds4_gpu.h ds4.h
+tests/test_mellum_kernels.o: tests/test_mellum_kernels.c tests/mellum_moe_ref.inc ds4_gpu.h ds4.h
 	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -I. -c -o $@ tests/test_mellum_kernels.c
 
 $(MELLUM_KERNEL_TEST): tests/test_mellum_kernels.o ds4_metal.o ds4_image.o

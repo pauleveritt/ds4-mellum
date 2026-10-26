@@ -60424,6 +60424,44 @@ static bool qwen4_graph_moe(ds4_qwen4_gpu_graph *g, const ds4_model *m, const ds
     return ok;
 }
 
+/* Mellum's FFN for the T rows of the FFN_NORM scratch, into MOE_OUT (the caller adds the residual): F32 router,
+ * softmax over all 64, top 8 renormalized, Q8_0 SwiGLU experts, weighted sum.  It is not qwen4_graph_moe, which
+ * reads ffn_gate_inp_shexp and the shared expert unconditionally and folds the hyper-connection combine into its
+ * reduce.  Mellum's layer has none of those tensors; this binds only the router and the three expert tensors, and
+ * the buffers are the MoE entries of mellum_requests, so the plan counts what the driver uses.  The ops are
+ * ds4_gpu_mellum_moe_tensor's (contract in ds4_gpu.h): none of them tiles rows together, so a row's bits do not
+ * depend on T. */
+static DS4_MAYBE_UNUSED bool mellum_graph_moe(ds4_qwen4_gpu_graph *g, const ds4_model *m, const ds4_layer_weights *l, uint32_t T) {
+#if !defined(__APPLE__)
+    (void)g; (void)m; (void)l; (void)T;
+    return false;
+#else
+    if (!g || !m || !l || T == 0 || T > g->cap_tokens || !l->ffn_gate_inp || !l->ffn_gate_exps || !l->ffn_up_exps ||
+        !l->ffn_down_exps || l->ffn_gate_inp->type != DS4_TENSOR_F32 || l->ffn_gate_exps->type != DS4_TENSOR_Q8_0 ||
+        l->ffn_up_exps->type != DS4_TENSOR_Q8_0 || l->ffn_down_exps->type != DS4_TENSOR_Q8_0) {
+        return false;
+    }
+    ds4_gpu_mellum_moe p;
+    memset(&p, 0, sizeof(p));
+    p.n_embd = DS4_N_EMBD;
+    p.n_expert = DS4_N_EXPERT;
+    p.n_used = DS4_N_EXPERT_USED;
+    p.ff_dim = DS4_N_FF_EXP;
+    p.expert_type = DS4_TENSOR_Q8_0;
+    p.router_offset = l->ffn_gate_inp->abs_offset;
+    p.gate_offset = l->ffn_gate_exps->abs_offset;
+    p.up_offset = l->ffn_up_exps->abs_offset;
+    p.down_offset = l->ffn_down_exps->abs_offset;
+    ds4_gpu_tensor *const *s = g->mellum_scratch;
+    const bool ok = ds4_gpu_mellum_moe_tensor(s[MELLUM_S_MOE_OUT], s[MELLUM_S_FFN_NORM], s[MELLUM_S_ROUTER_LOGITS],
+                                              s[MELLUM_S_SELECTED], s[MELLUM_S_WEIGHTS], s[MELLUM_S_MID],
+                                              s[MELLUM_S_PARTIAL], m->map, m->size, &p, T) != 0;
+    if (!ok) fprintf(stderr, "ds4: Mellum MoE failed (T=%u)\n", T);
+    return ok;
+#endif
+}
+
+
 /* host side: embedding rows tiled into R and the PLE n-gram gather */
 static bool qwen4_graph_stage_inputs(ds4_qwen4_gpu_graph *g, const ds4_model *m, const ds4_weights *w,
                                      const int *tokens, uint32_t T) {
@@ -88442,5 +88480,56 @@ bool ds4_test_dspark_prefix_capture(ds4_engine *engine, const ds4_tokens *prompt
     ds4_session_free(spec);
     ds4_session_free(ref);
     return ok;
+}
+/* For tests/ds4_test.c --mellum-moe: where one real layer's FFN weights are, found by their GGUF names and not
+ * through the layer struct mellum_graph_moe reads (so a test's reference does not share the driver's binding),
+ * and false if the layer has a shared-expert tensor. */
+bool ds4_test_mellum_moe_weights(ds4_engine *engine, uint32_t layer, const void **map,
+                                 uint64_t *router, uint64_t *gate, uint64_t *up, uint64_t *down) {
+    if (!engine || !ds4_model_is_mellum() || layer >= DS4_N_LAYER) return false;
+    const ds4_model *m = &engine->model;
+    const ds4_tensor *r = tensor_by_namef(m, "blk.%u.ffn_gate_inp.weight", layer);
+    const ds4_tensor *g = tensor_by_namef(m, "blk.%u.ffn_gate_exps.weight", layer);
+    const ds4_tensor *u = tensor_by_namef(m, "blk.%u.ffn_up_exps.weight", layer);
+    const ds4_tensor *d = tensor_by_namef(m, "blk.%u.ffn_down_exps.weight", layer);
+    if (!r || !g || !u || !d || tensor_by_namef(m, "blk.%u.ffn_gate_inp_shexp.weight", layer) ||
+        tensor_by_namef(m, "blk.%u.ffn_gate_shexp.weight", layer)) {
+        return false;
+    }
+    *map = m->map;
+    *router = r->abs_offset;
+    *gate = g->abs_offset;
+    *up = u->abs_offset;
+    *down = d->abs_offset;
+    return true;
+}
+
+/* mellum_graph_moe on T host rows through one real layer: out [T][n_embd], selected [T][n_used], weights
+ * [T][n_used]; then row 0 alone (T = 1) into out1 [n_embd].  A graph for this call only. */
+bool ds4_test_mellum_moe(ds4_engine *engine, uint32_t layer, const float *x, uint32_t T,
+                         float *out, float *out1, int32_t *selected, float *weights) {
+#if defined(__APPLE__)
+    if (!engine || !ds4_model_is_mellum() || layer >= DS4_N_LAYER || T == 0 || T > DS4_N_SWA) return false;
+    ds4_qwen4_gpu_graph g;
+    memset(&g, 0, sizeof(g));   /* qwen4_graph_alloc zeroes the graph before it allocates */
+    if (!mellum_graph_alloc(&g, DS4_N_SWA, T)) return false;
+    ds4_gpu_tensor *const *s = g.mellum_scratch;
+    const ds4_layer_weights *l = &engine->weights.layer[layer];
+    const uint64_t E = DS4_N_EMBD, K = DS4_N_EXPERT_USED;
+    const bool ok =
+        ds4_gpu_tensor_write(s[MELLUM_S_FFN_NORM], 0, x, (uint64_t)T * E * sizeof(float)) &&
+        mellum_graph_moe(&g, &engine->model, l, T) &&
+        ds4_gpu_tensor_read(s[MELLUM_S_MOE_OUT], 0, out, (uint64_t)T * E * sizeof(float)) &&
+        ds4_gpu_tensor_read(s[MELLUM_S_SELECTED], 0, selected, (uint64_t)T * K * sizeof(int32_t)) &&
+        ds4_gpu_tensor_read(s[MELLUM_S_WEIGHTS], 0, weights, (uint64_t)T * K * sizeof(float)) &&
+        ds4_gpu_tensor_write(s[MELLUM_S_FFN_NORM], 0, x, E * sizeof(float)) &&
+        mellum_graph_moe(&g, &engine->model, l, 1) &&
+        ds4_gpu_tensor_read(s[MELLUM_S_MOE_OUT], 0, out1, E * sizeof(float));
+    qwen4_graph_free(&g);
+    return ok;
+#else
+    (void)engine; (void)layer; (void)x; (void)T; (void)out; (void)out1; (void)selected; (void)weights;
+    return false;
+#endif
 }
 #endif

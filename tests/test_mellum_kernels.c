@@ -6,7 +6,8 @@
  * and YaRN on full layers.  The reference is llama.cpp's YaRN formulas
  * (rope_yarn_corr_dims and the ramp blend) in double.  Then attention: the
  * sliding window over a ring, the ring commit, and the full layers' ungated
- * attention on upstream's qwen4 decode kernels. */
+ * attention on upstream's qwen4 decode kernels.  Then the MoE: top-8 of 64
+ * routed experts, no shared expert. */
 
 #include <math.h>
 #include <stdbool.h>
@@ -1197,6 +1198,626 @@ static void test_full_refusals(void) {
     ds4_gpu_tensor_free(part); ds4_gpu_tensor_free(table); ds4_gpu_tensor_free(small);
 }
 
+
+/* ======================================================================
+ * The MoE driver (ds4_gpu_mellum_moe_tensor).
+ *
+ * Mellum's FFN at its real shape: F32 router 2304 -> 64, softmax over all 64,
+ * top 8 (ties to the lower index), renormalize the eight, SwiGLU Q8_0 experts
+ * of width 896, weighted sum, and no shared expert.  The reference is the
+ * model's router and MoE in double (tests/mellum_moe_ref.inc), reading the same
+ * Q8_0 bytes the kernels read.  The weight arena is poisoned:
+ * every byte no declared tensor owns is 0xFF, which is NaN as an f32 and as an
+ * f16 scale, so a read of a shared-expert tensor or a stray offset makes the
+ * output NaN instead of quietly wrong.
+ * ====================================================================== */
+
+#include "mellum_moe_ref.inc"
+
+/* f32 accumulation over 2,304 and 896 terms against a double reference on the same bytes.  Ten times the worst
+ * measured (output 7.4e-07 at T=64; weights 2.2e-07), not a derived bound. */
+#define MOE_TOL 1e-5
+#define MOE_W_TOL 2.5e-6
+
+typedef struct {
+    uint8_t *base;
+    uint64_t size, used;
+    uint64_t router;      /* random f32 [64][2304] */
+    uint64_t router_tie;  /* rows built from one x: logits are chosen, 10 and 40 tie at the 8th/9th place */
+    uint64_t router_near; /* the same, with expert 40 above expert 10 by 1e-3 */
+    uint64_t gate, up, down;
+    /* declared and poisoned: a shared-expert input gate and gate/up/down rows; the driver must never read them */
+    uint64_t sh_gate_inp, sh_gate, sh_up, sh_down;
+    float x0[MREF_E];      /* the input the tie routers are built for */
+} moe_arena_t;
+
+static uint64_t g_rng64 = 0x2545F4914F6CDD1Dull;
+
+static uint64_t rng64(void) {
+    g_rng64 ^= g_rng64 << 13;
+    g_rng64 ^= g_rng64 >> 7;
+    g_rng64 ^= g_rng64 << 17;
+    return g_rng64;
+}
+
+static uint64_t moe_take(moe_arena_t *a, uint64_t bytes) {
+    const uint64_t off = (a->used + 255u) & ~255ull;
+    require_ok(off + bytes <= a->size, "moe arena");
+    a->used = off + bytes;
+    return off;
+}
+
+/* random Q8_0 blocks: scale in 2e-4 .. 8e-4 (f16), quants in -127..127, so a weight is about 0.03 and a
+ * 2,304-term dot of unit-variance inputs is about 1.5 */
+static void fill_q8(uint8_t *dst, uint64_t n_blocks) {
+    for (uint64_t i = 0; i < n_blocks; i++) {
+        uint8_t *b = dst + i * MREF_Q8_BLOCK_BYTES;
+        const __fp16 d = (__fp16)(0.0002f + 0.00004f * (float)(rng64() & 15u));
+        memcpy(b, &d, 2);
+        for (uint32_t j = 0; j < 32u; j += 8u) {
+            const uint64_t v = rng64();
+            for (uint32_t k = 0; k < 8u; k++) {
+                int q = (int)((v >> (8u * k)) & 0xffu) - 128;
+                if (q < -127) q = -127;
+                b[2u + j + k] = (uint8_t)(int8_t)q;
+            }
+        }
+    }
+}
+
+static void fill_router_random(float *w, float amp) {
+    for (uint64_t i = 0; i < (uint64_t)MREF_NEXP * MREF_E; i++) w[i] = amp * frand();
+}
+
+/* A router whose logit for expert e is alpha[e] on input x0: row e = alpha[e] * x0 / |x0|^2 */
+static void fill_router_for(float *w, const float *x0, const float *alpha) {
+    double n2 = 0.0;
+    for (uint32_t i = 0; i < MREF_E; i++) n2 += (double)x0[i] * x0[i];
+    for (uint32_t e = 0; e < MREF_NEXP; e++)
+        for (uint32_t i = 0; i < MREF_E; i++) w[(uint64_t)e * MREF_E + i] = (float)(alpha[e] * x0[i] / n2);
+}
+
+static ds4_gpu_mellum_moe moe_params(const moe_arena_t *a, uint64_t router_off) {
+    ds4_gpu_mellum_moe p;
+    memset(&p, 0, sizeof(p));
+    p.n_embd = MREF_E;
+    p.n_expert = MREF_NEXP;
+    p.n_used = MREF_USED;
+    p.ff_dim = MREF_FF;
+    p.expert_type = 8u; /* Q8_0 */
+    p.router_offset = router_off;
+    p.gate_offset = a->gate;
+    p.up_offset = a->up;
+    p.down_offset = a->down;
+    return p;
+}
+
+/* ---- the double reference ---- */
+
+static void ref_moe_row(const moe_arena_t *a, uint64_t router_off, const float *x, mref_t *r) {
+    const mref_weights w = { a->base, router_off, a->gate, a->up, a->down };
+    mref_moe_row(&w, x, r);
+}
+
+/* ---- running the driver ---- */
+
+typedef struct {
+    uint32_t T;
+    ds4_gpu_tensor *x, *logits, *sel, *w, *mid, *part, *out;
+} moe_run_t;
+
+static moe_run_t moe_run_alloc(uint32_t T) {
+    moe_run_t r;
+    r.T = T;
+    r.x = zeroed((uint64_t)T * MREF_E * 4u);
+    r.logits = zeroed((uint64_t)T * MREF_NEXP * 4u);
+    r.sel = zeroed((uint64_t)T * MREF_USED * 4u);
+    r.w = zeroed((uint64_t)T * MREF_USED * 4u);
+    r.mid = zeroed((uint64_t)T * MREF_USED * MREF_FF * 4u);
+    r.part = zeroed((uint64_t)T * MREF_USED * MREF_E * 4u);
+    r.out = zeroed((uint64_t)T * MREF_E * 4u);
+    return r;
+}
+
+static void moe_run_free(moe_run_t *r) {
+    ds4_gpu_tensor_free(r->x); ds4_gpu_tensor_free(r->logits); ds4_gpu_tensor_free(r->sel); ds4_gpu_tensor_free(r->w);
+    ds4_gpu_tensor_free(r->mid); ds4_gpu_tensor_free(r->part); ds4_gpu_tensor_free(r->out);
+}
+
+static int moe_call(const moe_arena_t *a, const ds4_gpu_mellum_moe *p, moe_run_t *r) {
+    return ds4_gpu_mellum_moe_tensor(r->out, r->x, r->logits, r->sel, r->w, r->mid, r->part, a->base, a->size, p, r->T);
+}
+
+typedef struct {
+    uint32_t T;
+    int32_t *sel;  /* [T][8] */
+    float *w;      /* [T][8] */
+    float *out;    /* [T][2304] */
+} moe_out_t;
+
+static moe_out_t moe_read(const moe_run_t *r) {
+    moe_out_t o;
+    o.T = r->T;
+    o.sel = malloc((uint64_t)r->T * MREF_USED * 4u);
+    o.w = malloc((uint64_t)r->T * MREF_USED * 4u);
+    o.out = malloc((uint64_t)r->T * MREF_E * 4u);
+    require_ok(o.sel && o.w && o.out, "malloc");
+    require_ok(ds4_gpu_tensor_read(r->sel, 0, o.sel, (uint64_t)r->T * MREF_USED * 4u), "sel download");
+    require_ok(ds4_gpu_tensor_read(r->w, 0, o.w, (uint64_t)r->T * MREF_USED * 4u), "w download");
+    require_ok(ds4_gpu_tensor_read(r->out, 0, o.out, (uint64_t)r->T * MREF_E * 4u), "out download");
+    return o;
+}
+
+static void moe_out_free(moe_out_t *o) { free(o->sel); free(o->w); free(o->out); }
+
+static moe_out_t moe_run_rows(const moe_arena_t *a, uint64_t router_off, const float *x, uint32_t T) {
+    const ds4_gpu_mellum_moe p = moe_params(a, router_off);
+    moe_run_t r = moe_run_alloc(T);
+    require_ok(ds4_gpu_tensor_write(r.x, 0, x, (uint64_t)T * MREF_E * 4u), "x upload");
+    require_ok(moe_call(a, &p, &r), "mellum moe");
+    moe_out_t o = moe_read(&r);
+    moe_run_free(&r);
+    return o;
+}
+
+/* Rows [0, n) of a run against the reference rows: the worst output error, the worst weight error, the worst
+ * |sum(w) - 1|, and how many selected experts and rows are wrong. */
+typedef struct { double out, w, wsum; uint64_t sel_bad, nonfinite; } moe_err_t;
+
+static moe_err_t moe_vs_ref(const moe_out_t *o, const mref_t *ref, uint32_t n) {
+    moe_err_t e = { 0, 0, 0, 0, 0 };
+    for (uint32_t t = 0; t < n; t++) {
+        double wsum = 0.0;
+        for (uint32_t r = 0; r < MREF_USED; r++) {
+            if (o->sel[(uint64_t)t * MREF_USED + r] != ref[t].sel[r]) e.sel_bad++;
+            const double d = fabs((double)o->w[(uint64_t)t * MREF_USED + r] - ref[t].w[r]);
+            if (!(d <= e.w)) e.w = d;
+            wsum += o->w[(uint64_t)t * MREF_USED + r];
+        }
+        if (!(fabs(wsum - 1.0) <= e.wsum)) e.wsum = fabs(wsum - 1.0);
+        if (!all_finite(o->out + (uint64_t)t * MREF_E, MREF_E)) e.nonfinite++;
+        const double d = max_rel(o->out + (uint64_t)t * MREF_E, ref[t].out, MREF_E);
+        if (!(d <= e.out)) e.out = d;
+    }
+    return e;
+}
+
+#define MOE_ROWS_MAX 64u
+
+/* One row, then 7 and 64 rows, against the double reference (softmax over all, top-8, renormalize, SwiGLU
+ * experts, weighted sum); the rows of the 64-row run are bit-identical to the 7-row and 1-row runs (rows do not
+ * see each other: the decode arithmetic over rows); a 1,024-row chunk keeps rows 0..63 and a far row correct. */
+static void test_moe_reference(const moe_arena_t *a) {
+    float *x = rand_vec((uint64_t)1024 * MREF_E, 1.7f);
+    mref_t *ref = calloc(MOE_ROWS_MAX, sizeof(mref_t));
+    require_ok(ref != NULL, "calloc");
+    for (uint32_t t = 0; t < MOE_ROWS_MAX; t++) ref_moe_row(a, a->router, x + (uint64_t)t * MREF_E, &ref[t]);
+    /* the control: renormalization must be visible, so the eight softmax probabilities must not already sum to 1 */
+    double min_gap = 1.0;
+    for (uint32_t t = 0; t < MOE_ROWS_MAX; t++) min_gap = fmin(min_gap, 1.0 - ref[t].top_mass);
+    CHECK(min_gap > 0.01, "the eight selected probabilities already sum to %.4f in a row: renormalization would be invisible",
+          1.0 - min_gap);
+
+    static const uint32_t counts[] = { 1, 7, 64 };
+    moe_out_t runs[3];
+    for (int i = 0; i < 3; i++) {
+        runs[i] = moe_run_rows(a, a->router, x, counts[i]);
+        const moe_err_t e = moe_vs_ref(&runs[i], ref, counts[i]);
+        CHECK(e.sel_bad == 0, "T=%u: %llu selected experts differ from the reference", counts[i], (unsigned long long)e.sel_bad);
+        CHECK(e.nonfinite == 0, "T=%u: %llu rows have a non-finite output", counts[i], (unsigned long long)e.nonfinite);
+        CHECK(e.w <= MOE_W_TOL, "T=%u: renormalized weights are %.3e from the reference (tol %.1e)", counts[i], e.w, MOE_W_TOL);
+        CHECK(e.wsum <= 1e-6, "T=%u: the weights sum to 1 within only %.3e", counts[i], e.wsum);
+        CHECK(e.out <= MOE_TOL, "T=%u: output is %.3e from the reference (max|d|/max|ref|, tol %.0e)", counts[i], e.out, MOE_TOL);
+        printf("  moe    T=%-4u vs double reference: selected differ %llu, weights %.2e, |sum(w)-1| %.2e, output %.2e (tol %.0e)\n",
+               counts[i], (unsigned long long)e.sel_bad, e.w, e.wsum, e.out, MOE_TOL);
+    }
+    /* the rows of a bigger call equal the same rows of a smaller one, bit for bit */
+    for (int i = 0; i < 2; i++) {
+        const uint32_t n = counts[i];
+        uint64_t first = 0;
+        const uint64_t d = bit_diffs(runs[i].out, runs[2].out, (uint64_t)n * MREF_E, &first);
+        const bool sel_same = memcmp(runs[i].sel, runs[2].sel, (uint64_t)n * MREF_USED * 4u) == 0;
+        const uint64_t dw = bit_diffs(runs[i].w, runs[2].w, (uint64_t)n * MREF_USED, NULL);
+        CHECK(d == 0 && sel_same && dw == 0,
+              "T=%u rows differ from the same rows of the T=64 run: %llu output words (first at row %llu), selected same %d, weights %llu",
+              n, (unsigned long long)d, (unsigned long long)(first / MREF_E), (int)sel_same, (unsigned long long)dw);
+    }
+    printf("  moe    rows of T=64 vs T=1 and T=7: 0 words differ (output, weights, selected)\n");
+    /* a prefill chunk: 1,024 rows. rows 0..63 keep their bits; a far row is right against the reference. */
+    moe_out_t big = moe_run_rows(a, a->router, x, 1024);
+    CHECK(all_finite(big.out, (uint64_t)1024 * MREF_E), "T=1024 produced a non-finite value");
+    uint64_t first = 0;
+    const uint64_t d = bit_diffs(big.out, runs[2].out, (uint64_t)MOE_ROWS_MAX * MREF_E, &first);
+    CHECK(d == 0, "T=1024 rows 0..63 differ from the T=64 run in %llu words, first at row %llu", (unsigned long long)d,
+          (unsigned long long)(first / MREF_E));
+    mref_t far;
+    ref_moe_row(a, a->router, x + (uint64_t)1023 * MREF_E, &far);
+    moe_out_t row1023 = { 1, big.sel + (uint64_t)1023 * MREF_USED, big.w + (uint64_t)1023 * MREF_USED, big.out + (uint64_t)1023 * MREF_E };
+    const moe_err_t e = moe_vs_ref(&row1023, &far, 1);
+    CHECK(e.sel_bad == 0 && e.w <= MOE_W_TOL && e.out <= MOE_TOL, "T=1024 row 1023: selected differ %llu, weights %.3e, output %.3e",
+          (unsigned long long)e.sel_bad, e.w, e.out);
+    printf("  moe    T=1024: rows 0..63 vs T=64 %llu of %u words differ; row 1023 vs reference: selected differ %llu, weights %.2e, output %.2e\n",
+           (unsigned long long)d, MOE_ROWS_MAX * MREF_E, (unsigned long long)e.sel_bad, e.w, e.out);
+    for (int i = 0; i < 3; i++) moe_out_free(&runs[i]);
+    moe_out_free(&big);
+    free(ref);
+    free(x);
+}
+
+/* ---- ties ---- */
+
+static void tie_row(float *l, const int *anchors, int n_anchors, float anchor_hi, const int *grp, int n_grp, float gval) {
+    for (uint32_t e = 0; e < MREF_NEXP; e++) l[e] = -3.0f - 0.03f * (float)((e * 37u) % 64u); /* distinct, below -3 */
+    for (int i = 0; i < n_anchors; i++) l[anchors[i]] = anchor_hi - 0.5f * (float)i;
+    for (int i = 0; i < n_grp; i++) l[grp[i]] = gval;
+}
+
+/* The router op on hand-made logits: a tie at the boundary between the 8th and 9th place goes to the lower index,
+ * and a difference of 1e-3 does not (the sibling: the comparison is a comparison, not "lowest index wins"). */
+static void test_moe_ties_direct(void) {
+    enum { R = 7 };
+    static const int anchors7[] = { 60, 55, 45, 30, 25, 12, 8 };
+    static const int anchors5[] = { 60, 55, 45, 30, 25 };
+    static const int anchors6[] = { 60, 55, 45, 30, 25, 12 };
+    float logits[R][MREF_NEXP];
+    int expect[R][MREF_USED];
+    const char *what[R] = {
+        "tie 10/40 at places 8/9 (two simdgroups)", "tie 3/20 at places 8/9 (one simdgroup)",
+        "four-way tie 1/2/33/63 for three places", "all 64 equal",
+        "10 and 40 differ by 1e-3, 40 above", "tie 7/50 for the top place", "tie 31/32 at places 8/9 (lane 31, lane 0)",
+    };
+    static const int g0[] = { 10, 40 }, g1[] = { 3, 20 }, g2[] = { 63, 33, 2, 1 }, g5[] = { 50, 7 }, g6[] = { 31, 32 };
+    tie_row(logits[0], anchors7, 7, 6.0f, g0, 2, 0.0f);
+    tie_row(logits[1], anchors7, 7, 6.0f, g1, 2, 0.0f);
+    tie_row(logits[2], anchors5, 5, 6.0f, g2, 4, 0.0f);
+    for (uint32_t e = 0; e < MREF_NEXP; e++) logits[3][e] = 0.0f;
+    tie_row(logits[4], anchors7, 7, 6.0f, g0, 2, 0.0f);
+    logits[4][40] = 0.001f;
+    tie_row(logits[5], anchors6, 6, 6.0f, g5, 2, 8.0f);
+    tie_row(logits[6], anchors7, 7, 6.0f, g6, 2, 0.0f);
+    static const int e0[] = { 60, 55, 45, 30, 25, 12, 8, 10 }, e1[] = { 60, 55, 45, 30, 25, 12, 8, 3 };
+    static const int e2[] = { 60, 55, 45, 30, 25, 1, 2, 33 }, e3[] = { 0, 1, 2, 3, 4, 5, 6, 7 };
+    static const int e4[] = { 60, 55, 45, 30, 25, 12, 8, 40 }, e5[] = { 7, 50, 60, 55, 45, 30, 25, 12 };
+    static const int e6[] = { 60, 55, 45, 30, 25, 12, 8, 31 };
+    memcpy(expect[0], e0, sizeof(e0)); memcpy(expect[1], e1, sizeof(e1)); memcpy(expect[2], e2, sizeof(e2));
+    memcpy(expect[3], e3, sizeof(e3)); memcpy(expect[4], e4, sizeof(e4)); memcpy(expect[5], e5, sizeof(e5));
+    memcpy(expect[6], e6, sizeof(e6));
+
+    ds4_gpu_tensor *lt = upload(&logits[0][0], (uint64_t)R * MREF_NEXP);
+    ds4_gpu_tensor *st = zeroed((uint64_t)R * MREF_USED * 4u), *wt = zeroed((uint64_t)R * MREF_USED * 4u);
+    require_ok(ds4_gpu_qwen4_router_topk_tensor(st, wt, lt, NULL, NULL, 0, 0, 0, 0, NULL, R, MREF_NEXP, MREF_USED), "router top-k");
+    int32_t sel[R][MREF_USED];
+    float w[R][MREF_USED];
+    require_ok(ds4_gpu_tensor_read(st, 0, sel, sizeof(sel)) && ds4_gpu_tensor_read(wt, 0, w, sizeof(w)), "router download");
+    for (int r = 0; r < R; r++) {
+        double ld[MREF_NEXP], rw[MREF_USED], top;
+        int rs[MREF_USED];
+        for (uint32_t e = 0; e < MREF_NEXP; e++) ld[e] = logits[r][e];
+        mref_route(ld, MREF_NEXP, MREF_USED, rs, rw, &top);
+        double worst_w = 0.0;
+        int bad = 0, bad_ref = 0;
+        for (uint32_t k = 0; k < MREF_USED; k++) {
+            bad += sel[r][k] != expect[r][k];
+            bad_ref += sel[r][k] != rs[k];
+            const double d = fabs((double)w[r][k] - rw[k]);
+            if (!(d <= worst_w)) worst_w = d;
+        }
+        CHECK(bad == 0, "%s: selected %d %d %d %d %d %d %d %d, expected %d %d %d %d %d %d %d %d", what[r],
+              sel[r][0], sel[r][1], sel[r][2], sel[r][3], sel[r][4], sel[r][5], sel[r][6], sel[r][7],
+              expect[r][0], expect[r][1], expect[r][2], expect[r][3], expect[r][4], expect[r][5], expect[r][6], expect[r][7]);
+        CHECK(bad_ref == 0, "%s: the double reference disagrees with the selection in %d places", what[r], bad_ref);
+        CHECK(worst_w <= MOE_W_TOL, "%s: weights are %.3e from the reference", what[r], worst_w);
+        printf("  router %-44s place 8 -> expert %-2d, weights %.2e from double\n", what[r], sel[r][7], worst_w);
+    }
+    ds4_gpu_tensor_free(lt); ds4_gpu_tensor_free(st); ds4_gpu_tensor_free(wt);
+}
+
+/* The same through the driver: routers built so one input gives chosen logits.  Experts 10 and 40 share one
+ * router row in the first, so their logits are the same f32 bits, and they sit at places 8 and 9; in the second
+ * 40 is above 10 by 1e-3.  Seven rows of the same input must agree with each other bit for bit (a row's position
+ * in the call changes nothing). */
+static void test_moe_ties_driver(const moe_arena_t *a) {
+    float x7[7 * MREF_E];
+    for (int r = 0; r < 7; r++) memcpy(x7 + (uint64_t)r * MREF_E, a->x0, MREF_E * sizeof(float));
+    for (int pass = 0; pass < 2; pass++) {
+        const uint64_t router = pass == 0 ? a->router_tie : a->router_near;
+        mref_t ref;
+        ref_moe_row(a, router, a->x0, &ref);
+        const int want = pass == 0 ? 10 : 40, other = pass == 0 ? 40 : 10;
+        CHECK(ref.sel[7] == want, "the reference itself must pick expert %d at place 8, picked %d", want, ref.sel[7]);
+        moe_out_t o = moe_run_rows(a, router, x7, 7);
+        bool same = true;
+        int wrong = 0;
+        for (int r = 0; r < 7; r++) {
+            same = same && memcmp(o.sel + (uint64_t)r * MREF_USED, o.sel, MREF_USED * 4u) == 0 &&
+                   memcmp(o.w + (uint64_t)r * MREF_USED, o.w, MREF_USED * 4u) == 0 &&
+                   memcmp(o.out + (uint64_t)r * MREF_E, o.out, MREF_E * 4u) == 0;
+            wrong += o.sel[(uint64_t)r * MREF_USED + 7] != want;
+            for (int k = 0; k < 8; k++) wrong += o.sel[(uint64_t)r * MREF_USED + k] == other;
+        }
+        CHECK(wrong == 0, "%s: a row did not pick expert %d at place 8 (or picked expert %d)",
+              pass == 0 ? "exact tie 10/40" : "40 above 10 by 1e-3", want, other);
+        CHECK(same, "seven rows of one input must agree bit for bit");
+        const moe_err_t e = moe_vs_ref(&o, &ref, 1);
+        CHECK(e.sel_bad == 0 && e.out <= MOE_TOL && e.w <= MOE_W_TOL, "driver on the %s router: selected differ %llu, weights %.3e, output %.3e",
+              pass == 0 ? "tie" : "near-tie", (unsigned long long)e.sel_bad, e.w, e.out);
+        printf("  moe    %-36s -> expert %d at place 8 in 7 of 7 rows; rows agree bit for bit; output %.2e from double\n",
+               pass == 0 ? "exact tie 10/40 (router rows equal)" : "40 above 10 by 1e-3", want, e.out);
+        moe_out_free(&o);
+    }
+}
+
+/* ---- no shared expert ---- */
+
+/* The arena's shared-expert tensors are NaN.  The driver reads no shared tensor and takes no offset for one: its
+ * outputs on this arena are finite and equal the reference.  The control: the same bytes read by the qwen path's
+ * shared-expert slot are NaN, so the poison would have been seen. */
+static void test_moe_no_shared(const moe_arena_t *a) {
+    bool intact = true;
+    const uint64_t spans[4][2] = { { a->sh_gate_inp, MREF_E * 4u }, { a->sh_gate, (uint64_t)MREF_FF * MREF_ROW_GATE },
+                                   { a->sh_up, (uint64_t)MREF_FF * MREF_ROW_GATE }, { a->sh_down, (uint64_t)MREF_E * MREF_ROW_DOWN } };
+    for (int s = 0; s < 4; s++)
+        for (uint64_t i = 0; i < spans[s][1]; i++) intact = intact && a->base[spans[s][0] + i] == 0xFFu;
+    CHECK(intact, "the shared-expert poison was overwritten");
+
+    float *x = rand_vec(MREF_E, 1.7f);
+    mref_t ref;
+    ref_moe_row(a, a->router, x, &ref);
+    moe_out_t o = moe_run_rows(a, a->router, x, 1);
+    CHECK(all_finite(o.out, MREF_E), "the driver's output is not finite on an arena whose shared tensors are NaN");
+    const moe_err_t e = moe_vs_ref(&o, &ref, 1);
+    CHECK(e.out <= MOE_TOL && e.sel_bad == 0, "driver output on the poisoned arena is %.3e from the reference", e.out);
+
+    /* control: the shared slot and the shared gate of the qwen kernels, over the poison, are NaN */
+    float zeros[MREF_NEXP] = { 0 };
+    ds4_gpu_tensor *xt = upload(x, MREF_E), *sel = zeroed(MREF_USED * 4u), *w = zeroed(MREF_USED * 4u);
+    ds4_gpu_tensor *lg = upload(zeros, MREF_NEXP), *sg = zeroed(4u), *mid9 = zeroed((MREF_USED + 1u) * MREF_FF * 4u);
+    require_ok(ds4_gpu_qwen4_router_topk_tensor(sel, w, lg, xt, a->base, a->size, a->sh_gate_inp, 0u, MREF_E, sg, 1, MREF_NEXP, MREF_USED),
+               "router with a shared gate");
+    float gl = 0.0f;
+    require_ok(ds4_gpu_tensor_read(sg, 0, &gl, 4), "shared gate readback");
+    CHECK(isnan(gl), "control: the shared gate logit read over the poison must be NaN, got %g", (double)gl);
+    require_ok(ds4_gpu_qwen4_moe_mid_tensor(mid9, xt, sel, a->base, a->size, a->gate, a->up, 8u, MREF_NEXP, 1, MREF_USED, MREF_E, MREF_FF,
+                                            a->sh_gate, a->sh_up, 8u), "mid with a shared slot");
+    float shared_mid[MREF_FF];
+    require_ok(ds4_gpu_tensor_read(mid9, (uint64_t)MREF_USED * MREF_FF * 4u, shared_mid, sizeof(shared_mid)), "shared slot readback");
+    CHECK(!all_finite(shared_mid, MREF_FF), "control: the shared slot read over the poison must be NaN");
+    printf("  moe    no shared tensor: outputs finite and %.2e from double on an arena whose shared tensors are NaN; "
+           "control: the shared gate logit and the shared slot over the same bytes are NaN\n", e.out);
+    ds4_gpu_tensor_free(xt); ds4_gpu_tensor_free(sel); ds4_gpu_tensor_free(w);
+    ds4_gpu_tensor_free(lg); ds4_gpu_tensor_free(sg); ds4_gpu_tensor_free(mid9);
+    moe_out_free(&o);
+    free(x);
+}
+
+/* ---- refusals: each refused call changes nothing; the sibling is the valid call that follows ---- */
+
+static void test_moe_refusals(const moe_arena_t *a) {
+    float *x = rand_vec(2u * MREF_E, 1.7f);
+    moe_run_t r = moe_run_alloc(2);
+    require_ok(ds4_gpu_tensor_write(r.x, 0, x, 2u * MREF_E * 4u), "x upload");
+    const ds4_gpu_mellum_moe good = moe_params(a, a->router);
+    ds4_gpu_tensor *outs[] = { r.logits, r.sel, r.w, r.mid, r.part, r.out };
+    const uint64_t out_bytes[] = { 2u * MREF_NEXP * 4u, 2u * MREF_USED * 4u, 2u * MREF_USED * 4u, 2u * MREF_USED * MREF_FF * 4u,
+                                   2u * MREF_USED * MREF_E * 4u, 2u * MREF_E * 4u };
+    float *back = malloc((uint64_t)2 * MREF_USED * MREF_E * 4u), *mk = malloc((uint64_t)2 * MREF_USED * MREF_E * 4u);
+    require_ok(back != NULL && mk != NULL, "malloc");
+    for (uint64_t i = 0; i < 2ull * MREF_USED * MREF_E; i++) mk[i] = 7.0f;
+    /* mark every output, so a refused call that ran its first op shows */
+#define MOE_REMARK() do { for (int i_ = 0; i_ < 6; i_++) require_ok(ds4_gpu_tensor_write(outs[i_], 0, mk, out_bytes[i_]), "mark"); } while (0)
+#define MOE_UNTOUCHED(what) do { bool same_ = true; for (int i_ = 0; i_ < 6; i_++) { \
+        require_ok(ds4_gpu_tensor_read(outs[i_], 0, back, out_bytes[i_]), "read"); same_ = same_ && memcmp(back, mk, out_bytes[i_]) == 0; } \
+        CHECK(same_, "a call refused for %s must leave every output as it was", what); } while (0)
+    ds4_gpu_mellum_moe p;
+
+    MOE_REMARK();
+    /* Q4_0 has valid row sizes at both widths, so only the type check refuses it; Q4_K is also refused by its
+     * 256-wide blocks (896 is not a multiple of 256) */
+    p = good; p.expert_type = 2u;
+    CHECK(moe_call(a, &p, &r) == 0, "expert type Q4_0 is refused (Mellum's experts are Q8_0)");
+    MOE_UNTOUCHED("an expert type");
+    p = good; p.expert_type = 12u;
+    CHECK(moe_call(a, &p, &r) == 0, "expert type Q4_K is refused (Mellum's experts are Q8_0)");
+    MOE_UNTOUCHED("an expert type (Q4_K)");
+    p = good; p.n_expert = 513u;
+    CHECK(moe_call(a, &p, &r) == 0, "513 experts are refused");
+    p = good; p.n_used = 0u;
+    CHECK(moe_call(a, &p, &r) == 0, "top-0 is refused");
+    p = good; p.n_used = 65u;
+    CHECK(moe_call(a, &p, &r) == 0, "top-65 of 64 is refused");
+    {
+        /* top-17 with tensors big enough for 17 slots, so only the cap refuses it, and before the logits are
+         * written (sibling: top-16 runs) */
+        const uint64_t k17 = 17;
+        ds4_gpu_tensor *s17 = zeroed(2 * k17 * 4u), *w17 = zeroed(2 * k17 * 4u), *m17 = zeroed(2 * k17 * MREF_FF * 4u),
+                       *p17 = zeroed(2 * k17 * MREF_E * 4u);
+        MOE_REMARK();
+        p = good; p.n_used = 17u;
+        CHECK(ds4_gpu_mellum_moe_tensor(r.out, r.x, r.logits, s17, w17, m17, p17, a->base, a->size, &p, 2) == 0, "top-17 is refused");
+        MOE_UNTOUCHED("top-17");
+        p = good; p.n_used = 16u;
+        CHECK(ds4_gpu_mellum_moe_tensor(r.out, r.x, r.logits, s17, w17, m17, p17, a->base, a->size, &p, 2) != 0, "top-16 is accepted");
+        ds4_gpu_tensor_free(s17); ds4_gpu_tensor_free(w17); ds4_gpu_tensor_free(m17); ds4_gpu_tensor_free(p17);
+        MOE_REMARK();
+    }
+    p = good; p.n_embd = 2300u;
+    CHECK(moe_call(a, &p, &r) == 0, "a width that is not a multiple of 128 is refused");
+    p = good; p.ff_dim = 900u;
+    CHECK(moe_call(a, &p, &r) == 0, "an expert width that is not a multiple of 32 is refused");
+    MOE_UNTOUCHED("a shape");
+    p = good; p.router_offset = a->size - 1024u;
+    CHECK(moe_call(a, &p, &r) == 0, "a router past the end of the map is refused");
+    MOE_UNTOUCHED("a router offset");
+    p = good; p.down_offset = a->size - 1024u;
+    CHECK(moe_call(a, &p, &r) == 0, "down experts past the end of the map are refused before the first dispatch");
+    MOE_UNTOUCHED("a down offset");
+    p = good; p.gate_offset = UINT64_MAX - 100u;
+    CHECK(moe_call(a, &p, &r) == 0, "a gate offset that wraps 64-bit arithmetic is refused");
+    MOE_UNTOUCHED("a wrapping offset");
+    CHECK(ds4_gpu_mellum_moe_tensor(r.out, r.x, r.logits, r.sel, r.w, r.mid, r.part, a->base, a->size, &good, 0) == 0, "zero rows are refused");
+    CHECK(ds4_gpu_mellum_moe_tensor(r.out, r.x, r.logits, r.sel, r.w, r.mid, r.part, a->base, a->size, NULL, 2) == 0, "no parameters are refused");
+    CHECK(ds4_gpu_mellum_moe_tensor(r.out, r.x, r.logits, r.sel, r.w, r.mid, r.part, NULL, 0, &good, 2) == 0, "no model map is refused");
+    MOE_UNTOUCHED("rows, parameters or the map");
+    /* an undersized tensor, one at a time: refused up front, so nothing ran (32 bytes: selected and weights of two
+     * rows need exactly 64) */
+    ds4_gpu_tensor *small = zeroed(32);
+    ds4_gpu_tensor *args[7] = { r.out, r.x, r.logits, r.sel, r.w, r.mid, r.part };
+    const char *names[7] = { "out", "x", "router logits", "selected", "weights", "mid", "part" };
+    for (int i = 0; i < 7; i++) {
+        ds4_gpu_tensor *t[7];
+        memcpy(t, args, sizeof(t));
+        t[i] = small;
+        MOE_REMARK();
+        CHECK(ds4_gpu_mellum_moe_tensor(t[0], t[1], t[2], t[3], t[4], t[5], t[6], a->base, a->size, &good, 2) == 0,
+              "an undersized %s is refused", names[i]);
+        MOE_UNTOUCHED(names[i]);
+    }
+    /* the sibling: the valid call runs, on the same tensors the refusals left alone */
+    CHECK(moe_call(a, &good, &r) != 0, "the valid call succeeds after the refusals");
+    moe_out_t o = moe_read(&r);
+    CHECK(all_finite(o.out, 2u * MREF_E), "the valid call's output is finite");
+    moe_out_free(&o);
+    printf("  moe    refusals: Q4_0 and Q4_K experts, 513 experts, top-0/17/65 (top-16 runs), width 2300, ff 900, router/down offset past the map, "
+           "a wrapping offset, 0 rows, NULL params/map, 7 undersized tensors -> all refused, outputs untouched; valid call runs\n");
+#undef MOE_REMARK
+#undef MOE_UNTOUCHED
+    ds4_gpu_tensor_free(small);
+    moe_run_free(&r);
+    free(back); free(mk); free(x);
+}
+
+/* ---- the driver's rows equal one-row calls, stage by stage ---- */
+
+#define T4_BEGIN() do { if (g_batched) require_ok(ds4_gpu_begin_commands(), "begin commands"); } while (0)
+#define T4_END() do { if (g_batched) require_ok(ds4_gpu_end_commands(), "end commands"); } while (0)
+
+enum { T4_STAGES = 6 };
+static const char *const T4_STAGE_NAME[T4_STAGES] = { "router logits", "selected experts", "weights", "mid", "part", "output" };
+
+/* The six buffers of a run, read back as 32-bit words: logits [T][64], selected [T][8], weights [T][8],
+ * mid [T][8][896], part [T][8][2304], out [T][2304]. */
+typedef struct {
+    uint32_t T;
+    uint32_t *stage[T4_STAGES];
+    uint64_t words[T4_STAGES]; /* words per row */
+} moe_stages_t;
+
+static const uint64_t T4_MOE_ROW_WORDS[T4_STAGES] = { MREF_NEXP, MREF_USED, MREF_USED, (uint64_t)MREF_USED * MREF_FF,
+                                                       (uint64_t)MREF_USED * MREF_E, MREF_E };
+
+static moe_stages_t moe_stages_read(const moe_run_t *r) {
+    moe_stages_t s;
+    s.T = r->T;
+    ds4_gpu_tensor *const t[T4_STAGES] = { r->logits, r->sel, r->w, r->mid, r->part, r->out };
+    for (int i = 0; i < T4_STAGES; i++) {
+        s.words[i] = T4_MOE_ROW_WORDS[i];
+        s.stage[i] = malloc((uint64_t)r->T * s.words[i] * 4u);
+        require_ok(s.stage[i] != NULL, "malloc");
+        require_ok(ds4_gpu_tensor_read(t[i], 0, s.stage[i], (uint64_t)r->T * s.words[i] * 4u), "stage download");
+    }
+    return s;
+}
+
+static void moe_stages_free(moe_stages_t *s) {
+    for (int i = 0; i < T4_STAGES; i++) free(s->stage[i]);
+}
+
+/* T rows in one call, against T calls of one row each, on the same weights and the same inputs: every stage of
+ * every row must match in raw bits.  The stages are compared one by one, so a failure names the first op that is
+ * not independent of the batch.  The 130-row case has a tail that fills no whole tile of 8, 32 or 64 rows. */
+static void test_moe_rows_equal_singles(const moe_arena_t *a) {
+    static const uint32_t counts[] = { 7, 33, 64, 130 };
+    const ds4_gpu_mellum_moe p = moe_params(a, a->router);
+    for (size_t c = 0; c < sizeof(counts) / sizeof(counts[0]); c++) {
+        const uint32_t T = counts[c];
+        float *x = rand_vec((uint64_t)T * MREF_E, 1.7f);
+        moe_run_t big = moe_run_alloc(T);
+        require_ok(ds4_gpu_tensor_write(big.x, 0, x, (uint64_t)T * MREF_E * 4u), "x upload");
+        T4_BEGIN();
+        require_ok(moe_call(a, &p, &big), "mellum moe over rows");
+        T4_END();
+        moe_stages_t rows = moe_stages_read(&big);
+        uint64_t diff[T4_STAGES] = { 0 }, first_row[T4_STAGES] = { 0 };
+        moe_run_t one = moe_run_alloc(1);
+        for (uint32_t t = 0; t < T; t++) {
+            require_ok(ds4_gpu_tensor_write(one.x, 0, x + (uint64_t)t * MREF_E, MREF_E * 4u), "x row upload");
+            require_ok(moe_call(a, &p, &one), "mellum moe one row");
+            moe_stages_t single = moe_stages_read(&one);
+            for (int s = 0; s < T4_STAGES; s++) {
+                const uint64_t d = bit_diffs((const float *)(rows.stage[s] + (uint64_t)t * rows.words[s]),
+                                             (const float *)single.stage[s], rows.words[s], NULL);
+                if (d && !diff[s]) first_row[s] = t;
+                diff[s] += d;
+            }
+            moe_stages_free(&single);
+        }
+        for (int s = 0; s < T4_STAGES; s++) {
+            CHECK(diff[s] == 0, "MoE %s: T=%u rows differ from T one-row calls in %llu words (first row %llu)%s", T4_STAGE_NAME[s], T,
+                  (unsigned long long)diff[s], (unsigned long long)first_row[s], g_batched ? " [batched]" : "");
+        }
+        CHECK(all_finite((const float *)rows.stage[5], (uint64_t)T * MREF_E), "MoE T=%u output is not finite", T);
+        printf("  moe    T=%-3u rows vs %u one-row calls%s: words differing per stage (logits, selected, weights, mid, part, output) "
+               "%llu %llu %llu %llu %llu %llu\n", T, T, g_batched ? " [batched]" : "", (unsigned long long)diff[0],
+               (unsigned long long)diff[1], (unsigned long long)diff[2], (unsigned long long)diff[3], (unsigned long long)diff[4],
+               (unsigned long long)diff[5]);
+        moe_stages_free(&rows);
+        moe_run_free(&big);
+        moe_run_free(&one);
+        free(x);
+    }
+}
+
+static void test_moe(void) {
+    printf("Mellum MoE driver (2304 -> 64 F32 router, softmax over all, top-8, renormalized, 896-wide Q8_0 experts, no shared expert)\n");
+    moe_arena_t *a = calloc(1, sizeof(*a));
+    require_ok(a != NULL, "calloc");
+    a->size = (uint64_t)448 << 20;
+    a->base = mmap(NULL, a->size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
+    if (a->base == MAP_FAILED) { perror("mmap"); exit(1); }
+    memset(a->base, 0xFF, a->size);
+    a->router = moe_take(a, MREF_ROUTER_BYTES);
+    a->router_tie = moe_take(a, MREF_ROUTER_BYTES);
+    a->router_near = moe_take(a, MREF_ROUTER_BYTES);
+    a->sh_gate_inp = moe_take(a, MREF_E * 4u);
+    a->gate = moe_take(a, MREF_GATE_BYTES);
+    a->up = moe_take(a, MREF_GATE_BYTES);
+    a->down = moe_take(a, MREF_DOWN_BYTES);
+    a->sh_gate = moe_take(a, (uint64_t)MREF_FF * MREF_ROW_GATE);
+    a->sh_up = moe_take(a, (uint64_t)MREF_FF * MREF_ROW_GATE);
+    a->sh_down = moe_take(a, (uint64_t)MREF_E * MREF_ROW_DOWN);
+    /* logits about 2 in standard deviation: a softmax that is not flat, with the top eight holding most of its mass */
+    fill_router_random((float *)(a->base + a->router), 0.072f);
+    fill_q8(a->base + a->gate, (uint64_t)MREF_NEXP * MREF_FF * (MREF_E / 32u));
+    fill_q8(a->base + a->up, (uint64_t)MREF_NEXP * MREF_FF * (MREF_E / 32u));
+    fill_q8(a->base + a->down, (uint64_t)MREF_NEXP * MREF_E * (MREF_FF / 32u));
+    /* the tie routers: expert e's logit on x0 is alpha[e]; experts 10 and 40 share a row (or 40 is 1e-3 above) */
+    for (uint32_t i = 0; i < MREF_E; i++) a->x0[i] = 1.7f * frand();
+    {
+        float alpha[MREF_NEXP];
+        static const int anchors[] = { 60, 55, 45, 30, 25, 12, 8 };
+        for (uint32_t e = 0; e < MREF_NEXP; e++) alpha[e] = -1.0f - 0.01f * (float)((e * 37u) % 64u);
+        for (int i = 0; i < 7; i++) alpha[anchors[i]] = 6.0f - 0.5f * (float)i;
+        alpha[10] = 2.0f;
+        alpha[40] = 2.0f;
+        fill_router_for((float *)(a->base + a->router_tie), a->x0, alpha);
+        alpha[40] = 2.001f;
+        fill_router_for((float *)(a->base + a->router_near), a->x0, alpha);
+    }
+    require_ok(ds4_gpu_set_model_map(a->base, a->size), "model map registration");
+    test_moe_reference(a);
+    test_moe_ties_direct();
+    test_moe_ties_driver(a);
+    test_moe_no_shared(a);
+    test_moe_refusals(a);
+    for (int batched = 0; batched <= 1; batched++) {
+        g_batched = batched != 0;
+        test_moe_rows_equal_singles(a);
+    }
+    g_batched = false;
+    munmap(a->base, a->size);
+    free(a);
+}
+
 int main(void) {
     fixture_t f;
     memset(&f, 0, sizeof(f));
@@ -1238,6 +1859,8 @@ int main(void) {
     test_full_two_layers();
     test_qwen_sibling();
     test_full_refusals();
+
+    test_moe();
 
     /* 2,100 and 4,100 keys are past 64 splits of 32 keys: the splits stop growing at their cap
      * (QWEN4_ATTN_MAX_SPLITS), so a key count past 2,048 runs more keys per split than any count below it */

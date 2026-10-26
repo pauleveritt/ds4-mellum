@@ -50799,3 +50799,76 @@ int ds4_gpu_mellum_attn_swa_tensor(
     return mellum_dispatch("kernel_mellum_attn_swa", &args, sizeof(args), b, 7,
                            MTLSizeMake(n_head, n_tok, 1), MTLSizeMake(32 * 8, 1, 1));
 }
+
+/* a * b * c * d without overflow */
+static bool mellum_moe_bytes(uint64_t *r, uint64_t a, uint64_t b, uint64_t c, uint64_t d) {
+    uint64_t t;
+    return !__builtin_mul_overflow(a, b, &t) && !__builtin_mul_overflow(t, c, &t) && !__builtin_mul_overflow(t, d, r);
+}
+
+/* [offset, offset + bytes) inside the model map */
+static bool mellum_moe_range(uint64_t size, uint64_t offset, uint64_t bytes) {
+    return offset <= size && bytes <= size - offset;
+}
+
+/* Mellum's routed-only FFN: the contract is the comment in ds4_gpu.h.  Reuse, in order: the router is
+ * the existing multi-output GEMV (generic row dot, type 0) because its rows do not depend on the batch, unlike
+ * ds4_gpu_matmul_f32_tensor, which picks a different kernel by row count; the top-k, the experts and the reduce
+ * are the qwen4 kernels with in_dim = 0 and shared_type = UINT32_MAX, so no shared tensor is bound or read.  The
+ * batched moe_mm_* kernels are not used: they stage half operands. */
+int ds4_gpu_mellum_moe_tensor(
+        ds4_gpu_tensor *out, const ds4_gpu_tensor *x, ds4_gpu_tensor *logits,
+        ds4_gpu_tensor *selected, ds4_gpu_tensor *weights, ds4_gpu_tensor *mid, ds4_gpu_tensor *part,
+        const void *model_map, uint64_t model_size, const ds4_gpu_mellum_moe *p, uint32_t n_tokens) {
+    if (!p || !model_map || n_tokens == 0u || p->expert_type != 8u ||
+        p->n_embd == 0u || (p->n_embd % 128u) != 0u || p->ff_dim == 0u || (p->ff_dim % 32u) != 0u ||
+        p->n_expert == 0u || p->n_expert > 512u || p->n_used == 0u || p->n_used > p->n_expert || p->n_used > 16u) {
+        return 0;
+    }
+    const uint64_t T = n_tokens, E = p->n_embd, NE = p->n_expert, K = p->n_used, FF = p->ff_dim;
+    const uint64_t gate_row = qwen4_expert_row_bytes(p->expert_type, p->n_embd);
+    const uint64_t down_row = qwen4_expert_row_bytes(p->expert_type, p->ff_dim);
+    uint64_t router_bytes, gate_bytes, down_bytes, x_bytes, logit_bytes, sel_bytes, mid_bytes, part_bytes;
+    if (gate_row == 0u || down_row == 0u ||
+        !mellum_moe_bytes(&router_bytes, NE, E, sizeof(float), 1u) ||
+        !mellum_moe_bytes(&gate_bytes, NE, FF, gate_row, 1u) ||
+        !mellum_moe_bytes(&down_bytes, NE, E, down_row, 1u) ||
+        !mellum_moe_bytes(&x_bytes, T, E, sizeof(float), 1u) ||
+        !mellum_moe_bytes(&logit_bytes, T, NE, sizeof(float), 1u) ||
+        !mellum_moe_bytes(&sel_bytes, T, K, sizeof(float), 1u) ||
+        !mellum_moe_bytes(&mid_bytes, T, K, FF, sizeof(float)) ||
+        !mellum_moe_bytes(&part_bytes, T, K, E, sizeof(float)) ||
+        !mellum_moe_range(model_size, p->router_offset, router_bytes) ||
+        !mellum_moe_range(model_size, p->gate_offset, gate_bytes) ||
+        !mellum_moe_range(model_size, p->up_offset, gate_bytes) ||
+        !mellum_moe_range(model_size, p->down_offset, down_bytes)) {
+        fprintf(stderr, "ds4: Mellum MoE: a shape or a weight range is invalid\n");
+        return 0;
+    }
+    /* every buffer is checked before the first dispatch, so a refused call writes nothing */
+    qwen4_bind probe[7];
+    if (!qwen4_bind_tensor(&probe[0], x, x_bytes, "mellum moe input") ||
+        !qwen4_bind_tensor(&probe[1], logits, logit_bytes, "mellum moe router logits") ||
+        !qwen4_bind_tensor(&probe[2], selected, sel_bytes, "mellum moe selected") ||
+        !qwen4_bind_tensor(&probe[3], weights, sel_bytes, "mellum moe weights") ||
+        !qwen4_bind_tensor(&probe[4], mid, mid_bytes, "mellum moe mid") ||
+        !qwen4_bind_tensor(&probe[5], part, part_bytes, "mellum moe partials") ||
+        !qwen4_bind_tensor(&probe[6], out, x_bytes, "mellum moe output")) {
+        return 0;
+    }
+    ds4_gpu_tensor *router_out[1] = { logits };
+    const uint64_t router_off[1] = { p->router_offset };
+    const uint32_t router_type[1] = { 0u }; /* F32 */
+    const uint32_t router_rows[1] = { p->n_expert };
+    return ds4_gpu_qwen4_multi_gemv_tensor(x, n_tokens, p->n_embd, 1, router_out, model_map, model_size,
+                                           router_off, router_type, router_rows) &&
+           ds4_gpu_qwen4_router_topk_tensor(selected, weights, logits, NULL, model_map, model_size, 0u, 0u, 0u, NULL,
+                                            n_tokens, p->n_expert, p->n_used) &&
+           ds4_gpu_qwen4_moe_mid_tensor(mid, x, selected, model_map, model_size, p->gate_offset, p->up_offset,
+                                        p->expert_type, p->n_expert, n_tokens, p->n_used, p->n_embd, p->ff_dim,
+                                        0u, 0u, UINT32_MAX) &&
+           ds4_gpu_qwen4_moe_down_tensor(part, mid, selected, model_map, model_size, p->down_offset, p->expert_type,
+                                         p->n_expert, n_tokens, p->n_used, p->ff_dim, p->n_embd, 0u, UINT32_MAX) &&
+           ds4_gpu_qwen4_moe_reduce_tensor(out, part, weights, NULL, NULL, NULL, NULL, n_tokens, p->n_used,
+                                           p->n_used, p->n_embd, 0u);
+}

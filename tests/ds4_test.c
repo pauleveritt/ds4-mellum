@@ -561,6 +561,86 @@ static void test_mellum_session_allocation(void) {
     }
 }
 
+#if defined(__APPLE__)
+#include "mellum_moe_ref.inc"
+
+bool ds4_test_mellum_moe_weights(ds4_engine *engine, uint32_t layer, const void **map,
+                                 uint64_t *router, uint64_t *gate, uint64_t *up, uint64_t *down);
+bool ds4_test_mellum_moe(ds4_engine *engine, uint32_t layer, const float *x, uint32_t T,
+                         float *out, float *out1, int32_t *selected, float *weights);
+
+static float test_mellum_frand(uint32_t *state) {
+    *state ^= *state << 13;
+    *state ^= *state >> 17;
+    *state ^= *state << 5;
+    return ((float)(*state & 0xffffffu) / 8388608.0f) - 1.0f;
+}
+
+/* mellum_graph_moe on the real model's layers (DS4_TEST_MELLUM_MODEL): the same 64 rows through layers 0, 13 and
+ * 27 against the double reference (tests/mellum_moe_ref.inc), whose weights are found by their GGUF names and not
+ * through the layer struct the driver reads, so a swapped or misbound tensor shows.  Row 0 alone (T=1) must equal row 0 of the 64-row
+ * run bit for bit. */
+static void test_mellum_moe_real(void) {
+    const char *model = getenv("DS4_TEST_MELLUM_MODEL");
+    if (!model || !model[0]) {
+        puts("mellum-moe: DS4_TEST_MELLUM_MODEL unset, skipped");
+        return;
+    }
+    enum { T = 64 };
+    ds4_engine *engine = NULL;
+    ds4_engine_options opt = { .model_path = model, .backend = DS4_BACKEND_METAL, .context_size = 2048, .prefill_chunk = T };
+    TEST_ASSERT(ds4_engine_open(&engine, &opt) == 0 && engine != NULL);
+    if (!engine) return;
+    float *x = malloc((uint64_t)T * MREF_E * sizeof(float));
+    float *out = malloc((uint64_t)T * MREF_E * sizeof(float));
+    float *out1 = malloc((uint64_t)MREF_E * sizeof(float));
+    int32_t sel[T][MREF_USED];
+    float w[T][MREF_USED];
+    mref_t *ref = malloc(sizeof(*ref));
+    TEST_ASSERT(x && out && out1 && ref);
+    static const uint32_t layers[] = { 0, 13, 27 };
+    static const uint32_t rows[] = { 0, 7, 31, 63 };
+    uint32_t rng = 0x1234567u;
+    double worst_out = 0.0, worst_w = 0.0;
+    uint32_t sel_bad = 0;
+    for (size_t li = 0; x && li < sizeof(layers) / sizeof(layers[0]); li++) {
+        const uint32_t il = layers[li];
+        mref_weights mw = { 0 };
+        const void *map = NULL;
+        TEST_ASSERT(ds4_test_mellum_moe_weights(engine, il, &map, &mw.router, &mw.gate, &mw.up, &mw.down));
+        mw.base = map;
+        if (!map) break;
+        for (uint64_t i = 0; i < (uint64_t)T * MREF_E; i++) x[i] = 1.7f * test_mellum_frand(&rng);
+        TEST_ASSERT(ds4_test_mellum_moe(engine, il, x, T, out, out1, &sel[0][0], &w[0][0]));
+        for (size_t ri = 0; ri < sizeof(rows) / sizeof(rows[0]); ri++) {
+            const uint32_t r = rows[ri];
+            mref_moe_row(&mw, x + (uint64_t)r * MREF_E, ref);
+            double scale = 1e-30, d = 0.0;
+            for (uint32_t i = 0; i < MREF_E; i++) scale = fmax(scale, fabs(ref->out[i]));
+            for (uint32_t i = 0; i < MREF_E; i++) {
+                const double e = fabs((double)out[(uint64_t)r * MREF_E + i] - ref->out[i]);
+                d = isfinite(e) ? fmax(d, e) : 1e30;   /* a non-finite word fails the tolerance */
+            }
+            worst_out = fmax(worst_out, d / scale);
+            for (uint32_t k = 0; k < MREF_USED; k++) {
+                sel_bad += sel[r][k] != ref->sel[k];
+                worst_w = fmax(worst_w, fabs((double)w[r][k] - ref->w[k]));
+            }
+        }
+        TEST_ASSERT(memcmp(out1, out, MREF_E * sizeof(float)) == 0);
+    }
+    printf("mellum-moe: layers 0/13/27, 4 of 64 rows each vs double: selected differ %u, weights %.2e, output %.2e; "
+           "T=1 equals row 0 of T=64 bit for bit\n", sel_bad, worst_w, worst_out);
+    TEST_ASSERT(sel_bad == 0);
+    TEST_ASSERT(worst_w <= 2.5e-6);
+    TEST_ASSERT(worst_out <= 1e-5);
+    free(x); free(out); free(out1); free(ref);
+    ds4_engine_close(engine);
+}
+#else
+static void test_mellum_moe_real(void) { puts("mellum-moe: Metal only, skipped"); }
+#endif
+
 static void test_qwen_restore_reused_session(void) {
     ds4_engine *engine = test_get_engine(false);
     if (!engine || !ds4_engine_is_qwen4(engine) || !test_env_bool("DS4_TEST_GLM_MTP")) {
@@ -7444,6 +7524,7 @@ static const ds4_test_entry test_entries[] = {
 #ifndef DS4_NO_GPU
     {"--qwen4-prefill-checkpoints", "qwen4-prefill-checkpoints", "Qwen chunk checkpoints restore matching logits and state", test_qwen_prefill_checkpoints},
     {"--mellum-session", "mellum-session", "Mellum session allocation equals its plan (DS4_TEST_MELLUM_MODEL)", test_mellum_session_allocation},
+    {"--mellum-moe", "mellum-moe", "Mellum MoE driver on the real model's layers against a double reference (DS4_TEST_MELLUM_MODEL)", test_mellum_moe_real},
     {"--qwen4-restore-reuse", "qwen4-restore-reuse", "Qwen restore discards old verifier state and rejects truncated payloads", test_qwen_restore_reused_session},
     {"--session-snapshot", "session-snapshot", "session snapshot and recurrent-state round trip", test_session_snapshot_roundtrip},
     {"--session-rewind", "session-rewind", "Qwen3.8 rewind by snapshot restore and by replay", test_session_rewind_replay},
