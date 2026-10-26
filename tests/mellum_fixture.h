@@ -24,6 +24,20 @@ enum {
 
 typedef enum {
     MF_NONE = 0,
+    MF_PATTERN_FLIP,      /* one entry of sliding_window_pattern flipped */
+    MF_PATTERN_LEN27,     /* 27 entries for 28 blocks */
+    MF_PATTERN_LEN29,     /* 29 entries: the first 28 are right, only the length is wrong */
+    MF_PATTERN_ABSENT,
+    MF_ROPE_NOT_YARN,
+    MF_NO_FREQ_BASE_SWA,
+    MF_EXPERTS_128,
+    MF_USED_10,
+    MF_KEY_LENGTH_256,
+    MF_WINDOW_512,
+    MF_YARN_FACTOR_8,
+    MF_ATTN_FACTOR_1,
+    MF_ORIG_CTX_4096,
+    MF_SHEXP_TENSOR,      /* a shared-expert router in layer 0 */
 } mf_mutation;
 
 typedef struct { char *p; size_t n, cap; } mf_buf;
@@ -87,9 +101,9 @@ static void mf_layer_tensor(mf_gguf *g, uint32_t il, const char *suffix, uint32_
 
 /* 2.1's hyperparameters, as its GGUF carries them. */
 static void mf_keys(mf_gguf *g, mf_mutation mu) {
-    (void)mu;
-    bool pattern[28];
-    for (int i = 0; i < 28; i++) pattern[i] = (i % 4) != 3;
+    bool pattern[29];
+    for (int i = 0; i < 29; i++) pattern[i] = (i % 4) != 3;
+    if (mu == MF_PATTERN_FLIP) pattern[3] = true;
     mf_kv_str(g, "general.architecture", "mellum");
     mf_kv_u32(g, "mellum.block_count", 28);
     mf_kv_u32(g, "mellum.context_length", 131072);
@@ -97,22 +111,25 @@ static void mf_keys(mf_gguf *g, mf_mutation mu) {
     mf_kv_u32(g, "mellum.feed_forward_length", 7168);
     mf_kv_u32(g, "mellum.attention.head_count", 32);
     mf_kv_u32(g, "mellum.attention.head_count_kv", 4);
-    mf_kv_str(g, "mellum.rope.scaling.type", "yarn");
-    mf_kv_f32(g, "mellum.rope.scaling.factor", 16.0f);
-    mf_kv_u32(g, "mellum.rope.scaling.original_context_length", 8192);
-    mf_kv_f32(g, "mellum.rope.scaling.yarn_attn_factor", 1.2772588729858398f);
+    mf_kv_str(g, "mellum.rope.scaling.type", mu == MF_ROPE_NOT_YARN ? "linear" : "yarn");
+    mf_kv_f32(g, "mellum.rope.scaling.factor", mu == MF_YARN_FACTOR_8 ? 8.0f : 16.0f);
+    mf_kv_u32(g, "mellum.rope.scaling.original_context_length", mu == MF_ORIG_CTX_4096 ? 4096 : 8192);
+    mf_kv_f32(g, "mellum.rope.scaling.yarn_attn_factor", mu == MF_ATTN_FACTOR_1 ? 1.0f : 1.2772588729858398f);
     mf_kv_f32(g, "mellum.rope.scaling.yarn_beta_fast", 32.0f);
     mf_kv_f32(g, "mellum.rope.scaling.yarn_beta_slow", 1.0f);
     mf_kv_f32(g, "mellum.rope.freq_base", 500000.0f);
-    mf_kv_f32(g, "mellum.rope.freq_base_swa", 500000.0f);
+    if (mu != MF_NO_FREQ_BASE_SWA) mf_kv_f32(g, "mellum.rope.freq_base_swa", 500000.0f);
     mf_kv_f32(g, "mellum.attention.layer_norm_rms_epsilon", 1.0e-6f);
-    mf_kv_u32(g, "mellum.expert_count", 64);
-    mf_kv_u32(g, "mellum.expert_used_count", 8);
-    mf_kv_u32(g, "mellum.attention.key_length", 128);
+    mf_kv_u32(g, "mellum.expert_count", mu == MF_EXPERTS_128 ? 128 : 64);
+    mf_kv_u32(g, "mellum.expert_used_count", mu == MF_USED_10 ? 10 : 8);
+    mf_kv_u32(g, "mellum.attention.key_length", mu == MF_KEY_LENGTH_256 ? 256 : 128);
     mf_kv_u32(g, "mellum.attention.value_length", 128);
     mf_kv_u32(g, "mellum.expert_feed_forward_length", 896);
-    mf_kv_u32(g, "mellum.attention.sliding_window", 1024);
-    mf_kv_bools(g, "mellum.attention.sliding_window_pattern", pattern, 28);
+    mf_kv_u32(g, "mellum.attention.sliding_window", mu == MF_WINDOW_512 ? 512 : 1024);
+    if (mu != MF_PATTERN_ABSENT) {
+        mf_kv_bools(g, "mellum.attention.sliding_window_pattern", pattern,
+                    mu == MF_PATTERN_LEN27 ? 27 : mu == MF_PATTERN_LEN29 ? 29 : 28);
+    }
 }
 
 /* The special ids at their real places and spellings (2.1's tokenizer_config.json),
@@ -179,6 +196,7 @@ static void mf_tensors(mf_gguf *g, mf_mutation mu) {
         mf_layer_tensor(g, il, "ffn_gate_inp.weight", F32, 2, 2304, 64, 0);
         mf_layer_tensor(g, il, "ffn_norm.weight", F32, 1, 2304, 0, 0);
         mf_layer_tensor(g, il, "ffn_up_exps.weight", Q8, 3, 2304, 896, 64);
+        if (mu == MF_SHEXP_TENSOR && il == 0) mf_layer_tensor(g, il, "ffn_gate_inp_shexp.weight", F32, 1, 2304, 0, 0);
     }
 }
 
