@@ -43,6 +43,12 @@ typedef enum {
     MF_NO_OUTPUT_NORM,
     MF_NO_ATTN_Q_NORM,    /* layer 5 has no attn_q_norm */
     MF_BAD_ATTN_Q_DIM,    /* layer 5's attn_q is twice as wide */
+    MF_NO_TOKEN_TYPE,     /* tokenizer.ggml.token_type absent */
+    MF_TOKEN_TYPE_SHORT,  /* one entry fewer than tokens */
+    MF_TOKEN_TYPE_U32,    /* the right values, stored as uint32 */
+    MF_NO_IM_START,       /* id 27 spelled something else: <|im_start|> absent */
+    MF_NO_IM_END,         /* id 28 spelled something else: <|im_end|> absent */
+    MF_EXTRA_CONTROL,     /* one more CONTROL token, spelled <zzz>, after the byte pieces */
 } mf_mutation;
 
 typedef struct { char *p; size_t n, cap; } mf_buf;
@@ -140,10 +146,9 @@ static void mf_keys(mf_gguf *g, mf_mutation mu) {
 /* The special ids at their real places and spellings (2.1's tokenizer_config.json),
  * then the 256 byte-level pieces. */
 static void mf_vocab(mf_gguf *g, mf_mutation mu) {
-    (void)mu;
     static char fill[35][24], bytes[256][8];
-    const char *tok[35 + 256];
-    const int ntok = 35 + 256;
+    const char *tok[35 + 256 + 1];
+    const int ntok = 35 + 256 + (mu == MF_EXTRA_CONTROL ? 1 : 0);
     for (int i = 0; i < 35; i++) { snprintf(fill[i], sizeof(fill[i]), "<fill_%d>", i); tok[i] = fill[i]; }
     tok[0] = "<|endoftext|>"; tok[1] = "<assistant>"; tok[2] = "</assistant>";
     tok[3] = "<commit_before>"; tok[4] = "<commit_after>"; tok[5] = "<commit_msg>";
@@ -153,7 +158,9 @@ static void mf_vocab(mf_gguf *g, mf_mutation mu) {
     tok[15] = "<issue_closed>"; tok[16] = "<jupyter_text>"; tok[17] = "<jupyter_code>";
     tok[18] = "<jupyter_start>"; tok[19] = "<jupyter_output>"; tok[20] = "<reponame>";
     tok[21] = "<system>"; tok[22] = "</system>"; tok[23] = "<think>"; tok[24] = "</think>";
-    tok[25] = "<user>"; tok[26] = "</user>"; tok[27] = "<|im_start|>"; tok[28] = "<|im_end|>";
+    tok[25] = "<user>"; tok[26] = "</user>";
+    tok[27] = mu == MF_NO_IM_START ? "<|im_begin|>" : "<|im_start|>";
+    tok[28] = mu == MF_NO_IM_END ? "<|im_finish|>" : "<|im_end|>";
     tok[29] = "<tool_call>"; tok[30] = "</tool_call>";
     tok[31] = "<tool_response>"; tok[32] = "</tool_response>";
     tok[33] = "<|extra_token_7|>"; tok[34] = "<|extra_token_8|>";
@@ -165,16 +172,21 @@ static void mf_vocab(mf_gguf *g, mf_mutation mu) {
         else { bytes[c][0] = (char)(0xC0 | (cp >> 6)); bytes[c][1] = (char)(0x80 | (cp & 0x3F)); bytes[c][2] = 0; }
         tok[35 + c] = bytes[c];
     }
+    if (mu == MF_EXTRA_CONTROL) tok[35 + 256] = "<zzz>";
     mf_kv_str(g, "tokenizer.ggml.model", "gpt2");
     mf_kv_str(g, "tokenizer.ggml.pre", "mellum2");
     mf_kv_strs(g, "tokenizer.ggml.tokens", tok, (uint64_t)ntok);
     mf_kv_strs(g, "tokenizer.ggml.merges", NULL, 0);
     /* as 2.1's file has them: 0-22, 25-28, 33, 34 CONTROL (3); 23, 24, 29-32
      * USER_DEFINED (4); the byte pieces NORMAL (1) */
-    static int32_t types[35 + 256];
+    static int32_t types[35 + 256 + 1];
     for (int i = 0; i < 35 + 256; i++) types[i] = i >= 35 ? 1 : 3;
+    types[35 + 256] = 3;
     types[23] = types[24] = types[29] = types[30] = types[31] = types[32] = 4;
-    mf_kv_i32s(g, "tokenizer.ggml.token_type", MF_INT32, types, (uint64_t)ntok);
+    if (mu != MF_NO_TOKEN_TYPE) {
+        mf_kv_i32s(g, "tokenizer.ggml.token_type", mu == MF_TOKEN_TYPE_U32 ? MF_UINT32 : MF_INT32, types,
+                   mu == MF_TOKEN_TYPE_SHORT ? (uint64_t)ntok - 1 : (uint64_t)ntok);
+    }
     mf_kv_u32(g, "tokenizer.ggml.bos_token_id", 0);
     mf_kv_u32(g, "tokenizer.ggml.eos_token_id", 28);
     mf_kv_u32(g, "tokenizer.ggml.unknown_token_id", 0);

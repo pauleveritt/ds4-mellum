@@ -43604,6 +43604,10 @@ struct ds4_vocab {
     int im_start_id;
     int im_end_id;
     int endoftext_id;
+    /* One ds4_stop_class byte per id, filled at vocab_load.  Every stop
+     * decision (vocab_token_is_generation_stop, ds4_token_stop_class) reads
+     * it: EOS, EOS-alt and protocol end a generation, a marker is content. */
+    uint8_t *stop_class;
     str_i32_table token_to_id;
     str_i32_table merge_rank;
 };
@@ -44846,7 +44850,7 @@ static int vocab_lookup_optional(const ds4_vocab *vocab, const char *text) {
 
 /* Load token strings, special token ids, and merge ranks from GGUF metadata. */
 
-static void vocab_load(ds4_vocab *vocab, const ds4_model *model) {
+static void vocab_load_ids(ds4_vocab *vocab, const ds4_model *model) {
     memset(vocab, 0, sizeof(*vocab));
 
     ds4_array_ref tokens;
@@ -44956,7 +44960,63 @@ static void vocab_load(ds4_vocab *vocab, const ds4_model *model) {
     vocab->dsml_id = vocab_lookup(vocab, "｜DSML｜");
 }
 
+/* Mellum's ids 3-20 are the corpus markers (<filename>, <fim_*>, ...): in the
+ * file they are CONTROL, in a reply they are content.  A CONTROL token not named
+ * here is protocol (fail-closed): a host refuses it as an unexpected stop. */
+static const char *const MELLUM_MARKER_SPELLINGS[] = {
+    "<commit_before>", "<commit_after>", "<commit_msg>", "<empty_output>", "<filename>",
+    "<fim_prefix>", "<fim_middle>", "<fim_suffix>", "<fim_pad>", "<gh_stars>",
+    "<issue_start>", "<issue_comment>", "<issue_closed>",
+    "<jupyter_text>", "<jupyter_code>", "<jupyter_start>", "<jupyter_output>", "<reponame>",
+};
+
+static bool vocab_spelling_in(const ds4_str *s, const char *const *list, size_t n) {
+    for (size_t i = 0; i < n; i++) {
+        const size_t len = strlen(list[i]);
+        if (s->len == len && memcmp(s->ptr, list[i], len) == 0) return true;
+    }
+    return false;
+}
+
+/* Fill vocab->stop_class.  Other models keep their stops exactly: eos is EOS,
+ * <|endoftext|> (Qwen) is EOS-alt, GLM's role ids are protocol. */
+static void vocab_classify_stops(ds4_vocab *vocab, const ds4_model *model) {
+    vocab->stop_class = xcalloc((size_t)vocab->n_vocab, 1);
+    uint8_t *cls = vocab->stop_class;
+    if (ds4_model_is_mellum()) {
+        /* 2.1 classes by token_type: CONTROL (3) tokens are markers or protocol
+         * by spelling; 23, 24 and 29-32 are USER_DEFINED (4) and are none. */
+        ds4_array_ref types;
+        if (!model_get_array(model, "tokenizer.ggml.token_type", &types) ||
+            types.type != GGUF_VALUE_INT32 || types.len != (uint64_t)vocab->n_vocab) {
+            ds4_die("tokenizer.ggml.token_type must be an int32 array with one entry per token (Mellum stops)");
+        }
+        ds4_cursor tc = cursor_at(model, types.data_pos);
+        for (int i = 0; i < vocab->n_vocab; i++) {
+            int32_t type = 0;
+            if (!cursor_read(&tc, &type, sizeof(type))) ds4_die(tc.error);
+            if (type != 3) continue;
+            cls[i] = vocab_spelling_in(&vocab->token[i], MELLUM_MARKER_SPELLINGS,
+                                       sizeof(MELLUM_MARKER_SPELLINGS) / sizeof(MELLUM_MARKER_SPELLINGS[0]))
+                         ? DS4_STOP_MARKER : DS4_STOP_PROTOCOL;
+        }
+    } else if (DS4_MODEL_FAMILY == DS4_MODEL_FAMILY_GLM_DSA) {
+        const int roles[4] = { vocab->system_id, vocab->user_id, vocab->assistant_id, vocab->observation_id };
+        for (int r = 0; r < 4; r++) {
+            if (roles[r] >= 0 && roles[r] < vocab->n_vocab) cls[roles[r]] = DS4_STOP_PROTOCOL;
+        }
+    }
+    if (vocab->endoftext_id >= 0 && vocab->endoftext_id < vocab->n_vocab) cls[vocab->endoftext_id] = DS4_STOP_EOS_ALT;
+    if (vocab->eos_id >= 0 && vocab->eos_id < vocab->n_vocab) cls[vocab->eos_id] = DS4_STOP_EOS;
+}
+
+static void vocab_load(ds4_vocab *vocab, const ds4_model *model) {
+    vocab_load_ids(vocab, model);
+    vocab_classify_stops(vocab, model);
+}
+
 static void vocab_free(ds4_vocab *vocab) {
+    free(vocab->stop_class);
     free(vocab->token);
     table_free(&vocab->token_to_id);
     table_free(&vocab->merge_rank);
@@ -45451,21 +45511,22 @@ char *ds4_token_text(ds4_engine *e, int token, size_t *len) {
     return out;
 }
 
+static int vocab_token_stop_class(const ds4_vocab *vocab, int token) {
+    if (!vocab || !vocab->stop_class || token < 0 || token >= vocab->n_vocab) return DS4_STOP_NONE;
+    return vocab->stop_class[token];
+}
+
 static bool vocab_token_is_generation_stop(const ds4_vocab *vocab, int token) {
-    if (!vocab || token < 0) return false;
-    if (token == vocab->eos_id) return true;
-    if (vocab->endoftext_id >= 0 && token == vocab->endoftext_id) return true;
-    if (DS4_MODEL_FAMILY == DS4_MODEL_FAMILY_GLM_DSA) {
-        return (vocab->system_id >= 0 && token == vocab->system_id) ||
-               (vocab->user_id >= 0 && token == vocab->user_id) ||
-               (vocab->assistant_id >= 0 && token == vocab->assistant_id) ||
-               (vocab->observation_id >= 0 && token == vocab->observation_id);
-    }
-    return false;
+    const int cls = vocab_token_stop_class(vocab, token);
+    return cls == DS4_STOP_EOS || cls == DS4_STOP_EOS_ALT || cls == DS4_STOP_PROTOCOL;
 }
 
 int ds4_token_eos(ds4_engine *e) {
     return e->vocab.eos_id;
+}
+
+int ds4_token_stop_class(ds4_engine *e, int token) {
+    return e ? vocab_token_stop_class(&e->vocab, token) : DS4_STOP_NONE;
 }
 
 bool ds4_token_is_stop(ds4_engine *e, int token) {

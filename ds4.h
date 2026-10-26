@@ -387,6 +387,16 @@ void ds4_chat_append_assistant_prefix(ds4_engine *e, ds4_tokens *tokens, ds4_thi
 
 char *ds4_token_text(ds4_engine *e, int token, size_t *len);
 int ds4_token_eos(ds4_engine *e);
+/* What a token does when generated.  EOS, EOS-alt and protocol end a generation
+ * (ds4_token_is_stop); a marker is ordinary content, rendered as its text. */
+enum ds4_stop_class {
+    DS4_STOP_NONE = 0,
+    DS4_STOP_EOS = 1,
+    DS4_STOP_EOS_ALT = 2,
+    DS4_STOP_PROTOCOL = 3,
+    DS4_STOP_MARKER = 4,
+};
+int ds4_token_stop_class(ds4_engine *e, int token);
 bool ds4_token_is_stop(ds4_engine *e, int token);
 bool ds4_token_is_thinking_control(ds4_engine *e, int token);
 bool ds4_token_is_stop_for_think_mode(ds4_engine *e,

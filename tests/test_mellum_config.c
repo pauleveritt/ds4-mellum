@@ -544,6 +544,160 @@ static void check_mellum_plan(void) {
     check_mellum_attention_scratch();
 }
 
+/* ---- stop classes ---------------------------------------------------------------------
+ * 2.1's special ids, as its tokenizer_config.json spells and types them: <|im_end|> (28) ends
+ * a turn (EOS), <|endoftext|> (0) ends a document (EOS-alt), the other CONTROL tokens are
+ * protocol except the corpus markers 3-20, which are content in a reply; <think>, </think>
+ * and the tool tags (USER_DEFINED) are none.  Unnamed CONTROL tokens fail closed. */
+static const int EOS_IDS[] = {28};
+static const int EOS_ALT_IDS[] = {0};
+static const int PROTOCOL_IDS[] = {1, 2, 21, 22, 25, 26, 27, 33, 34};   /* 33, 34: reserved, fail-closed */
+static const int MARKER_IDS[] = {3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20};
+static const int NONE_IDS[] = {23, 24, 29, 30, 31, 32, 35};
+/* ds4_token_is_stop is true exactly here */
+static const int STOP_IDS[] = {0, 1, 2, 21, 22, 25, 26, 27, 28, 33, 34};
+
+#define N_OF(a) (sizeof(a) / sizeof((a)[0]))
+
+static bool in_list(const int *l, size_t n, int id) {
+    for (size_t i = 0; i < n; i++) if (l[i] == id) return true;
+    return false;
+}
+
+static void child_vocab_load(const char *path) {
+    ds4_model m;
+    model_open(&m, path, false, false);
+    config_validate_model(&m);
+    ds4_vocab v;
+    vocab_load(&v, &m);
+}
+
+static void expect_vocab_refused(mf_mutation mu, const char *needle, const char *label) {
+    char path[512], err[4096];
+    mellum_fixture_write(mu, path, sizeof(path));
+    const int rc = run_child(child_vocab_load, path, err, sizeof(err));
+    unlink(path);
+    if (rc != 1 || !strstr(err, needle)) {
+        fprintf(stderr, "FAIL %s: exit %d, stderr [%s], wanted exit 1 naming '%s'\n", label, rc, err, needle);
+        exit(1);
+    }
+    printf("ok   vocab refused: %-30s names %s\n", label, needle);
+}
+
+/* The classes of the engine whose vocabulary is loaded (the shape is Mellum's): the literal
+ * sets, every id, and both think modes. */
+static void check_mellum_stop_classes(ds4_engine *e, const char *what) {
+    CHECK(ds4_model_is_mellum());
+    for (size_t i = 0; i < N_OF(EOS_IDS); i++) CHECK(ds4_token_stop_class(e, EOS_IDS[i]) == DS4_STOP_EOS);
+    for (size_t i = 0; i < N_OF(EOS_ALT_IDS); i++) CHECK(ds4_token_stop_class(e, EOS_ALT_IDS[i]) == DS4_STOP_EOS_ALT);
+    for (size_t i = 0; i < N_OF(PROTOCOL_IDS); i++) CHECK(ds4_token_stop_class(e, PROTOCOL_IDS[i]) == DS4_STOP_PROTOCOL);
+    for (size_t i = 0; i < N_OF(MARKER_IDS); i++) CHECK(ds4_token_stop_class(e, MARKER_IDS[i]) == DS4_STOP_MARKER);
+    for (size_t i = 0; i < N_OF(NONE_IDS); i++) CHECK(ds4_token_stop_class(e, NONE_IDS[i]) == DS4_STOP_NONE);
+    for (int id = 0; id < e->vocab.n_vocab; id++) {
+        const bool want = in_list(STOP_IDS, N_OF(STOP_IDS), id);
+        if (ds4_token_is_stop(e, id) != want) {
+            fprintf(stderr, "FAIL %s: id %d stop=%d, the literal set says %d\n", what, id,
+                    ds4_token_is_stop(e, id), want);
+            exit(1);
+        }
+        /* think mode sits on top of the class lookup: ids 23 and 24 (<think>, </think>) are stops
+         * under DS4_THINK_NONE only; every other id follows the class in both modes */
+        const bool think_id = id == 23 || id == 24;
+        if (ds4_token_is_stop_for_think_mode(e, id, DS4_THINK_HIGH) != want ||
+            ds4_token_is_stop_for_think_mode(e, id, DS4_THINK_NONE) != (want || think_id)) {
+            fprintf(stderr, "FAIL %s: id %d think-mode stops high=%d none=%d, wanted %d and %d\n", what, id,
+                    ds4_token_is_stop_for_think_mode(e, id, DS4_THINK_HIGH),
+                    ds4_token_is_stop_for_think_mode(e, id, DS4_THINK_NONE), want, want || think_id);
+            exit(1);
+        }
+    }
+    CHECK(ds4_token_stop_class(e, -1) == DS4_STOP_NONE && ds4_token_stop_class(e, e->vocab.n_vocab) == DS4_STOP_NONE);
+    CHECK(!ds4_token_is_stop(e, -1) && !ds4_token_is_stop(e, e->vocab.n_vocab));
+    printf("ok   %s: stop classes and stops (literal sets, every id, both think modes)\n", what);
+}
+
+static void check_mellum_stops_tiny(void) {
+    char path[512];
+    mellum_fixture_write(MF_NONE, path, sizeof(path));
+    ds4_model m;
+    model_open(&m, path, false, false);
+    config_validate_model(&m);
+    static ds4_engine e;
+    memset(&e, 0, sizeof(e));
+    vocab_load(&e.vocab, &m);
+    check_mellum_stop_classes(&e, "Mellum (tiny vocabulary)");
+    vocab_free(&e.vocab);
+    model_close(&m);
+    unlink(path);
+}
+
+static void check_mellum_unnamed_control_is_protocol(void) {
+    char path[512];
+    mellum_fixture_write(MF_EXTRA_CONTROL, path, sizeof(path));
+    ds4_model m;
+    model_open(&m, path, false, false);
+    config_validate_model(&m);
+    static ds4_engine e;
+    memset(&e, 0, sizeof(e));
+    vocab_load(&e.vocab, &m);
+    CHECK(e.vocab.n_vocab == 292);
+    CHECK(ds4_token_stop_class(&e, 291) == DS4_STOP_PROTOCOL && ds4_token_is_stop(&e, 291));
+    /* sibling: the named markers beside it stay content */
+    CHECK(ds4_token_stop_class(&e, 7) == DS4_STOP_MARKER && !ds4_token_is_stop(&e, 7));
+    CHECK(ds4_token_stop_class(&e, 290) == DS4_STOP_NONE && !ds4_token_is_stop(&e, 290));
+    vocab_free(&e.vocab);
+    model_close(&m);
+    unlink(path);
+    printf("ok   Mellum: an unnamed CONTROL token (<zzz>) is protocol, the named markers are not\n");
+}
+
+/* Flash Next's classes, model-free on the tiny vocabulary read as a Qwen model: eos and
+ * <|endoftext|> stop, nothing else does (the truth table before the classes), <think> and
+ * </think> are class none. */
+static void check_qwen_stop_classes_tiny(void) {
+    char path[512];
+    mellum_fixture_write(MF_NONE, path, sizeof(path));
+    ds4_model m;
+    model_open(&m, path, false, false);
+    config_validate_model(&m);
+    g_ds4_shape = DS4_SHAPE_QWEN4_EXP;
+    CHECK(!ds4_model_is_mellum() && ds4_model_is_qwen4());
+    static ds4_engine e;
+    memset(&e, 0, sizeof(e));
+    vocab_load(&e.vocab, &m);
+    const int eos = vocab_lookup(&e.vocab, "<|im_end|>"), alt = vocab_lookup(&e.vocab, "<|endoftext|>");
+    const int ts = vocab_lookup(&e.vocab, "<think>"), te = vocab_lookup(&e.vocab, "</think>");
+    CHECK(eos == 28 && alt == 0 && ts == 23 && te == 24);
+    CHECK(ds4_token_stop_class(&e, eos) == DS4_STOP_EOS);
+    CHECK(ds4_token_stop_class(&e, alt) == DS4_STOP_EOS_ALT);
+    CHECK(ds4_token_stop_class(&e, ts) == DS4_STOP_NONE && ds4_token_stop_class(&e, te) == DS4_STOP_NONE);
+    for (int id = 0; id < e.vocab.n_vocab; id++) {
+        const bool before = id == eos || id == alt;
+        CHECK(ds4_token_is_stop(&e, id) == before);
+        CHECK(ds4_token_is_stop_for_think_mode(&e, id, DS4_THINK_HIGH) == before);
+        CHECK(ds4_token_is_stop_for_think_mode(&e, id, DS4_THINK_NONE) == (before || id == ts || id == te));
+        if (id != eos && id != alt) CHECK(ds4_token_stop_class(&e, id) == DS4_STOP_NONE);
+    }
+    vocab_free(&e.vocab);
+    model_close(&m);
+    unlink(path);
+    printf("ok   qwen4exp (tiny vocabulary): eos EOS, <|endoftext|> EOS-alt, <think> none, is_stop unchanged\n");
+}
+
+/* The real vocabulary: the same classes over every one of its 98,304 ids. */
+static void check_mellum_stops_model(const char *path) {
+    ds4_model m;
+    model_open(&m, path, false, false);
+    config_validate_model(&m);
+    static ds4_engine e;
+    memset(&e, 0, sizeof(e));
+    vocab_load(&e.vocab, &m);
+    CHECK(e.vocab.n_vocab == 98304);
+    check_mellum_stop_classes(&e, "Mellum (real GGUF)");
+    vocab_free(&e.vocab);
+    model_close(&m);
+}
+
 /* With DS4_TEST_MELLUM_MODEL, the real GGUF passes the same validation and
  * binding (mapped, not read). */
 static void check_real_model(void) {
@@ -559,6 +713,7 @@ static void check_real_model(void) {
         exit(1);
     }
     printf("ok   real model: keys validated, every tensor bound and checked\n");
+    check_mellum_stops_model(path);
 }
 
 int main(void) {
@@ -592,6 +747,14 @@ int main(void) {
     check_mellum_steering_refused();
     check_mellum_plan();
     check_memory_plan();
+    expect_vocab_refused(MF_NO_TOKEN_TYPE, "tokenizer.ggml.token_type", "no token_type array");
+    expect_vocab_refused(MF_TOKEN_TYPE_SHORT, "tokenizer.ggml.token_type", "token_type one entry short");
+    expect_vocab_refused(MF_TOKEN_TYPE_U32, "tokenizer.ggml.token_type", "token_type stored as uint32");
+    expect_vocab_refused(MF_NO_IM_START, "<|im_start|>", "<|im_start|> absent");
+    expect_vocab_refused(MF_NO_IM_END, "<|im_end|>", "<|im_end|> absent");
+    check_mellum_stops_tiny();
+    check_mellum_unnamed_control_is_protocol();
+    check_qwen_stop_classes_tiny();
     check_real_model();
     printf("test-mellum-config: ok\n");
     return 0;
