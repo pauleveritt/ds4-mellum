@@ -4786,6 +4786,7 @@ static NSString *ds4_gpu_full_source(void) {
         @[@"DS4_METAL_SET_ROWS_SOURCE",   @"metal/set_rows.metal"],
         @[@"DS4_METAL_QWEN4_SOURCE",      @"metal/qwen4.metal"],
         @[@"DS4_METAL_QWEN4_VISION_SOURCE", @"metal/qwen4_vision.metal"],
+        @[@"DS4_METAL_MELLUM_SOURCE",     @"metal/mellum.metal"],
     ];
 
     NSMutableString *source = [NSMutableString stringWithString:base];
@@ -50534,4 +50535,129 @@ int ds4_gpu_qwen4_hc_mix_rows_tensor(ds4_gpu_tensor *mixed, const ds4_gpu_tensor
     }
     return qwen4_dispatch(QWEN4_K_HC_MIX_ROWS, &args, sizeof(args), b, 3,
                           MTLSizeMake((n_embd + 255) / 256, n_tokens, 1), MTLSizeMake(256, 1, 1), 0);
+}
+
+/* ---- Mellum 2.1 (metal/mellum.metal) ----
+ *
+ * The kernels are dispatched by name, one threadgroup grid each, bound in the
+ * order of their buffer arguments after the constant block. */
+static int mellum_dispatch(const char *name, const void *args, size_t args_len,
+                           const qwen4_bind *binds, int n_binds, MTLSize grid, MTLSize tg) {
+    if (!g_initialized && !ds4_gpu_init()) return 0;
+    @autoreleasepool {
+        id<MTLComputePipelineState> pipeline = ds4_gpu_get_pipeline(name);
+        if (!pipeline) return 0;
+        int owned = 0;
+        id<MTLCommandBuffer> cb = ds4_gpu_command_buffer(&owned);
+        if (!cb) return 0;
+        id<MTLComputeCommandEncoder> enc = ds4_gpu_compute_encoder(cb);
+        [enc setComputePipelineState:pipeline];
+        [enc setBytes:args length:args_len atIndex:0];
+        for (int i = 0; i < n_binds; i++) {
+            [enc setBuffer:binds[i].buf offset:binds[i].off atIndex:(NSUInteger)(i + 1)];
+        }
+        [enc dispatchThreadgroups:grid threadsPerThreadgroup:tg];
+        ds4_gpu_end_compute_encoder(cb, enc);
+        return ds4_gpu_finish_command_buffer(cb, owned, name);
+    }
+}
+
+/* One head norm + NeoX rope dispatch over rows of n_head heads: inv_freq holds
+ * the angle's frequency for each of rope_dims / 2 pairs, mscale scales cos and
+ * sin. */
+static int mellum_qk_norm_rope_dispatch(
+        ds4_gpu_tensor *out, const ds4_gpu_tensor *x,
+        const void *model_map, uint64_t model_size, uint64_t weight_offset,
+        uint32_t n_rows, uint32_t n_head, uint32_t head_dim, uint32_t pos0,
+        uint32_t rope_dims, const float *inv_freq, float mscale, float eps) {
+    struct {
+        uint32_t n_rows, n_head, head_dim, rope_dims, pos0; float eps; float mscale; uint32_t pad1;
+        float inv_freq[128];
+    } args = { n_rows, n_head, head_dim, rope_dims, pos0, eps, mscale, 0, { 0 } };
+    memcpy(args.inv_freq, inv_freq, (rope_dims / 2u) * sizeof(float));
+    const uint64_t bytes = (uint64_t)n_rows * n_head * head_dim * sizeof(float);
+    qwen4_bind b[3];
+    if (!qwen4_bind_tensor(&b[0], x, bytes, "mellum head input") ||
+        !qwen4_bind_weight(&b[1], model_map, model_size, weight_offset, (uint64_t)head_dim * sizeof(float),
+                           "mellum head norm") ||
+        !qwen4_bind_tensor(&b[2], out, bytes, "mellum head output")) {
+        return 0;
+    }
+    return mellum_dispatch("kernel_mellum_qk_norm_rope", &args, sizeof(args), b, 3,
+                           MTLSizeMake(n_head, n_rows, 1), MTLSizeMake(32, 1, 1));
+}
+
+/* Mellum's q/k norm and RoPE (ds4_gpu.h): the angle's frequencies and the
+ * cos/sin scale are precomputed on the host in double.  YaRN's angle blend is
+ * linear in the position, so it is one frequency per pair; its mscale is the
+ * same 1 + 0.1 ln(1/freq_scale) that rope_yarn in dsv4_rope.metal applies. */
+static double mellum_rope_corr_dim(double head_dim, double n_ctx_orig, double n_rot, double base) {
+    return head_dim * log(n_ctx_orig / (n_rot * 2.0 * M_PI)) / (2.0 * log(base));
+}
+
+int ds4_gpu_mellum_qk_norm_rope_tensor(
+        ds4_gpu_tensor *q, ds4_gpu_tensor *k,
+        const void *model_map, uint64_t model_size,
+        uint64_t q_norm_offset, uint64_t k_norm_offset,
+        uint32_t n_tok, uint32_t pos0, int layer_kind,
+        const ds4_gpu_mellum_rope *rope) {
+    if (!rope || n_tok == 0u || (layer_kind != DS4_MELLUM_LAYER_SLIDING && layer_kind != DS4_MELLUM_LAYER_FULL) ||
+        rope->head_dim != 128u || rope->n_head_q == 0u || rope->n_head_k == 0u ||
+        !(rope->freq_base_sliding > 1.0f) || !(rope->freq_base_full > 1.0f) ||
+        !(rope->attn_factor > 0.0f) ||
+        /* the kernel forms the angle as (float)pos * freq: exact only below 2^24 */
+        pos0 > (1u << 24) || n_tok > (1u << 24) - pos0) {
+        return 0;
+    }
+    const bool full = layer_kind == DS4_MELLUM_LAYER_FULL;
+    /* The full layer's rope applies 1 + 0.1 ln(1/freq_scale) itself.  The GGUF's
+     * yarn_attn_factor is that same number, so a caller that hands it over as
+     * attn_factor would scale cos and sin twice: refuse. */
+    if (full && rope->attn_factor != 1.0f) {
+        fprintf(stderr, "ds4: Mellum RoPE: a full layer's attn_factor must be 1.0 "
+                        "(the rope computes the YaRN mscale itself), got %.7g\n", (double)rope->attn_factor);
+        return 0;
+    }
+    const uint32_t D = rope->head_dim;
+    const double base = full ? rope->freq_base_full : rope->freq_base_sliding;
+    float inv_freq[128];
+    float mscale = rope->attn_factor;
+    if (full) {
+        if (!(rope->freq_scale > 0.0f) || rope->n_ctx_orig == 0u) return 0;
+        double low = 0.0, high = D - 1.0;
+        if (rope->ext_factor != 0.0f) {
+            low = fmax(0.0, floor(mellum_rope_corr_dim(D, rope->n_ctx_orig, rope->beta_fast, base)));
+            high = fmin(D - 1.0, ceil(mellum_rope_corr_dim(D, rope->n_ctx_orig, rope->beta_slow, base)));
+            mscale = (float)((double)rope->attn_factor * (1.0 + 0.1 * log(1.0 / (double)rope->freq_scale)));
+        }
+        for (uint32_t j = 0; j < D / 2u; j++) {
+            const double extrap = pow(base, -2.0 * (double)j / (double)D);
+            const double interp = (double)rope->freq_scale * extrap;
+            double freq = interp;
+            if (rope->ext_factor != 0.0f) {
+                const double y = ((double)j - low) / fmax(0.001, high - low);
+                const double ramp_mix = (1.0 - fmin(1.0, fmax(0.0, y))) * (double)rope->ext_factor;
+                freq = interp * (1.0 - ramp_mix) + extrap * ramp_mix;
+            }
+            inv_freq[j] = (float)freq;
+        }
+    } else {
+        for (uint32_t j = 0; j < D / 2u; j++) {
+            inv_freq[j] = (float)pow(base, -2.0 * (double)j / (double)D);
+        }
+    }
+    /* Check all four bindings before the first dispatch: q must not be rewritten by a call that then refuses. */
+    qwen4_bind probe[4];
+    if (!qwen4_bind_tensor(&probe[0], q, (uint64_t)n_tok * rope->n_head_q * D * sizeof(float), "mellum q") ||
+        !qwen4_bind_tensor(&probe[1], k, (uint64_t)n_tok * rope->n_head_k * D * sizeof(float), "mellum k") ||
+        !qwen4_bind_weight(&probe[2], model_map, model_size, q_norm_offset, (uint64_t)D * sizeof(float),
+                           "mellum q norm") ||
+        !qwen4_bind_weight(&probe[3], model_map, model_size, k_norm_offset, (uint64_t)D * sizeof(float),
+                           "mellum k norm")) {
+        return 0;
+    }
+    return mellum_qk_norm_rope_dispatch(q, q, model_map, model_size, q_norm_offset, n_tok, rope->n_head_q, D,
+                                        pos0, D, inv_freq, mscale, rope->eps) &&
+           mellum_qk_norm_rope_dispatch(k, k, model_map, model_size, k_norm_offset, n_tok, rope->n_head_k, D,
+                                        pos0, D, inv_freq, mscale, rope->eps);
 }

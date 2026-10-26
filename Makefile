@@ -9,6 +9,7 @@ endif
 SAMPLING_TEST := tests/test_sampling
 GLM53_KDA_TEST := tests/test_glm53_kda
 QWEN4_KERNEL_TEST := tests/test_qwen4_kernels
+MELLUM_KERNEL_TEST := tests/test_mellum_kernels
 GLM53_KDA_ROCM_TEST := tests/test_glm53_kda_rocm
 
 DEBUG_FLAGS ?= -g
@@ -89,6 +90,7 @@ help:
 	@echo "  make test-mxfp4-metal  Check the MXFP4 half LUT, then run Metal MXFP4 exactness tests"
 	@echo "  make test-qwen4-kernels  Run the Qwen3.8 Metal kernel tests"
 	@echo "  make test-mellum      Run the Mellum 2.1 model-free tests"
+	@echo "  make test-mellum-kernels  Run the Mellum 2.1 Metal kernel tests (macOS)"
 	@echo "  make test-qwen4-q2       Check exact low-bit decode and prefill tile parity"
 	@echo "  make test-qwen4-vision  Compare the Qwen3.8 vision tower with HF (set DS4_QWEN4_SNAPSHOT, DS4_QWEN4_MMPROJ, DS4_QWEN4_IMAGE)"
 	@echo "  make dspark-verify-depth  Run DSpark speculative verification smoke if support GGUF is present"
@@ -890,6 +892,17 @@ tests/test_qwen4_kernels.o: tests/test_qwen4_kernels.c ds4_gpu.h ds4.h
 $(QWEN4_KERNEL_TEST): tests/test_qwen4_kernels.o ds4_metal.o ds4_image.o
 	$(CC) $(CFLAGS) -o $@ $^ $(METAL_LDLIBS)
 
+# Mellum's model-free Metal kernel tests: no model, no session.
+tests/test_mellum_kernels.o: tests/test_mellum_kernels.c ds4_gpu.h ds4.h
+	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -I. -c -o $@ tests/test_mellum_kernels.c
+
+$(MELLUM_KERNEL_TEST): tests/test_mellum_kernels.o ds4_metal.o ds4_image.o
+	$(CC) $(CFLAGS) -o $@ $^ $(METAL_LDLIBS)
+
+.PHONY: test-mellum-kernels
+test-mellum-kernels: $(MELLUM_KERNEL_TEST)
+	./$(MELLUM_KERNEL_TEST)
+
 endif
 
 tests/test_qwen4_vision.o: tests/test_qwen4_vision.c ds4.h
@@ -1388,6 +1401,7 @@ tests/test_session_state_gpu.o: ds4_tool_text.h
 clean:
 	rm -f tests/test_mmvq_cuda tests/test_mmvq_rocm
 	rm -f tests/test_qwen4_ngrams
+	rm -f tests/test_mellum_kernels
 	rm -f tests/test_mellum_config tests/test_mellum_tokenizer tests/test_mellum_frontends_cli tests/test_mellum_frontends_agent tests/test_mellum_frontends_server
 	rm -f tests/test_qwen4_ngram_state
 	rm -f tests/test_web_recovery

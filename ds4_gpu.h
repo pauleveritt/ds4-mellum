@@ -3668,6 +3668,44 @@ int ds4_gpu_qwen4_mtp_stage_tensor(
 int ds4_gpu_qwen4_mtp_combine_tensor(
         ds4_gpu_tensor *R_out, const ds4_gpu_tensor *proj, uint32_t n_embd, uint32_t n_hc);
 
+/* Mellum 2.1: per-head q/k RMS norm and NeoX RoPE (metal/mellum.metal), fed
+ * the YaRN-blended frequencies and mscale of a full layer.  q is
+ * [n_tok][n_head_q][head_dim] and k [n_tok][n_head_k][head_dim], both
+ * rewritten in place; row r sits at position pos0 + r.  The two norm weights
+ * are [head_dim] f32 in the model map.  layer_kind is DS4_MELLUM_LAYER_SLIDING
+ * (plain RoPE, base freq_base_sliding) or DS4_MELLUM_LAYER_FULL (YaRN, base
+ * freq_base_full).  attn_factor is llama.cpp's neutral external factor: pass
+ * 1.0.  A full layer's rope scales cos and sin by attn_factor * (1 + 0.1
+ * ln(1/freq_scale)) itself, which is the GGUF's yarn_attn_factor, 1.2772589;
+ * so never pass that field here.  A full layer with any attn_factor other than
+ * 1.0f is refused: it would apply the factor twice. */
+enum {
+    DS4_MELLUM_LAYER_SLIDING = 0,
+    DS4_MELLUM_LAYER_FULL = 1,
+};
+
+typedef struct {
+    uint32_t n_head_q;
+    uint32_t n_head_k;
+    uint32_t head_dim;
+    uint32_t n_ctx_orig;
+    float    eps;
+    float    freq_base_sliding;
+    float    freq_base_full;
+    float    freq_scale;    /* full layers: 1 / YaRN factor */
+    float    ext_factor;    /* full layers: 1 */
+    float    attn_factor;   /* neutral external factor, 1.0 (full layers refuse anything else; sliding: plain scale, pass 1.0) */
+    float    beta_fast;
+    float    beta_slow;
+} ds4_gpu_mellum_rope;
+
+int ds4_gpu_mellum_qk_norm_rope_tensor(
+        ds4_gpu_tensor *q, ds4_gpu_tensor *k,
+        const void *model_map, uint64_t model_size,
+        uint64_t q_norm_offset, uint64_t k_norm_offset,
+        uint32_t n_tok, uint32_t pos0, int layer_kind,
+        const ds4_gpu_mellum_rope *rope);
+
 #ifdef __cplusplus
 }
 #endif
