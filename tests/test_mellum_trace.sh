@@ -12,7 +12,9 @@
 #      layers of the one buffer an ordinary run uses: the session logits of an untraced run equal
 #      those of a run traced at every position, as one chunk and as two (DS4_QWEN4_PREFILL_CHUNK=2);
 #   5. files from an earlier run with the same prefix do not survive a run that fails, and a run
-#      that succeeds replaces them.
+#      that succeeds replaces them;
+#   6. prefill:N (sync N, eval the rest) at its two ends equals decode and prefill, a bad N is a
+#      usage error, and MELLUM_TRACE_GREEDY=K prints K greedy tokens after the run.
 set -u
 cd "$(dirname "$0")/.." || exit 2
 if [ -z "${DS4_TEST_MELLUM_MODEL:-}" ]; then
@@ -90,6 +92,26 @@ for f in p0.hidden p0.qk p0.logits session.logits; do head -c 4 /dev/zero > "$p.
 DS4_MELLUM_TRACE="$p" DS4_MELLUM_TRACE_AT=0 tests/mellum_trace "$M" "$dir/tokens3.txt" prefill > /dev/null 2>&1
 check "a good run replaces the stale files: exit 0" [ $? -eq 0 ]
 check "a good run replaced the stale hidden file" size_is "$p.p0.hidden.f32" 258048
+
+# 6. prefill:N syncs N tokens and evaluates the rest; greedy tokens follow the run
+DS4_MELLUM_TRACE="$dir/split1" tests/mellum_trace "$M" "$dir/tokens3.txt" prefill:1 > /dev/null 2>&1
+check "prefill:1: exit 0" [ $? -eq 0 ]
+DS4_MELLUM_TRACE="$dir/dec" tests/mellum_trace "$M" "$dir/tokens3.txt" decode > /dev/null 2>&1
+check "prefill:1 gives decode's session logits" cmp -s "$dir/split1.session.logits.f32" "$dir/dec.session.logits.f32"
+DS4_MELLUM_TRACE="$dir/split3" tests/mellum_trace "$M" "$dir/tokens3.txt" prefill:3 > /dev/null 2>&1
+check "prefill:3 of 3 gives prefill's session logits" cmp -s "$dir/split3.session.logits.f32" "$dir/u1024.session.logits.f32"
+for bad in prefill:0 prefill:4 prefill:x prefill:; do
+    tests/mellum_trace "$M" "$dir/tokens3.txt" "$bad" > /dev/null 2>&1
+    check "mode $bad: exit 2" [ $? -eq 2 ]
+done
+MELLUM_TRACE_GREEDY=4 tests/mellum_trace "$M" "$dir/tokens3.txt" prefill > "$dir/gp.out" 2>/dev/null
+check "greedy after a prefill: exit 0" [ $? -eq 0 ]
+check "greedy after a prefill: four tokens" grep -Eq '^mellum_trace: greedy 4:( [0-9]+){4}$' "$dir/gp.out"
+MELLUM_TRACE_GREEDY=4 tests/mellum_trace "$M" "$dir/tokens3.txt" decode > "$dir/gd.out" 2>/dev/null
+check "greedy after a decode run: the same four (both exact under 32 rows)" \
+    [ "$(grep greedy "$dir/gp.out")" = "$(grep greedy "$dir/gd.out")" ]
+MELLUM_TRACE_GREEDY=65 tests/mellum_trace "$M" "$dir/tokens3.txt" prefill > /dev/null 2>&1
+check "MELLUM_TRACE_GREEDY=65: exit 2" [ $? -eq 2 ]
 
 [ "$fail" -eq 0 ] && echo "mellum-trace: PASS" || echo "mellum-trace: FAILED"
 exit "$fail"

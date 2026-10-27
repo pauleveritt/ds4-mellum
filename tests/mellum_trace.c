@@ -23,14 +23,18 @@
  *
  * TOKENS_FILE holds whitespace-separated non-negative decimal ids; `#` starts
  * a comment to the end of the line.  MODE is `prefill` (one
- * ds4_session_sync of every token) or `decode` (a sync of the first token,
- * then one ds4_session_eval per remaining token).  Prints one line on stdout:
+ * ds4_session_sync of every token), `decode` (a sync of the first token,
+ * then one ds4_session_eval per remaining token) or `prefill:N` (a sync of
+ * the first N tokens, then one eval per remaining token: decode steps that
+ * read a prefilled cache).  Prints one line on stdout:
  * the token count, the mode, the argmax of the last position's logits, how
  * many of them are not finite, and the wall seconds of the forward passes.
  * MELLUM_TRACE_REPEAT=N (default 1) runs the whole thing N times on a fresh
  * session, so the first, cold run (pipelines are compiled on first use) can be
  * told from the warm ones.  MELLUM_TRACE_CONTEXT fixes the context (decimal,
- * >= tokens + 64); absent keeps max(4096, tokens + 64).
+ * >= tokens + 64); absent keeps max(4096, tokens + 64).  MELLUM_TRACE_GREEDY=K
+ * (0 to 64) then decodes K greedy tokens from the last run's cache, after its
+ * session logits are written, and prints them on a second line.
  *
  * Every file the run is to write is removed before it starts, so a file from an
  * earlier run with the same prefix cannot pass for this run's.
@@ -158,14 +162,37 @@ static bool report_logits(const char *prefix, unsigned pos) {
     return bad == 0;
 }
 
+/* MODE: prefill (0), decode (1), or prefill:N (N); -1 when it is none of them */
+static int parse_mode(const char *mode) {
+    if (!strcmp(mode, "prefill")) return 0;
+    if (!strcmp(mode, "decode")) return 1;
+    if (strncmp(mode, "prefill:", 8) != 0 || !isdigit((unsigned char)mode[8])) return -1;
+    char *end = NULL;
+    errno = 0;
+    const long n = strtol(mode + 8, &end, 10);
+    return errno == 0 && *end == '\0' && n >= 1 && n <= INT_MAX ? (int)n : -1;
+}
+
 int main(int argc, char **argv) {
-    if (argc != 4 || (strcmp(argv[3], "prefill") != 0 && strcmp(argv[3], "decode") != 0)) {
-        fprintf(stderr, "usage: mellum_trace MODEL.gguf TOKENS_FILE prefill|decode\n");
+    const int mode_sync = argc == 4 ? parse_mode(argv[3]) : -1;
+    if (mode_sync < 0) {
+        fprintf(stderr, "usage: mellum_trace MODEL.gguf TOKENS_FILE prefill|decode|prefill:N\n");
         return 2;
     }
-    const bool decode = strcmp(argv[3], "decode") == 0;
     ds4_tokens toks = {0};
     if (!read_tokens(argv[2], &toks)) return 1;
+    /* how many tokens the first sync takes; the rest are evaluated one by one */
+    const int n_sync = mode_sync == 0 ? toks.len : mode_sync;
+    if (n_sync > toks.len) {
+        fprintf(stderr, "mellum_trace: %s syncs more than the %d tokens of %s\n", argv[3], toks.len, argv[2]);
+        return 2;
+    }
+    const char *greedy_env = getenv("MELLUM_TRACE_GREEDY");
+    const int greedy = greedy_env && greedy_env[0] ? atoi(greedy_env) : 0;
+    if (greedy < 0 || greedy > 64) {
+        fprintf(stderr, "mellum_trace: MELLUM_TRACE_GREEDY must be 0 to 64\n");
+        return 2;
+    }
 
     const char *prefix = getenv("DS4_MELLUM_TRACE");
     const char *at = getenv("DS4_MELLUM_TRACE_AT");
@@ -246,13 +273,12 @@ int main(int argc, char **argv) {
         }
         const double t0 = now_sec();
         ds4_tokens first = {0};
-        if (decode) ds4_tokens_push(&first, toks.v[0]);
-        const ds4_tokens *prompt = decode ? &first : &toks;
-        if (ds4_session_sync(s, prompt, err, sizeof(err)) != 0) {
+        for (int i = 0; i < n_sync; i++) ds4_tokens_push(&first, toks.v[i]);
+        if (ds4_session_sync(s, &first, err, sizeof(err)) != 0) {
             fprintf(stderr, "mellum_trace: sync failed: %s\n", err);
             rc = 1;
         }
-        for (int i = 1; decode && rc == 0 && i < toks.len; i++) {
+        for (int i = n_sync; rc == 0 && i < toks.len; i++) {
             if (ds4_session_eval(s, toks.v[i], err, sizeof(err)) != 0) {
                 fprintf(stderr, "mellum_trace: eval of token %d (position %d) failed: %s\n", toks.v[i], i, err);
                 rc = 1;
@@ -282,6 +308,19 @@ int main(int argc, char **argv) {
                 fprintf(stderr, "mellum_trace: the session's logits are not finite\n");
                 rc = 1;
             }
+        }
+        if (rc == 0 && greedy > 0 && r + 1 == repeat) {
+            /* after the session logits are written: greedy tokens decoded from the cache this run built */
+            printf("mellum_trace: greedy %d:", greedy);
+            for (int k = 0; rc == 0 && k < greedy; k++) {
+                const int tok = ds4_session_argmax(s);
+                printf(" %d", tok);
+                if (ds4_session_eval(s, tok, err, sizeof(err)) != 0) {
+                    fprintf(stderr, "mellum_trace: greedy eval %d failed: %s\n", k, err);
+                    rc = 1;
+                }
+            }
+            printf("\n");
         }
         ds4_tokens_free(&first);
         ds4_session_free(s);
