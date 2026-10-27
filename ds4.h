@@ -389,8 +389,9 @@ void ds4_chat_append_max_effort_prefix(ds4_engine *e, ds4_tokens *tokens);
 void ds4_chat_append_think_prefix(ds4_engine *e, ds4_tokens *tokens, ds4_think_mode mode);
 void ds4_chat_append_message(ds4_engine *e, ds4_tokens *tokens, const char *role, const char *content);
 /* Append the results of one assistant turn's tool calls, n of them, as the loaded model's
- * template renders consecutive tool messages: one tool message per result, as
- * ds4_chat_append_message.  Returns 0 and appends nothing when n is 0 or a part is NULL. */
+ * template renders consecutive tool messages.  Mellum: one user turn with a <tool_response>
+ * block per result.  Other models: one tool message per result, as ds4_chat_append_message.
+ * Returns 0 and appends nothing when n is 0 or a part is NULL. */
 int ds4_chat_append_tool_results(ds4_engine *e, ds4_tokens *tokens,
                                  const char *const *parts, size_t n);
 void ds4_chat_append_assistant_prefix(ds4_engine *e, ds4_tokens *tokens, ds4_think_mode think_mode);

@@ -45444,6 +45444,19 @@ int ds4_chat_append_tool_results(ds4_engine *e, ds4_tokens *tokens,
                                  const char *const *parts, size_t n) {
     if (!e || !tokens || !parts || n == 0) return 0;
     for (size_t i = 0; i < n; i++) if (!parts[i]) return 0;
+    if (ds4_model_is_mellum()) {
+        /* 2.1's template merges consecutive tool messages into one user turn, a
+         * <tool_response> block per result. */
+        ds4_vocab *vocab = &e->vocab;
+        qwen4_chat_open(vocab, "user", tokens);
+        for (size_t i = 0; i < n; i++) {
+            qwen4_tool_response_tag(vocab, i ? "\n<tool_response>\n" : "<tool_response>\n", tokens);
+            bpe_tokenize_tool_response_text(vocab, parts[i], tokens);
+            qwen4_tool_response_tag(vocab, "\n</tool_response>", tokens);
+        }
+        qwen4_chat_close(vocab, tokens);
+        return 1;
+    }
     for (size_t i = 0; i < n; i++) ds4_chat_append_message(e, tokens, "tool", parts[i]);
     return 1;
 }
