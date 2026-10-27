@@ -6763,7 +6763,17 @@ static bool hermes_parse_call(const char **p, tool_call *out) {
             free(args);
             args = NULL;
             if (**p == '"') {
+                /* a JSON string holding the arguments: it must decode to one whole object */
                 ok = json_string(p, &args);
+                if (ok) {
+                    const char *q = args;
+                    json_ws(&q);
+                    ok = *q == '{' && json_skip_value(&q);
+                    if (ok) {
+                        json_ws(&q);
+                        ok = *q == '\0';
+                    }
+                }
             } else if (**p == '{') {
                 const char *begin = *p;
                 ok = json_skip_value(p);
