@@ -421,11 +421,10 @@ static int agent_worker_sync_tokens(agent_worker *w, const ds4_tokens *tokens,
 static int agent_read_default_lines(agent_worker *w);
 static int agent_compact_reserve_tokens(agent_worker *w);
 
-/* A loaded model the agent cannot drive yet, or NULL.  Mellum would otherwise
- * be spoken Flash Next's Qwen3-coder tool syntax (it is a qwen4 engine). */
+/* A loaded model the agent cannot drive yet, or NULL.  None today: Mellum, the last one refused,
+ * runs with the Hermes syntax and Pi's four tools. */
 static const char *agent_engine_refusal(ds4_engine *engine) {
-    if (ds4_engine_is_mellum(engine))
-        return "Mellum 2.1 is not supported yet: ds4-agent has no Hermes tool-call syntax";
+    (void)engine;
     return NULL;
 }
 
@@ -10922,6 +10921,10 @@ static char *agent_execute_tool_call(agent_worker *w, const agent_tool_call *cal
         if (!strcmp(call->name, "write")) return pi_tool_write(call);
         if (!strcmp(call->name, "edit")) return pi_tool_edit(call);
         if (!strcmp(call->name, "bash")) return pi_tool_bash(w, call);
+        /* Pi's four are all Mellum is offered; another name gets Pi's agent-loop answer */
+        char *msg = xmalloc(strlen(call->name) + 32);
+        sprintf(msg, "Tool %s not found", call->name);
+        return msg;
     }
 
     if (!strcmp(call->name, "read")) return agent_tool_read(w, call);
