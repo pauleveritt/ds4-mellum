@@ -24,6 +24,7 @@
 
 #include "ds4.h"
 #include "ds4_gpu.h"
+#include "ds4_mellum_observer.h"
 #include "ds4_image.h"
 
 /*
@@ -12038,6 +12039,7 @@ static int ds4_gpu_encode_get_rows_q8_0(
     [enc dispatchThreadgroups:MTLSizeMake(nblocks, n_tokens, 1)
          threadsPerThreadgroup:MTLSizeMake(nth, 1, 1)];
     ds4_gpu_end_compute_encoder(cb, enc);
+    (void)mellum_observer_encode("kernel_get_rows_q8_0_f32",0,NULL);
     return 1;
 }
 
@@ -19339,6 +19341,7 @@ static int ds4_gpu_matmul_q8_0_legacy_tensor(
                                                           1u)
                          threadsPerThreadgroup:MTLSizeMake(128, 1, 1)];
                     ds4_gpu_end_compute_encoder(cb, enc);
+                    (void)mellum_observer_encode(nax_fn,2,(const uint32_t[]){0,0});
 
                     if (!ds4_gpu_finish_command_buffer(cb, owned, "Q8_0 decode MPP matmul")) {
                         return 0;
@@ -19368,6 +19371,7 @@ static int ds4_gpu_matmul_q8_0_legacy_tensor(
                                                   1)
                  threadsPerThreadgroup:MTLSizeMake(32, (NSUInteger)mv_dispatch.nsg, 1)];
             ds4_gpu_end_compute_encoder(cb, enc);
+            (void)mellum_observer_encode(mv_dispatch.function_name,1,(const uint32_t[]){(uint32_t)mv_dispatch.nsg});
 
             if (!ds4_gpu_finish_command_buffer(cb, owned, "Q8_0 tensor matvec")) {
                 return 0;
@@ -19402,6 +19406,7 @@ static int ds4_gpu_matmul_q8_0_legacy_tensor(
                                                   1)
                  threadsPerThreadgroup:MTLSizeMake(32, (NSUInteger)nsg, 1)];
             ds4_gpu_end_compute_encoder(cb, enc);
+            (void)mellum_observer_encode(fn_name,2,(const uint32_t[]){(uint32_t)nsg,(uint32_t)nxpsg});
 
             if (!ds4_gpu_finish_command_buffer(cb, owned, "Q8_0 tensor mul_mv_ext")) {
                 return 0;
@@ -19464,6 +19469,7 @@ static int ds4_gpu_matmul_q8_0_legacy_tensor(
                                                       1)
                      threadsPerThreadgroup:MTLSizeMake(128, 1, 1)];
                 ds4_gpu_end_compute_encoder(cb, enc);
+                (void)mellum_observer_encode(nax_fn,2,(const uint32_t[]){0,0});
 
                 if (nax_rows == n_tok) {
                     if (!ds4_gpu_finish_command_buffer(cb, owned, "Q8_0 NAX tensor matmul")) {
@@ -19505,6 +19511,7 @@ static int ds4_gpu_matmul_q8_0_legacy_tensor(
             [unpack_enc dispatchThreadgroups:MTLSizeMake(((NSUInteger)n_blocks * 8u + 255u)/256u, 1, 1)
                         threadsPerThreadgroup:MTLSizeMake(256, 1, 1)];
             ds4_gpu_end_compute_encoder(cb, unpack_enc);
+            (void)mellum_observer_encode("kernel_q8_prefill_unpack",0,NULL);
             fn = "kernel_mul_mm_f16_f32";
             mat_weights = g_q8_prefill_scratch_buffer;
             mat_offset = 0;
@@ -19535,6 +19542,7 @@ static int ds4_gpu_matmul_q8_0_legacy_tensor(
                                               1)
              threadsPerThreadgroup:MTLSizeMake(128, 1, 1)];
         ds4_gpu_end_compute_encoder(cb, enc);
+        (void)mellum_observer_encode(fn,2,(const uint32_t[]){bc_inp,bc_out});
 
         if (!ds4_gpu_finish_command_buffer(cb, owned, "Q8_0 tensor matmul")) {
             return 0;
@@ -19716,6 +19724,7 @@ int ds4_gpu_matmul_q8_0_decode_rows_exact_tensor(
              threadsPerThreadgroup:
                 MTLSizeMake(32, (NSUInteger)dispatch.nsg, 1)];
         ds4_gpu_end_compute_encoder(cb, enc);
+        (void)mellum_observer_encode(dispatch.function_name,1,(const uint32_t[]){(uint32_t)dispatch.nsg});
 
         return ds4_gpu_finish_command_buffer(
                 cb, owned, "Q8_0 exact decode-row matvec");
@@ -22358,6 +22367,7 @@ int ds4_gpu_rms_norm_weight_rows_tensor(
         [enc dispatchThreadgroups:MTLSizeMake(rows, 1, 1)
              threadsPerThreadgroup:MTLSizeMake(ds4_gpu_rms_norm_threads(n), 1, 1)];
         ds4_gpu_end_compute_encoder(cb, enc);
+        (void)mellum_observer_encode("kernel_rms_norm_mul_f32_4",0,NULL);
 
         if (!ds4_gpu_finish_command_buffer(cb, owned, "weighted RMS norm")) return 0;
     }
@@ -27233,6 +27243,7 @@ static int ds4_gpu_encode_cpy_f32_f16_1d(
     [enc dispatchThreadgroups:MTLSizeMake(groups, 1, 1)
          threadsPerThreadgroup:MTLSizeMake(nth, 1, 1)];
     ds4_gpu_end_compute_encoder(cb, enc);
+    (void)mellum_observer_encode(use_contiguous ? "kernel_cpy_contig_f32_f16_4":"kernel_cpy_f32_f16",0,NULL);
 
     return 1;
 }
@@ -31206,6 +31217,7 @@ int ds4_gpu_add_tensor(
         [enc dispatchThreadgroups:MTLSizeMake(groups, 1, 1)
              threadsPerThreadgroup:MTLSizeMake(nth, 1, 1)];
         ds4_gpu_end_compute_encoder(cb, enc);
+        (void)mellum_observer_encode("kernel_add2_f32",0,NULL);
 
         if (!ds4_gpu_finish_command_buffer(cb, owned, "tensor add")) return 0;
     }
@@ -48370,10 +48382,15 @@ static int qwen4_dispatch_resident(int kernel, const void *args, size_t args_len
     if (!g_initialized && !ds4_gpu_init()) return 0;
     @autoreleasepool {
         id<MTLComputePipelineState> pipeline = nil;
+        uint32_t observed[5]={0};
+        size_t observed_count=0;
         if (kernel == QWEN4_K_MOE_MID || kernel == QWEN4_K_MOE_DOWN || kernel == QWEN4_K_MOE_DOWN_MXFP4_PF) {
             const qwen4_moe_args *a = args;
             const bool specialize = qwen4_moe_mv_specialize(a->weight_type);
             const uint32_t values[] = {a->weight_type, a->shared_type, specialize ? a->in_dim : 0u, specialize ? qwen4_moe_mv_rows() : 0u};
+            observed_count=5;
+            observed[0]=specialize;observed[1]=values[0];observed[2]=values[1];
+            observed[3]=specialize ? values[2]:a->in_dim;observed[4]=specialize ? values[3]:2u;
             NSString *key = [NSString stringWithFormat:@"%s_type=%u_shared=%u_dim=%u_rows=%u",
                              qwen4_kernel_names[kernel], values[0], values[1], values[2], values[3]];
             pipeline = [g_pipeline_cache objectForKey:key];
@@ -48404,6 +48421,7 @@ static int qwen4_dispatch_resident(int kernel, const void *args, size_t args_len
                 ((const qwen4_moe_mm_args *)args)->weight_type : 0u;
             if (type >= 40u) return 0;
             const uint32_t tail_base = ((const qwen4_moe_mm_args *)args)->tail_base;
+            observed_count=2;observed[0]=type;observed[1]=tail_base;
             NSString *key = [NSString stringWithFormat:@"%s_type=%u_tail=%u",
                              qwen4_kernel_names[kernel], type, tail_base];
             pipeline = [g_pipeline_cache objectForKey:key];
@@ -48461,6 +48479,7 @@ static int qwen4_dispatch_resident(int kernel, const void *args, size_t args_len
         }
         [enc dispatchThreadgroups:grid threadsPerThreadgroup:tg];
         ds4_gpu_end_compute_encoder(cb, enc);
+        (void)mellum_observer_encode(qwen4_kernel_names[kernel],observed_count,observed);
         return ds4_gpu_finish_command_buffer(cb, owned, qwen4_kernel_names[kernel]);
     }
 }
@@ -50653,6 +50672,7 @@ static int mellum_dispatch(const char *name, const void *args, size_t args_len,
         }
         [enc dispatchThreadgroups:grid threadsPerThreadgroup:tg];
         ds4_gpu_end_compute_encoder(cb, enc);
+        (void)mellum_observer_encode(name,0,NULL);
         return ds4_gpu_finish_command_buffer(cb, owned, name);
     }
 }
