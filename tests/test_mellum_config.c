@@ -812,6 +812,13 @@ static void check_mellum_chat_tiny(void) {
     ds4_tokens_push(&want, 27); push_bytes(&want, "assistant\nok"); ds4_tokens_push(&want, 28); push_bytes(&want, "\n");
     ds4_prompt_prefix_append(&e, &got, &history);
     expect_ids("tiny: imported history", &got, want.v, want.len);
+    /* its reasoning is dropped, as the template drops it from every assistant turn before the latest
+     * user message, which a prefix file's turns all are */
+    turns[1].content = "<think>\nwhy\n</think>\n\nok";
+    got.len = 0;
+    ds4_prompt_prefix_append(&e, &got, &history);
+    expect_ids("tiny: imported history, reasoning dropped", &got, want.v, want.len);
+    turns[1].content = "ok";
     /* sibling: Flash Next keeps its own prefix (<think> and a newline when thinking) */
     g_ds4_shape = DS4_SHAPE_QWEN4_EXP;
     want.len = got.len = 0;

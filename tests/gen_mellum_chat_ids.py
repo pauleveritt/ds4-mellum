@@ -141,6 +141,11 @@ HISTORIES = [
     ("history: system, two exchanges, user, think on", True,
      [("system", "You are terse."), ("user", "Name a prime."), ("assistant", "7"),
       ("user", "Another?"), ("assistant", "11"), ("user", "Their sum?")]),
+    # reasoning written into an earlier assistant turn: the template drops it (every prefix turn comes
+    # before the live prompt, the latest user message)
+    ("history: assistant with reasoning, think on", True,
+     [("user", "What is 2 + 2?"), ("assistant", "<think>\nA simple sum.\n</think>\n\n4"),
+      ("user", "And times 3?")]),
 ]
 
 # the generation prompt alone, as the template's last block writes it

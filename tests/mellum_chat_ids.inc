@@ -59,9 +59,16 @@ static const fx_msg fx_history_msgs_1[] = {
     {"user", "Their sum?"},
 };
 static const int fx_history_ids_1[] = {27, 5217, 233, 2591, 445, 96600, 48, 28, 233, 27, 1397, 233, 827, 255, 99, 4599, 48, 28, 233, 27, 8091, 233, 57, 28, 233, 27, 1397, 233, 5993, 65, 28, 233, 27, 8091, 233, 51, 51, 28, 233, 27, 1397, 233, 28109, 1572, 65, 28, 233, 27, 8091, 233};
+static const fx_msg fx_history_msgs_2[] = {
+    {"user", "What is 2 + 2?"},
+    {"assistant", "<think>\nA simple sum.\n</think>\n\n4"},
+    {"user", "And times 3?"},
+};
+static const int fx_history_ids_2[] = {27, 1397, 233, 2821, 359, 255, 52, 523, 255, 52, 65, 28, 233, 27, 8091, 233, 54, 28, 233, 27, 1397, 233, 2967, 2497, 255, 53, 65, 28, 233, 27, 8091, 233};
 static const fx_case fx_histories[] = {
     {"history: user, assistant, user, think on", true, 3, fx_history_msgs_0, (int)(sizeof(fx_history_ids_0) / sizeof(int)), fx_history_ids_0},
     {"history: system, two exchanges, user, think on", true, 6, fx_history_msgs_1, (int)(sizeof(fx_history_ids_1) / sizeof(int)), fx_history_ids_1},
+    {"history: assistant with reasoning, think on", true, 3, fx_history_msgs_2, (int)(sizeof(fx_history_ids_2) / sizeof(int)), fx_history_ids_2},
 };
 static const fx_prefix fx_prefixes[] = {
     {"assistant prefix, think on", true, (int)(sizeof(fx_prefix_ids_0) / sizeof(int)), fx_prefix_ids_0},
