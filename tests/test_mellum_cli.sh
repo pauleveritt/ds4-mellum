@@ -7,7 +7,8 @@
 #      as text (the printer turns them into the grey reasoning block);
 #   2. --nothink on a simple question: a direct answer, no reasoning;
 #   3. a turn that runs into -n says so on stderr, in the greedy and in the sampled path, and a
-#      turn that ends on its own does not.
+#      turn that ends on its own does not;
+#   4. the speed line names the model.
 set -u
 cd "$(dirname "$0")/.." || exit 2
 if [ -z "${DS4_TEST_MELLUM_MODEL:-}" ]; then
@@ -35,6 +36,8 @@ check "thinking on: the answer names Paris" grep -q Paris "$dir/think.out"
 check "thinking on: no <think> text" sh -c "! grep -q '<think>' '$dir/think.out'"
 check "thinking on: no </think> text" sh -c "! grep -q '</think>' '$dir/think.out'"
 check "thinking on: a turn that ends on its own reports no cap" sh -c "! grep -q 'stopped at the -n cap' '$dir/think.err'"
+check "thinking on: the speed line names Mellum" grep -q '^ds4: Mellum prefill: .* t/s, generation: .* t/s' "$dir/think.err"
+check "thinking on: nothing calls the model Qwen3.8" sh -c "! grep -q 'Qwen3.8' '$dir/think.err'"
 
 ask nothink --temp 0 -n 400 --nothink -p "$Q"
 check "--nothink: exit 0" [ $? -eq 0 ]
