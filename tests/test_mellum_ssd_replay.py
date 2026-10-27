@@ -6,7 +6,9 @@ import importlib.util
 from itertools import product
 import json
 from pathlib import Path
+import subprocess
 import sys
+import tempfile
 import unittest
 
 SCRIPT = Path(__file__).resolve().parents[1] / "tools" / "mellum_ssd_replay.py"
@@ -327,6 +329,69 @@ def test_sweep_preserves_provenance_and_labels_unmodeled_memory():
     assert report["assumptions"]["staging_bytes_modeled"] is False
     assert {r["policy"] for r in report["results"]} == {"lru", "relaxed-optimal"}
     assert report["results"][0]["totals"]["distinct_experts"] == 1
+
+
+def cli(items, *args, raw=None):
+    with tempfile.TemporaryDirectory() as directory:
+        path = Path(directory) / "trace.jsonl"
+        path.write_text(raw if raw is not None else "\n".join(json.dumps(item) for item in items), encoding="utf-8")
+        return subprocess.run(
+            [sys.executable, "-I", str(SCRIPT), str(path), *args],
+            capture_output=True, text=True,
+        )
+
+
+def test_cli_default_sweep_is_one_provenance_labeled_json_document():
+    result = cli(records())
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip(), "CLI did not emit a replay report"
+    report = json.loads(result.stdout)
+    assert report["trace"]["capture_kind"] == "synthetic"
+    assert sorted({r["cache"]["requested_bytes"] for r in report["results"]}) == [
+        2_147_483_648, 2_684_354_560, 3_221_225_472, 3_758_096_384,
+    ]
+    assert len(report["results"]) == 8
+    assert not result.stderr
+
+
+def test_cli_fractional_gib_is_floored_exactly_to_bytes():
+    result = cli(records(), "--cache-gib", "0.00000002", "0.5")
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip(), "CLI did not emit a replay report"
+    caches = [item["cache"] for item in json.loads(result.stdout)["results"]]
+    assert [cache["requested_bytes"] for cache in caches] == [21, 21, 536_870_912, 536_870_912]
+    assert [cache["effective_bytes"] for cache in caches[:2]] == [20, 20]
+
+
+def test_cli_errors_never_publish_partial_results_or_tracebacks():
+    cases = [
+        cli(records(), "--cache-gib", "1", "0.00000001"),
+        cli(records()[:2]),
+        cli([], raw="{bad JSON"),
+        cli([], raw=""),
+        cli([], raw="\n"),
+    ]
+    cases.extend(cli(records(), "--cache-gib", value) for value in ("0", "-1", "NaN", "Infinity", "no", "1e-40"))
+    cases.append(subprocess.run(
+        [sys.executable, "-I", str(SCRIPT), str(SCRIPT / "absent.jsonl")], capture_output=True, text=True,
+    ))
+    for result in cases:
+        assert result.returncode != 0, (result.stdout, result.stderr)
+        assert not result.stdout, result.stdout
+        assert result.stderr, "failure did not explain why"
+        assert "Traceback" not in result.stderr, result.stderr
+
+
+def test_measured_mellum_provenance_is_preserved_by_cli():
+    metadata = header(layers=28, experts=64, top_k=8, expert_bytes=6_580_224)
+    metadata["capture_kind"] = "measured"
+    metadata["model_id"] = "declared-fixture-artifact"
+    result = cli([metadata, *forward(0, [[[0, 1, 2, 3, 4, 5, 6, 7]]] * 28)])
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip(), "CLI did not emit a replay report"
+    report = json.loads(result.stdout)
+    assert report["trace"] == metadata
+    assert report["results"][0]["totals"]["demand_bytes"] == 1_473_970_176
 
 
 def load_tests(loader, tests, pattern):

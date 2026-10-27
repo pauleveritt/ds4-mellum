@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Validate and replay Mellum router traces without loading weights or using a GPU."""
 
+import argparse
 from collections import OrderedDict, defaultdict, deque
 from collections.abc import Iterable, Sequence
 from dataclasses import asdict, dataclass
+from decimal import Decimal, InvalidOperation
 import heapq
 import json
-import math
+from pathlib import Path
 
 
 class TraceError(ValueError):
@@ -187,8 +189,12 @@ def load_trace(lines: Iterable[str]) -> Trace:
             anchor = request
             previous_end = request.positions[-1]
         else:
-            for name in ("positions", "segment", "phase"):
-                if getattr(request, name) != getattr(anchor, name):
+            for name, current, original in (
+                ("positions", request.positions, anchor.positions),
+                ("segment", request.segment, anchor.segment),
+                ("phase", request.phase, anchor.phase),
+            ):
+                if current != original:
                     fail(line, f"{name} differs within forward")
         requests.append(request)
     if not requests:
@@ -294,8 +300,8 @@ def distribution(values: Sequence[int]) -> dict[str, int] | None:
         return None
     ordered = sorted(values)
     return {
-        "p50": ordered[math.ceil(0.50 * len(ordered)) - 1],
-        "p95": ordered[math.ceil(0.95 * len(ordered)) - 1],
+        "p50": ordered[(50 * len(ordered) + 99) // 100 - 1],
+        "p95": ordered[(95 * len(ordered) + 99) // 100 - 1],
         "worst": ordered[-1],
     }
 
@@ -386,3 +392,40 @@ def run_sweep(trace: Trace, capacities: Sequence[int] = DEFAULT_CAPACITIES) -> d
         "results": [replay(trace, capacity, policy) for capacity in capacities
                     for policy in ("lru", "relaxed-optimal")],
     }
+
+
+def gib_bytes(text: str) -> int:
+    """Convert a decimal GiB value exactly, flooring only fractional bytes."""
+    try:
+        value = Decimal(text)
+        if not value.is_finite() or value <= 0:
+            raise ValueError("not a positive finite value")
+        numerator, denominator = value.as_integer_ratio()
+        result = numerator * 2**30 // denominator
+        if not result:
+            raise ValueError("smaller than one byte")
+        return result
+    except (InvalidOperation, ValueError) as exc:
+        raise argparse.ArgumentTypeError(f"cache GiB must be positive and finite: {text!r}") from exc
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("trace", type=Path, help="complete version 1 routing trace, JSON Lines")
+    parser.add_argument(
+        "--cache-gib", type=gib_bytes, nargs="+", metavar="GIB", default=DEFAULT_CAPACITIES,
+        help="expert-cache capacities in GiB (default: 2 2.5 3 3.5); excludes staging and other memory",
+    )
+    args = parser.parse_args()
+    try:
+        with args.trace.open(encoding="utf-8") as source:
+            trace = load_trace(source)
+        report = run_sweep(trace, args.cache_gib)
+    except (OSError, ValueError) as exc:
+        parser.error(str(exc))
+    # No partial success document if a later capacity or policy fails.
+    print(json.dumps(report, indent=2, allow_nan=False))
+
+
+if __name__ == "__main__":
+    main()

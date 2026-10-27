@@ -90,6 +90,7 @@ help:
 	@echo "  make test-mxfp4-metal  Check the MXFP4 half LUT, then run Metal MXFP4 exactness tests"
 	@echo "  make test-qwen4-kernels  Run the Qwen3.8 Metal kernel tests"
 	@echo "  make test-mellum      Run the Mellum 2.1 model-free tests"
+	@echo "  make test-mellum-ssd-replay  Run CPU-only synthetic expert-cache replay tests"
 	@echo "  make test-mellum-kernels  Run the Mellum 2.1 Metal kernel tests (macOS)"
 	@echo "  make test-qwen4-q2       Check exact low-bit decode and prefill tile parity"
 	@echo "  make test-qwen4-vision  Compare the Qwen3.8 vision tower with HF (set DS4_QWEN4_SNAPSHOT, DS4_QWEN4_MMPROJ, DS4_QWEN4_IMAGE)"
@@ -1077,9 +1078,13 @@ tests/test_mellum_frontends_server.o: tests/test_mellum_frontends.c ds4.c ds4_se
 tests/test_mellum_frontends_cli tests/test_mellum_frontends_agent tests/test_mellum_frontends_server: %: %.o $(MELLUM_FRONTEND_OBJS)
 	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -o $@ $^ $(LDLIBS)
 
+.PHONY: test-mellum-ssd-replay
+test-mellum-ssd-replay:
+	python3 -I tests/test_mellum_ssd_replay.py
+
 .PHONY: test-mellum
 test-mellum: tests/test_mellum_config tests/test_mellum_tokenizer tests/test_mellum_frontends_cli \
-		tests/test_mellum_frontends_agent tests/test_mellum_frontends_server
+		tests/test_mellum_frontends_agent tests/test_mellum_frontends_server test-mellum-ssd-replay
 	./tests/test_mellum_config
 	./tests/test_mellum_tokenizer
 	./tests/test_mellum_frontends_cli
