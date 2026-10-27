@@ -3,6 +3,7 @@ import base64
 import importlib.util
 from pathlib import Path
 import platform
+import re
 import shutil
 
 _spec=importlib.util.spec_from_file_location('mellum_capture_identity',Path(__file__).with_name('mellum_capture_identity.py'))
@@ -14,15 +15,35 @@ process=identity.sibling('mellum_observe_process')
 classifier=identity.sibling('mellum_device_classify')
 
 
+def compute_targets() -> set[str]:
+    """Repository rules linking inference cores or GPU backends name compute users."""
+    with common.opened(common.ROOT/'Makefile') as (source,before):
+        common.integer(before['size'],1,2**20)
+        lines=source.read(before['size']).decode().splitlines()
+    variables={}
+    for line in lines:
+        match=re.match(r'^(\w+)\s*[:?+]?=\s*([\w./-]+)\s*$',line)
+        if match:variables.setdefault(match[1],set()).add(match[2])
+    targets=set()
+    for line in lines:
+        match=re.match(r'^(\S+):\s*(.*)$',line)
+        if not match or not re.search(r'\$\((?:CORE_OBJS|CPU_CORE_OBJS)\)|ds4_(?:metal|cuda|rocm)\.o',match[2]):continue
+        target=match[1];variable=re.fullmatch(r'\$\((\w+)\)',target)
+        names=variables.get(variable[1],set()) if variable else {target}
+        targets.update(Path(name).name for name in names if not name.endswith('.o'))
+    return targets
+
+
 def preflight() -> dict:
     result=observer.command(['/bin/ps','-axo','pid=,comm=,args='])
     if result['returncode']:raise observer.CommandFailure('process inspection failed',result)
     busy=[]
+    targets=compute_targets()
     for line in result['stdout'].decode('utf-8',errors='replace').splitlines():
         fields=line.split(None,2)
         if len(fields)<2:continue
         name=Path(fields[1]).name
-        if (name in ('ds4','ds4-server','ds4-cli','ds4-agent') or
+        if (name in targets or name in ('ds4','ds4-server','ds4-cli','ds4-agent') or
                 name.startswith(('test_mellum_gpu','test_mellum_metal','test_mellum_resident','test_mellum_owned_live'))):
             busy.append(line)
     if busy:raise observer.CommandFailure('active inference process: '+'; '.join(busy),result)
@@ -69,9 +90,9 @@ def run(manifest_dir: Path,container: Path) -> Path:
                 progress['batch']=frozen
                 files={k:value['inputs'][k] for k in ('model','payload')}
                 topology=observer.discover(files);progress['topology_before']=topology
-                manifest.verify(manifest_dir,payloads=True)
                 manifest.reserve(manifest_dir,frozen)
                 progress['reserved']=True
+                manifest.verify(manifest_dir,payloads=True)
                 for number,cell in enumerate(value['runs']):
                     manifest.verify(manifest_dir,payloads=False)
                     manifest.batches.check_binding(frozen)
@@ -105,6 +126,7 @@ def run(manifest_dir: Path,container: Path) -> Path:
                     progress['completed_logical_bytes']+=metrics['logical_bytes']
                     progress['prewarm_bytes']+=native['summary']['prewarm_bytes']
                     if classification['status']=='invalid':raise ValueError('invalid device observation')
+                    del evidence,s,native
                     manifest.verify(manifest_dir,payloads=False)
                     manifest.batches.check_binding(frozen)
                 manifest.verify(manifest_dir,payloads=True)

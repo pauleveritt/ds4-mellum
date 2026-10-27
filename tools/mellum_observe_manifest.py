@@ -134,4 +134,8 @@ def prepare(prior_batch: Path,binary: Path,container: Path) -> Path:
 
 def verify(manifest_dir: Path, *, payloads: bool) -> tuple[dict,dict]:
     with common.read_budget(CAPS['python']):
-        return _verify(manifest_dir,payloads=payloads)
+        value,jobs=_verify(manifest_dir,payloads=payloads)
+        if payloads:
+            after,after_jobs=_verify(manifest_dir,payloads=False)
+            if after!=value or after_jobs!=jobs:raise ValueError('metadata changed during payload verification')
+        return value,jobs
