@@ -3,6 +3,7 @@
     python3 -I tests/test_mellum_logits_compare.py    (part of `make test-mellum`)
 """
 
+import math
 import os
 from pathlib import Path
 import struct
@@ -29,6 +30,11 @@ def base_rows():
     return rows
 
 
+def two_way(p):
+    """logits whose softmax is (p, 1 - p)"""
+    return [math.log(p), math.log(1 - p)]
+
+
 class Compare(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
@@ -38,11 +44,12 @@ class Compare(unittest.TestCase):
     def tearDown(self):
         self.dir.cleanup()
 
-    def run_compare(self, a_rows, b_rows, exact, tol=10, kltol=0.01):
+    def run_compare(self, a_rows, b_rows, exact, tol=10, kltol=0.01, klmax=100, dlogp=100, positions=POSITIONS):
         write_run(self.a, a_rows)
         write_run(self.b, b_rows)
-        r = subprocess.run([sys.executable, '-I', str(SCRIPT), self.a, self.b, ','.join(map(str, POSITIONS)),
-                            '1' if exact else '0', str(tol), str(kltol)], capture_output=True, text=True)
+        r = subprocess.run([sys.executable, '-I', str(SCRIPT), self.a, self.b, ','.join(map(str, positions)),
+                            '1' if exact else '0', str(tol), str(kltol), str(klmax), str(dlogp)],
+                           capture_output=True, text=True)
         return r.returncode, r.stdout
 
     def test_equal_runs_pass_both_rules(self):
@@ -97,6 +104,41 @@ class Compare(unittest.TestCase):
             rc, out = self.run_compare(rows, rows, exact)
             self.assertEqual(rc, 1, out)
             self.assertIn('not finite', out)
+
+    def test_one_position_far_off_fails_although_the_mean_kl_passes(self):
+        # the review's case: 64 positions at 0.99/0.01, one of them 0.51/0.49 in the candidate (KL 0.618),
+        # a mean KL of 0.0095 over 65 rows and the same top-1 everywhere
+        positions = range(64)
+        ref = {'p%d' % p: two_way(0.99) for p in positions}
+        ref['session'] = two_way(0.99)
+        cand = {k: list(v) for k, v in ref.items()}
+        cand['p17'] = two_way(0.51)
+        self.assertEqual(self.run_compare(cand, ref, False, positions=positions)[0], 0)
+        rc, out = self.run_compare(cand, ref, False, klmax=0.05, positions=positions)
+        self.assertEqual(rc, 1, out)
+        self.assertIn('worst KL 6.18e-01 at p17', out)
+        rc, out = self.run_compare(cand, ref, False, dlogp=0.2, positions=positions)
+        self.assertEqual(rc, 1, out)
+        self.assertIn('max |d log p(top-1)| 6.63e-01 at p17', out)
+
+    def test_small_changes_at_every_position_pass_the_per_position_caps(self):
+        positions = range(64)
+        ref = {'p%d' % p: two_way(0.99) for p in positions}
+        ref['session'] = two_way(0.99)
+        cand = {k: two_way(0.985) for k in ref}
+        rc, out = self.run_compare(cand, ref, False, klmax=0.05, dlogp=0.2, positions=positions)
+        self.assertEqual(rc, 0, out)
+
+    def test_the_session_row_is_not_counted_in_the_mean_kl(self):
+        # the session row is the last position's row again: a change there counts once in the mean,
+        # over the three positions (KL 0.0247 / 3 = 0.0082), not twice over four rows (0.0124)
+        ref = {'p%d' % p: two_way(0.99) for p in POSITIONS}
+        ref['session'] = two_way(0.99)
+        cand = {k: list(v) for k, v in ref.items()}
+        cand['p9'] = cand['session'] = two_way(0.95)
+        rc, out = self.run_compare(cand, ref, False, kltol=0.01)
+        self.assertEqual(rc, 0, out)
+        self.assertIn('mean KL 8.25e-03', out)
 
 
 if __name__ == '__main__':
