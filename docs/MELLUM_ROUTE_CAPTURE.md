@@ -266,13 +266,15 @@ segments and chunk boundaries are checked against the input and schedule, beyond
 reference-route agreement. Publication never overwrites an existing output.
 
 The publisher rejects inherited `DS4_*` controls (except the unused
-`DS4_TEST_MELLUM_MODEL`), `MELLUM_TRACE_*` settings and make override controls;
+`DS4_TEST_MELLUM_MODEL`), `MELLUM_TRACE_*` settings, `GIT_*` settings and make override controls;
 it sets only its explicit context/chunk/exact controls. This includes empty
 source overrides and routing replay controls. The normal model lock still applies.
 
 The build manifest retains source file hashes, revision, aggregate source-state
 identity, binary hash and the forced-build command log. Sources include Git-listed
-C/header/Objective-C/include/Metal/Python/Makefile inputs and default Metal files.
+C/header/Objective-C/include/Metal/Python/Makefile inputs and default Metal files,
+including `GNUmakefile` and lowercase `makefile`. The build explicitly selects
+the repository's `Makefile`; Git identity commands ignore Git environment overrides.
 Source inputs cannot be symlinks. The publisher checks source state before/after
 the build and after collection, requires a newly built executable, and checks
 binary/token/model-file identity after collection. Model bytes are not hashed;
@@ -281,7 +283,9 @@ Model file stat identity is recorded. Restored changes between checks and hostil
 compiler behavior are outside this consistency check; it is not attestation or
 a reproducible-build guarantee.
 
-The native finish callback supplies the bounded profile catalog. The checked-close
+The native finish callback supplies the bounded profile catalog. Its descriptions
+must match the complete native grammar, canonical descriptor order, kernel/constant
+definitions, required roles and head state in `ds4_mellum_kernels.inc`. The checked-close
 runtime receipt supplies actual context/cap and backend capability flags, recorded
 separately from requested controls. Caller conflicts with derived fields are errors;
 caller-supplied profile catalogs cannot be used. JSON serialization escapes catalog
