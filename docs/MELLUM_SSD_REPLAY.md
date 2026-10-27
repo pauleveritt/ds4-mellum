@@ -118,14 +118,22 @@ group, but version 1 has no tile schedule or staging-occupancy model.
 uses future-aware farthest-next-use eviction with optional bypass. A fetched
 expert can be served without retention. Group protection is removed, including
 after an expert has been served but while its group is still executing.
-This is an optimistic lower bound for this equal-size expert model, not an
-implementable predictor or an exact optimum under group residency. Tests
+Whole-trace demand loads/bytes are an optimistic lower bound for atomic
+full-group residency and an optimum for that fixed sorted sequential order.
+The claim excludes order-flexible tiled execution. Phase, segment, token,
+blocked-layer and percentile results are policy outcomes, not independent
+lower bounds. This is not an implementable predictor or an exact optimum
+under group residency. Tests
 compare it to exhaustive tiny-state search. Sequential relaxation may
 understate both memory requirements and blocked layers.
 
 ## Reading the JSON report
 
-`trace` preserves the required header fields and geometry. `assumptions`
+`trace` preserves the required version 1 header fields and geometry. Unknown
+header metadata is currently discarded; version 1 cannot preserve a full
+capture manifest. The proposed [S1 design](superpowers/specs/2026-10-27-mellum-ssd-evidence-design.md)
+adds version 2 manifests and report identities before measured capture. These
+additions are not implemented yet. `assumptions`
 explicitly records cold starts, unmodeled allocations and absent prefetch.
 `results` has both policies for each requested capacity, in argument order.
 

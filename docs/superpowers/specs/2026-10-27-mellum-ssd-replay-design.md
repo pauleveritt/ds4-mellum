@@ -12,6 +12,17 @@ dedicated replay target and the full model-free Mellum suite pass. No GPU,
 model or storage experiment was performed. The design below records the
 approved scope; its implementation choices were approved with that scope.
 
+## Review amendment — 2026-10-27
+
+The [S1 evidence design](2026-10-27-mellum-ssd-evidence-design.md) supersedes
+this document's broad lower-bound and provenance claims. Only whole-trace
+loads/bytes are bounds, for atomic full-group residency or the specified
+sorted sequential schedule. Phase, window and tail outcomes are diagnostics;
+order-flexible tiled execution is outside that claim. Version 1 preserves
+only its named header fields, not arbitrary capture metadata. S1 specifies
+versioned manifests and input identities before measured capture begins.
+The historical implementation and verification record below remain unchanged.
+
 ## Purpose and boundary
 
 Prepare the first decisive locality experiment while GPU access is unavailable.
