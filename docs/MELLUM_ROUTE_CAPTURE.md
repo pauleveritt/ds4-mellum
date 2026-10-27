@@ -116,3 +116,21 @@ hidden-state trace's per-layer waits do not provide that evidence.
 
 See the [roadmap](../ROADMAP.md) and [evaluation protocol](MELLUM_SSD_EVALUATION.md).
 S2 remains open; no GPU experiment or SSD inference has been performed here.
+
+## GPU primitive proof
+
+On macOS, `make test-mellum-routes-gpu` builds a dedicated diagnostic executable.
+Set `DS4_TEST_MELLUM_MODEL` to the Mellum Q8 GGUF to run short, tiled and exact
+cases; without it the execution step skips. One model process at a time.
+
+The harness compares logits after every sync/eval and compares buffered route
+spools with a per-layer synchronous reference. It includes a final one-token
+prompt append. Its graph hooks compile only into the test executable; shipping
+builds have no observer allocation or native-writer dependency. The smoke
+wrapper clears inherited Mellum trace/path and prefill-chunk controls.
+
+The [GPU proof](superpowers/research/2026-10-27-mellum-route-gpu-proof.md)
+records the first matrix and exploratory replay. Public attachment, lifecycle
+failure coverage and actual encoded-kernel metadata are still required before
+S2b is complete. Do not turn experimental raw spools into qualified v2 evidence
+using guessed profile descriptions.

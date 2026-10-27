@@ -8,8 +8,9 @@ numbered checkpoints. This roadmap tracks the separate SSD investigation.
 - Mellum Checkpoint 3.6: `59932c9`, rebased onto upstream `ee7e840`, with E1.
 - CPU replay preparation: implemented on `codex/mellum-ssd-replay`; 33
   synthetic replay tests and the model-free Mellum suite pass.
-- No Mellum SSD inference, real routing capture or storage benchmark has been
-  performed by this investigation. Physical 8 GB feasibility is unresolved.
+- First diagnostic resident routing captures now pass on an M5 Max / 128 GiB
+  laptop. No Mellum SSD inference or storage benchmark has been performed.
+  Physical 8 GB feasibility is unresolved.
 - This branch retains the Checkpoint 3.6 baseline. The separate `mellum`
   checkout has advanced to `f635616` with frontend work; this SSD branch does
   not integrate or change it. SSD phases keep their own numbering.
@@ -53,8 +54,16 @@ See [usage](docs/MELLUM_ROUTE_CAPTURE.md). S2a is complete: independent
 whole-branch review found no blockers. One existing replay-CLI nesting
 error-message issue is recorded as a deferred minor in the plan.
 
-**S2b, GPU required:** attach the recorder to the actual session graph and
-validate the live behavior below. S2 remains open until these gates pass.
+**S2b, GPU required:** first test-only primitive proof passes: eight live cases,
+byte-identical logits/routes, bounded ID buffers and no added per-layer host
+wait in buffered hooks. Preliminary raw-spool LRU replay at 3 GiB leaves
+296–378 MB/decode token on two long teacher-forced release fixtures; these
+are unqualified policy outcomes, not a feasibility verdict. See the
+[GPU evidence](docs/superpowers/research/2026-10-27-mellum-route-gpu-proof.md).
+
+Attach the production diagnostic recorder to the actual session graph and
+validate the remaining lifecycle and actual encoded-kernel provenance gates.
+S2 remains open until these gates pass.
 
 Buffer selected IDs on the GPU before per-layer scratch is reused; export at
 existing synchronization points. Bound recorder memory and reject incomplete
