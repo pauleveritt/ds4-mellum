@@ -10792,6 +10792,11 @@ static bool agent_worker_compact_if_needed(agent_worker *w, const char *reason,
     return agent_worker_compact(w, reason, err, err_len);
 }
 
+/* The transcript is the session's KV cache, so earlier turns stay as they were generated.  For
+ * Mellum this diverges from 2.1's template, which drops the reasoning of the assistant turns
+ * before the last user turn when it renders a new one; dropping it here would mean rewriting the
+ * transcript and prefilling everything after the first such turn again at every user message.
+ * The Qwen models' templates drop it too, and the agent keeps it for them as well. */
 static bool agent_worker_append_user(agent_worker *w, const char *text,
                                      char *err, size_t err_len) {
     ds4_tokens message = {0}, sys = {0};
