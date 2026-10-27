@@ -2857,8 +2857,9 @@ static const char *agent_hermes_edit_boundary(const char *q, const char *end, bo
 /* The call body (from its opening brace to </tool_call>) of a write or an edit whose string values hold bare
  * quotes, with them escaped; NULL when the body is not exactly {"name": "write", "arguments": {"path": <a valid
  * string>, "content": "..."}} or {"name": "edit", "arguments": {"path": <a valid string>, "edits": [{"oldText":
- * "...", "newText": "..."}, ...]}}, when an edit's item boundaries are ambiguous, or when the rewrite changes
- * nothing.  The path is not repaired: a wrong path is another file. */
+ * "...", "newText": "..."}, ...]}} (or the older single-edit form, "oldText": "...", "newText": "..." after the
+ * path), when an edit's item boundaries are ambiguous, or when the rewrite changes nothing.  The path is not
+ * repaired: a wrong path is another file. */
 static char *agent_hermes_repair_quotes(const char *s, size_t n) {
     const char *end = s + n, *past = NULL;
     const char *q = agent_hermes_eat(s, end, " { \"name\" : \"write\" , \"arguments\" : { \"path\" : ");
@@ -2869,16 +2870,19 @@ static char *agent_hermes_repair_quotes(const char *s, size_t n) {
     if (!path) return NULL;
     free(path);
     const char *v = agent_hermes_eat(past, end, edit ? " , \"edits\" : [ { \"oldText\" : \"" : " , \"content\" : \"");
+    const char *legacy = edit && !v ? agent_hermes_eat(past, end, " , \"oldText\" : \"") : NULL;
+    if (legacy) v = legacy;
     if (!v) return NULL;
-    /* the tail, read backwards: " } } for a write, " } ] } } for an edit, and whitespace */
+    /* the tail, read backwards: " } } for a write or a single edit, " } ] } } for edits, and whitespace */
     const char *v_end = end;
-    for (const char *lit = edit ? "}}]}\"" : "}}\""; *lit; lit++) {
+    for (const char *lit = edit && !legacy ? "}}]}\"" : "}}\""; *lit; lit++) {
         while (v_end > v && (v_end[-1] == ' ' || v_end[-1] == '\t' || v_end[-1] == '\r' || v_end[-1] == '\n')) v_end--;
         if (v_end <= v || v_end[-1] != *lit) return NULL;
         v_end--;
     }
     /* the values: [cut[2i], cut[2i+1]).  An edit's alternate oldText and newText, cut at each boundary; a boundary
-     * that comes out of turn, or a list that does not end in a newText, is ambiguous */
+     * that comes out of turn (in the single-edit form, any after its one newText), or a list that does not end in a
+     * newText, is ambiguous */
     const char **cut = xmalloc(((size_t)(v_end - v) + 2) * sizeof(*cut));
     size_t ncut = 0;
     cut[ncut++] = v;
@@ -2886,12 +2890,12 @@ static char *agent_hermes_repair_quotes(const char *s, size_t n) {
     for (const char *c = v; edit && c < v_end; c++) {
         if (!agent_hermes_bare_quote(v, c)) continue;
         const char *b = agent_hermes_edit_boundary(c, v_end, to_new);
-        if (b) {
+        if (b && !(legacy && !to_new)) {
             cut[ncut++] = c;
             cut[ncut++] = b;
             c = b - 1;
             to_new = !to_new;
-        } else if (agent_hermes_edit_boundary(c, v_end, !to_new)) {
+        } else if (b || agent_hermes_edit_boundary(c, v_end, !to_new)) {
             ncut = 0;
             break;
         }
