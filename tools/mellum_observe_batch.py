@@ -52,11 +52,12 @@ def run(manifest_dir: Path,container: Path) -> Path:
     start=common.READ_BYTES
     failure_path=container.with_name(container.name+'.failure')
     if failure_path.exists() or failure_path.is_symlink():raise FileExistsError(failure_path)
-    progress=dict(started_cells=[],runs=[],completed_logical_bytes=0,prewarm_bytes=0)
+    progress=dict(batch_path=str(manifest_dir),started_cells=[],runs=[],completed_logical_bytes=0,prewarm_bytes=0)
     def build(stage):
         try:
             value=common.load_json(manifest_dir/'manifest.json')
             prep=common.integer(value['untimed_python_read_bytes'])
+            progress.update(declared_batch=value,prepare_python_read_bytes=prep)
             forecast=manifest.forecast(value)
             remaining=forecast['total_python_upper_bytes']-prep-(common.READ_BYTES-start)
             with common.read_budget(remaining):
@@ -65,6 +66,7 @@ def run(manifest_dir: Path,container: Path) -> Path:
                 progress['host']=host_metadata()
                 value,jobs=manifest.verify(manifest_dir,payloads=False)
                 frozen=manifest.batches.binding(manifest_dir/'manifest.json')
+                progress['batch']=frozen
                 files={k:value['inputs'][k] for k in ('model','payload')}
                 topology=observer.discover(files);progress['topology_before']=topology
                 manifest.verify(manifest_dir,payloads=True)
@@ -125,7 +127,9 @@ def run(manifest_dir: Path,container: Path) -> Path:
                 failed_cell_progress='unknown; reserved maxima retained',
                 timed_reserved_max=value.get('timed_logical_bytes') if 'value' in locals() else None,
                 prewarm_reserved_max=value.get('prewarm_bytes') if 'value' in locals() else None,
-                untimed_python_read_bytes=common.READ_BYTES-start,physical_io_verified=False)
+                untimed_python_read_bytes=common.READ_BYTES-start,
+                cumulative_python_read_bytes=common.READ_BYTES-start+progress.get('prepare_python_read_bytes',0),
+                physical_io_verified=False)
             if isinstance(exc,observer.CommandFailure):progress['failed_command']=exc.evidence
             def retain(failed):
                 shutil.copytree(stage,failed,dirs_exist_ok=True)
