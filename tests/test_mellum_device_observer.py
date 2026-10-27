@@ -86,6 +86,31 @@ def test_snapshot_records_uncertainty_and_raw_bytes():
     with patch.object(api,'command',return_value=dict(result,stdout=b'not plist')):
         refused(lambda:api.snapshot(top))
 
+def test_truncated_xml_and_structure_bombs_keep_raw_evidence():
+    api=module()
+    payloads=(b'<?xml version="1.0"?><plist><dict>',
+              b'<?xml version="1.0"?><!DOCTYPE plist [<!ENTITY a "boom">]><plist><string>&a;</string></plist>',
+              plistlib.dumps(['x']*20000))
+    for raw in payloads:
+        result=dict(stdout=raw,stderr=b'',returncode=0)
+        try:api.decoded(result)
+        except api.CommandFailure as exc:assert exc.evidence['stdout']==raw
+        else:raise AssertionError('unbounded/malformed XML accepted')
+
+def test_interrupted_metadata_command_is_killed_and_reaped():
+    api=module();children=[];real=api.subprocess.Popen
+    def spawn(*args,**kwargs):
+        child=real(*args,**kwargs);children.append(child);return child
+    try:
+        with patch.object(api.subprocess,'Popen',side_effect=spawn),             patch.object(api.selectors.DefaultSelector,'select',side_effect=KeyboardInterrupt):
+            try:api.command([sys.executable,'-c','import time;time.sleep(5)'])
+            except BaseException:pass
+        assert children and children[0].poll() is not None,'interrupted metadata helper left alive'
+    finally:
+        for child in children:
+            if child.poll() is None:child.kill()
+            child.wait()
+
 def load_tests(loader,tests,pattern):
     return unittest.TestSuite(unittest.FunctionTestCase(v) for k,v in globals().items() if k.startswith('test_'))
 if __name__=='__main__':unittest.main()

@@ -58,6 +58,21 @@ def test_child_exit_or_pipe_eof_keeps_partial_evidence():
                 else:raise AssertionError('owned child not reaped')
             else:raise AssertionError('failed child accepted')
 
+def test_malformed_snapshot_retains_cell_progress():
+    api=module()
+    raw=dict(stdout=b'<?xml version="1.0"?><plist><dict>',stderr=b'',returncode=0)
+    with tempfile.TemporaryDirectory() as directory:
+        path=Path(directory)/'input';path.write_bytes(bytes(range(64)))
+        argv=[str(ROOT/'tools/mellum_read_bench'),'--input',str(path),
+              '--plan',str(ROOT/'tests/mellum_read_plan_v1.bin'),'--workers','1','--mode','buffered']
+        def fail(topology):return api.observer.decoded(raw)
+        with patch.object(api.observer,'snapshot',side_effect=fail):
+            try:api.observe(argv,{})
+            except api.ObservationFailure as exc:
+                assert exc.evidence['events'][0]['token']=='R'
+                assert exc.evidence['failed_command']['stdout']==raw['stdout']
+            else:raise AssertionError('malformed snapshot accepted')
+
 def load_tests(loader,tests,pattern):
     return unittest.TestSuite(unittest.FunctionTestCase(v) for k,v in globals().items() if k.startswith('test_'))
 if __name__=='__main__':unittest.main()

@@ -103,7 +103,7 @@ def test_input_or_topology_changes_prevent_success():
 
 def test_preflight_rejects_inference_executables():
     api=module()
-    for executable in ('ds4-server','ds4-cli','test_mellum_gpu'):
+    for executable in ('ds4-server','ds4-cli','test_mellum_gpu','ds4-bench','ds4-eval','test_mellum_kernels','mellum_trace','mellum_routes_gpu'):
         raw=dict(stdout=f'123 /tmp/{executable} --model model'.encode(),stderr=b'',returncode=0)
         with patch.object(api.observer,'command',return_value=raw):
             try:api.preflight()
@@ -127,6 +127,51 @@ def test_host_identity_retains_cpu_ram_and_raw_command():
         value=api.host_metadata()
     assert value['ram_bytes']==137438953472 and value['model']=='Mac17,7' and value['cpu']=='Apple M5 Max'
     assert value['command']['stdout']==raw['stdout']
+
+def test_payload_verification_failure_spends_attempt_before_any_read():
+    api=module()
+    with tiny_run(api) as (root,prepared):
+        count=0
+        def fail_after_read(*args):
+            nonlocal count
+            count+=1
+            with api.common.opened(root/'model') as (source,_):source.read(1)
+            raise ValueError('verification interrupted after a payload read')
+        with patch.object(api.manifest.pack_tools,'verify_packed',side_effect=fail_after_read):
+            for name in ('run','repeat'):
+                try:api.run(prepared,root/name)
+                except ValueError:pass
+                else:raise AssertionError('failed payload verification accepted')
+        assert count==1, 'payload verification retried against same reservation'
+        assert (prepared.parent/'execution-reservation.json').exists()
+
+def test_mutation_inside_final_payload_check_prevents_publication():
+    api=module()
+    with tiny_run(api) as (root,prepared):
+        count=0
+        def mutate_final(*args):
+            nonlocal count
+            count+=1
+            if count==2:
+                wire=prepared/'original.bin';raw=bytearray(wire.read_bytes());raw[-1]^=1;wire.write_bytes(raw)
+        with patch.object(api.manifest.pack_tools,'verify_packed',side_effect=mutate_final):
+            try:api.run(prepared,root/'run')
+            except ValueError:pass
+            else:raise AssertionError('post-verification wire mutation published success')
+        assert count==2 and not (root/'run/artifact').exists()
+
+def test_previous_raw_cell_is_released_before_next_capture():
+    import weakref
+    class Evidence(dict):pass
+    api=module();refs=[]
+    with tiny_run(api) as (root,prepared):
+        real=api.process.observe
+        def checked(argv,topology):
+            assert all(ref() is None for ref in refs), 'prior raw evidence retained into next capture'
+            result=Evidence(real(argv,topology));result['snapshots']=Evidence(result['snapshots'])
+            refs.extend((weakref.ref(result),weakref.ref(result['snapshots'])))
+            return result
+        with patch.object(api.process,'observe',side_effect=checked):api.run(prepared,root/'run')
 
 def load_tests(loader,tests,pattern):
     return unittest.TestSuite(unittest.FunctionTestCase(v) for k,v in globals().items() if k.startswith('test_'))
