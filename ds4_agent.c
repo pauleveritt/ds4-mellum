@@ -10554,6 +10554,70 @@ static char *pi_normalize_to_lf(const char *s, size_t n, size_t *out_len) {
     return out;
 }
 
+static size_t pi_utf8_decode(const unsigned char *s, size_t n, uint32_t *cp) {
+    if (s[0] < 0x80) { *cp = s[0]; return 1; }
+    if ((s[0] & 0xe0) == 0xc0 && n >= 2 && (s[1] & 0xc0) == 0x80) {
+        *cp = ((uint32_t)(s[0] & 0x1f) << 6) | (s[1] & 0x3f);
+        return 2;
+    }
+    if ((s[0] & 0xf0) == 0xe0 && n >= 3 && (s[1] & 0xc0) == 0x80 && (s[2] & 0xc0) == 0x80) {
+        *cp = ((uint32_t)(s[0] & 0x0f) << 12) | ((uint32_t)(s[1] & 0x3f) << 6) | (s[2] & 0x3f);
+        return 3;
+    }
+    if ((s[0] & 0xf8) == 0xf0 && n >= 4 && (s[1] & 0xc0) == 0x80 && (s[2] & 0xc0) == 0x80 &&
+        (s[3] & 0xc0) == 0x80) {
+        *cp = ((uint32_t)(s[0] & 0x07) << 18) | ((uint32_t)(s[1] & 0x3f) << 12) |
+              ((uint32_t)(s[2] & 0x3f) << 6) | (s[3] & 0x3f);
+        return 4;
+    }
+    /* an invalid byte is a unit of its own that is neither space nor punctuation to map: copied as is */
+    *cp = 0x110000u + s[0];
+    return 1;
+}
+
+/* JavaScript's trimEnd whitespace, minus what a line cannot contain. */
+static bool pi_is_js_space(uint32_t cp) {
+    return cp == ' ' || cp == '\t' || cp == '\r' || cp == 0x0b || cp == 0x0c || cp == 0xa0 ||
+           cp == 0x1680 || (cp >= 0x2000 && cp <= 0x200a) || cp == 0x2028 || cp == 0x2029 ||
+           cp == 0x202f || cp == 0x205f || cp == 0x3000 || cp == 0xfeff;
+}
+
+/* normalizeForFuzzyMatch, without NFKC: trailing whitespace per line, smart quotes, Unicode
+ * dashes and Unicode spaces to their ASCII forms.  Never changes the number of lines. */
+static char *pi_normalize_fuzzy(const char *s, size_t n, size_t *out_len) {
+    char *out = xmalloc(n + 1);
+    size_t o = 0, i = 0;
+    while (i <= n) {
+        const char *nl = i < n ? memchr(s + i, '\n', n - i) : NULL;
+        size_t line_end = nl ? (size_t)(nl - s) : n;
+        /* where the line's trailing whitespace begins */
+        size_t keep = i;                 /* a line of only whitespace trims to nothing */
+        for (size_t k = i; k < line_end;) {
+            uint32_t cp;
+            size_t w = pi_utf8_decode((const unsigned char *)s + k, line_end - k, &cp);
+            if (!pi_is_js_space(cp)) keep = k + w;
+            k += w;
+        }
+        for (size_t k = i; k < keep;) {
+            uint32_t cp;
+            size_t w = pi_utf8_decode((const unsigned char *)s + k, keep - k, &cp);
+            if (cp >= 0x2018 && cp <= 0x201b) out[o++] = '\'';
+            else if (cp >= 0x201c && cp <= 0x201f) out[o++] = '"';
+            else if ((cp >= 0x2010 && cp <= 0x2015) || cp == 0x2212) out[o++] = '-';
+            else if (cp == 0xa0 || (cp >= 0x2002 && cp <= 0x200a) || cp == 0x202f ||
+                     cp == 0x205f || cp == 0x3000) out[o++] = ' ';
+            else { memcpy(out + o, s + k, w); o += w; }
+            k += w;
+        }
+        if (!nl) break;
+        out[o++] = '\n';
+        i = line_end + 1;
+    }
+    out[o] = '\0';
+    if (out_len) *out_len = o;
+    return out;
+}
+
 typedef struct {
     size_t index;
     size_t length;
@@ -10569,6 +10633,8 @@ static int pi_match_cmp(const void *a, const void *b) {
 
 /* How many times needle occurs in hay, counted left to right without overlap (split().length - 1). */
 static size_t pi_count_occurrences(const char *hay, size_t hay_len, const char *needle, size_t needle_len) {
+    /* split("") cuts between every character: one fewer piece-boundary than there are characters */
+    if (needle_len == 0) return hay_len ? hay_len - 1 : 0;
     size_t count = 0;
     const char *p = hay, *end = hay + hay_len;
     while (p < end) {
@@ -10592,19 +10658,94 @@ static void pi_apply_replacements(agent_buf *out, const char *content, size_t le
     agent_buf_append(out, content + pos, len - pos);
 }
 
-/* applyEditsToNormalizedContent, exact matching: every edit is matched against the same original
- * text; each must be found, unique and disjoint from the others.  (Pi's fuzzy pass, which counts
- * occurrences on normalized text, is step 35.)  Returns the new text, or NULL with Pi's error
- * message in *error. */
+typedef struct { size_t start, end; } pi_span;
+
+/* splitLinesWithEndings: lines keep their "\n"; a last line without one is still a line. */
+static pi_span *pi_line_spans(const char *s, size_t n, size_t *count) {
+    size_t cap = 16, c = 0, pos = 0;
+    pi_span *v = xmalloc(cap * sizeof(v[0]));
+    while (pos < n) {
+        const char *nl = memchr(s + pos, '\n', n - pos);
+        size_t end = nl ? (size_t)(nl - s) + 1 : n;
+        if (c == cap) { cap *= 2; v = xrealloc(v, cap * sizeof(v[0])); }
+        v[c].start = pos;
+        v[c].end = end;
+        c++;
+        pos = end;
+    }
+    *count = c;
+    return v;
+}
+
+/* applyReplacementsPreservingUnchangedLines: the matches were made in the normalized base; the
+ * lines they touch are rewritten from it and every other line is copied from the original, so a
+ * fuzzy edit does not rewrite the file's smart quotes elsewhere.  Returns false on a line-count
+ * mismatch. */
+static bool pi_apply_preserving_lines(agent_buf *out, const char *orig, size_t orig_len,
+                                      const char *base, size_t base_len,
+                                      const pi_match *m, size_t count) {
+    size_t n_orig = 0, n_base = 0;
+    pi_span *ol = pi_line_spans(orig, orig_len, &n_orig);
+    pi_span *bl = pi_line_spans(base, base_len, &n_base);
+    bool ok = n_orig == n_base;
+    size_t *gs = xmalloc((count + 1) * sizeof(size_t));
+    size_t *ge = xmalloc((count + 1) * sizeof(size_t));
+    size_t *gfirst = xmalloc((count + 1) * sizeof(size_t));
+    size_t *gcount = xmalloc((count + 1) * sizeof(size_t));
+    size_t groups = 0;
+    for (size_t i = 0; ok && i < count; i++) {
+        size_t rs = m[i].index, re = m[i].index + m[i].length, start_line = n_base;
+        for (size_t l = 0; l < n_base; l++) {
+            if (rs >= bl[l].start && rs < bl[l].end) { start_line = l; break; }
+        }
+        if (start_line == n_base) { ok = false; break; }
+        size_t end_line = start_line;
+        while (end_line < n_base && bl[end_line].end < re) end_line++;
+        if (end_line >= n_base) { ok = false; break; }
+        end_line++;
+        if (groups && start_line < ge[groups - 1]) {
+            if (end_line > ge[groups - 1]) ge[groups - 1] = end_line;
+            gcount[groups - 1]++;
+        } else {
+            gs[groups] = start_line;
+            ge[groups] = end_line;
+            gfirst[groups] = i;
+            gcount[groups] = 1;
+            groups++;
+        }
+    }
+    if (ok) {
+        size_t orig_line = 0;
+        for (size_t g = 0; g < groups; g++) {
+            if (gs[g] > orig_line)
+                agent_buf_append(out, orig + ol[orig_line].start,
+                                 ol[gs[g] - 1].end - ol[orig_line].start);
+            size_t b0 = bl[gs[g]].start, b1 = bl[ge[g] - 1].end;
+            pi_apply_replacements(out, base + b0, b1 - b0, m + gfirst[g], gcount[g], b0);
+            orig_line = ge[g];
+        }
+        if (orig_line < n_orig)
+            agent_buf_append(out, orig + ol[orig_line].start, orig_len - ol[orig_line].start);
+    }
+    free(gs); free(ge); free(gfirst); free(gcount);
+    free(ol); free(bl);
+    return ok;
+}
+
+/* applyEditsToNormalizedContent: every edit is matched against the same original text, exactly
+ * first, then fuzzily; each must be unique and none may overlap.  Returns the new text, or NULL with
+ * a Pi error message in *error. */
 static char *pi_apply_edits(const char *content, size_t content_len, const pi_edits *edits,
                             const char *path, size_t *new_len, char **error) {
     const size_t n = edits->len;
     char **old_lf = xmalloc(n * sizeof(char *)), **new_lf = xmalloc(n * sizeof(char *));
     size_t *old_len = xmalloc(n * sizeof(size_t)), *nlen = xmalloc(n * sizeof(size_t));
     pi_match *matches = xmalloc(n * sizeof(pi_match));
-    char *result = NULL;
+    char *result = NULL, *fuzzy_content = NULL;
+    size_t fuzzy_len = 0;
     char msg[PATH_MAX + 256];
     msg[0] = '\0';
+    for (size_t i = 0; i < n; i++) { old_lf[i] = new_lf[i] = NULL; }
     for (size_t i = 0; i < n; i++) {
         old_lf[i] = pi_normalize_to_lf(edits->v[i].old_text, strlen(edits->v[i].old_text), &old_len[i]);
         new_lf[i] = pi_normalize_to_lf(edits->v[i].new_text, strlen(edits->v[i].new_text), &nlen[i]);
@@ -10616,25 +10757,67 @@ static char *pi_apply_edits(const char *content, size_t content_len, const pi_ed
             goto done;
         }
     }
+    bool used_fuzzy = false;
+    for (size_t i = 0; i < n && !used_fuzzy; i++) {
+        if (agent_memmem(content, content_len, old_lf[i], old_len[i])) continue;
+        size_t fl = 0, ol = 0;
+        char *fc = pi_normalize_fuzzy(content, content_len, &fl);
+        char *fo = pi_normalize_fuzzy(old_lf[i], old_len[i], &ol);
+        if (agent_memmem(fc, fl, fo, ol)) used_fuzzy = true;
+        free(fc);
+        free(fo);
+    }
+    const char *base = content;
+    size_t base_len = content_len;
+    if (used_fuzzy) {
+        fuzzy_content = pi_normalize_fuzzy(content, content_len, &fuzzy_len);
+        base = fuzzy_content;
+        base_len = fuzzy_len;
+    }
     for (size_t i = 0; i < n; i++) {
-        const char *at = agent_memmem(content, content_len, old_lf[i], old_len[i]);
+        /* fuzzyFindText on the base: exact, else both sides normalized (the base already is) */
+        const char *needle = old_lf[i];
+        size_t needle_len = old_len[i];
+        char *fuzzy_needle = NULL;
+        const char *at = agent_memmem(base, base_len, needle, needle_len);
         if (!at) {
+            size_t ol = 0, fl = 0;
+            fuzzy_needle = pi_normalize_fuzzy(old_lf[i], old_len[i], &ol);
+            char *fb = pi_normalize_fuzzy(base, base_len, &fl);
+            const char *fat = agent_memmem(fb, fl, fuzzy_needle, ol);
+            if (fat) {
+                /* the base is fuzzy-normalized already, so offsets agree */
+                at = base + (fat - fb);
+                needle = fuzzy_needle;
+                needle_len = ol;
+            }
+            free(fb);
+        }
+        if (!at) {
+            free(fuzzy_needle);
             if (n == 1)
                 snprintf(msg, sizeof(msg), "Could not find the exact text in %s. The old text must match exactly including all whitespace and newlines.", path);
             else
                 snprintf(msg, sizeof(msg), "Could not find edits[%zu] in %s. The oldText must match exactly including all whitespace and newlines.", i, path);
             goto done;
         }
-        const size_t occurrences = pi_count_occurrences(content, content_len, old_lf[i], old_len[i]);
+        size_t fl = 0, ol = 0;
+        char *fb = pi_normalize_fuzzy(base, base_len, &fl);
+        char *fo = pi_normalize_fuzzy(old_lf[i], old_len[i], &ol);
+        size_t occurrences = pi_count_occurrences(fb, fl, fo, ol);
+        free(fb);
+        free(fo);
         if (occurrences > 1) {
+            free(fuzzy_needle);
             if (n == 1)
                 snprintf(msg, sizeof(msg), "Found %zu occurrences of the text in %s. The text must be unique. Please provide more context to make it unique.", occurrences, path);
             else
                 snprintf(msg, sizeof(msg), "Found %zu occurrences of edits[%zu] in %s. Each oldText must be unique. Please provide more context to make it unique.", occurrences, i, path);
             goto done;
         }
-        matches[i] = (pi_match){.index = (size_t)(at - content), .length = old_len[i],
+        matches[i] = (pi_match){.index = (size_t)(at - base), .length = needle_len,
                                 .new_text = new_lf[i], .new_len = nlen[i], .edit_index = i};
+        free(fuzzy_needle);
     }
     qsort(matches, n, sizeof(matches[0]), pi_match_cmp);
     for (size_t i = 1; i < n; i++) {
@@ -10646,8 +10829,16 @@ static char *pi_apply_edits(const char *content, size_t content_len, const pi_ed
     }
     {
         agent_buf out = {0};
-        pi_apply_replacements(&out, content, content_len, matches, n, 0);
-        const size_t rl = out.len;
+        if (used_fuzzy) {
+            if (!pi_apply_preserving_lines(&out, content, content_len, base, base_len, matches, n)) {
+                free(out.ptr);
+                snprintf(msg, sizeof(msg), "Cannot preserve unchanged lines because the base content has a different line count.");
+                goto done;
+            }
+        } else {
+            pi_apply_replacements(&out, base, base_len, matches, n, 0);
+        }
+        size_t rl = out.len;
         result = agent_buf_take(&out);
         if (rl == content_len && memcmp(result, content, rl) == 0) {
             free(result);
@@ -10663,6 +10854,7 @@ static char *pi_apply_edits(const char *content, size_t content_len, const pi_ed
 done:
     for (size_t i = 0; i < n; i++) { free(old_lf[i]); free(new_lf[i]); }
     free(old_lf); free(new_lf); free(old_len); free(nlen); free(matches);
+    free(fuzzy_content);
     if (!result) *error = xstrdup(msg);
     return result;
 }
