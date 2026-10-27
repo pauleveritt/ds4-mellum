@@ -35,8 +35,14 @@ def main() -> None:
     observe_run = commands.add_parser('observe-run')
     for name in ('batch','output'):
         observe_run.add_argument(f'--{name}',type=Path,required=True)
+    service_prepare=commands.add_parser('service-prepare')
+    for name in ('prior-batch','reader','stager','output'):
+        service_prepare.add_argument(f'--{name}',type=Path,required=True)
+    service_run=commands.add_parser('service-run')
+    for name in ('batch','output'):
+        service_run.add_argument(f'--{name}',type=Path,required=True)
     args = parser.parse_args()
-    if args.command.startswith('observe-') and sys.platform!='darwin':
+    if args.command.startswith(('observe-','service-')) and sys.platform!='darwin':
         raise SystemExit('macOS required for device observation')
     if args.command == 'index':
         value = index_tools.build_index(args.model)
@@ -50,6 +56,10 @@ def main() -> None:
         print(identity.sibling('mellum_observe_manifest').prepare(args.prior_batch,args.binary,args.output))
     elif args.command == 'observe-run':
         print(identity.sibling('mellum_observe_batch').run(args.batch,args.output))
+    elif args.command == 'service-prepare':
+        print(identity.sibling('mellum_service_plan').prepare(args.prior_batch,args.reader,args.stager,args.output))
+    elif args.command == 'service-run':
+        print(identity.sibling('mellum_service_run').run(args.batch,args.output))
     elif args.command == 'run':
         print(identity.sibling('mellum_read_batch').run_batch(args.batch, args.output))
 
