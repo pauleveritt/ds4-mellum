@@ -1,7 +1,9 @@
 # Mellum S3a: expert ranges, storage reads and workload source freeze
 
-Date: 2026-10-27. Status: proposed; independent builder check complete,
-awaiting user review before implementation planning.
+Date: 2026-10-27. Status: approved by the user's subsequent “Proceed”;
+independent builder check complete. The [source-freeze plan](../plans/2026-10-27-mellum-workload-source.md)
+and [storage plan](../plans/2026-10-27-mellum-storage-evidence.md) are prepared
+and awaiting plan review before inline execution.
 Baseline: `a44532d`, `codex/mellum-ssd-replay`. Implements the first CPU-only
 slice of S3 in the [roadmap](../../../ROADMAP.md), following the
 [owned-recorder proof](../research/2026-10-27-mellum-owned-live-proof.md).
