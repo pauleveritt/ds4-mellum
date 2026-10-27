@@ -318,10 +318,24 @@ flips from a broken kernel. This has three consequences:
   hold on the oracle's three prompts. They do not hold on the Unicode prompt (4 top-1 changes, mean KL
   0.019) or the tool prompt (1 change). The rule is a regression gate set on those three files, not a
   bound on how far the release prefill may move any prompt.
-- Per-position correctness rests on the exact path. Under `DS4_MELLUM_EXACT_PREFILL=1` the oracle checks
+- Per-position correctness rests on the exact path. (The second point is partly changed by the near-tie
+  margin below: no top-1 change on held-out text is now out of rule, but the Unicode prompt's mean KL still
+  exceeds 0.01.) Under `DS4_MELLUM_EXACT_PREFILL=1` the oracle checks
   long prefills byte for byte against the old engine and decode. A change that reorders work without
   changing arithmetic can be held to byte equality with the release path it replaces, which is a
   stronger gate than any cap.
+
+**Near-tie margin (E1a, Paul's decision after Checkpoint 3.5).** A top-1 change now passes the
+tolerance rule only where the reference's top two log-probabilities are within 0.75 nats
+(`MELLUM_ORACLE_NEARTIE`). The per-position caps still apply to that row. The margin was set on the four
+held-out files, at the same 64 traced positions each (n = 256), with the release prefill against the exact
+one at rebased head 9986668. The current path changed the exact path's top-1 at five of those positions;
+E1's tensor-tile experts (the scratch probe) changed it at four of the same five. Their margins were 0.002,
+0.174, 0.369, 0.524 and 0.718 nats. The widest is Unicode position 60, where an earlier layer's router flip
+spread forward. 0.75 is that maximum rounded up. It covers 31 of the 256 held-out positions and 92 of all
+413 traced positions; the oracle's prose files have more low-margin positions. The oracle's own files were
+not used to set it. There E1 changes the top-1 at 1,100 p1082 (margin 0.032) and 2,200 p1675 (0.156); the
+current path changes none.
 
 ### Metal 4 record
 
