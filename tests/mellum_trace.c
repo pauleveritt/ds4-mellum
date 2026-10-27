@@ -34,10 +34,11 @@
  *
  * Every file the run is to write is removed before it starts, so a file from an
  * earlier run with the same prefix cannot pass for this run's.
- * Exit 0 when the run succeeded and every file of every listed position (and
- * the session logits file) exists with its exact size.  Exit 1 on a failed run, a listed position that
- * is not one of the tokens (the error names it) or a missing or short file
- * (the error names the position and the file).  Exit 2 on bad arguments.
+ * Exit 0 when the run succeeded, every file of every listed position (and the
+ * session logits file) exists with its exact size, and every listed position's
+ * logits are finite.  Exit 1 on a failed run, a listed position that is not one
+ * of the tokens (the error names it), a missing or short file (the error names
+ * the position and the file) or a non-finite logit.  Exit 2 on bad arguments.
  * Never --raw-prompt: this feeds token ids, not text.
  */
 #include "../ds4.h"
@@ -136,7 +137,7 @@ static bool check_file(const char *prefix, unsigned pos, const char *what, uint6
     return true;
 }
 
-/* a finite last-position logits file is the run's evidence the logits are real */
+/* finite logits files at every listed position are the run's evidence the logits are real */
 static bool report_logits(const char *prefix, unsigned pos) {
     char path[4096];
     snprintf(path, sizeof(path), "%s.p%u.logits.f32", prefix, pos);
@@ -306,11 +307,9 @@ int main(int argc, char **argv) {
             rc = 1;
         }
     }
-    if (rc == 0 && n_pos > 0) {
-        unsigned last = pos[0];
-        for (int i = 1; i < n_pos; i++) if (pos[i] > last) last = pos[i];
-        if (!report_logits(prefix, last)) {
-            fprintf(stderr, "mellum_trace: the logits at position %u are not finite\n", last);
+    for (int i = 0; i < n_pos && rc == 0; i++) {
+        if (!report_logits(prefix, pos[i])) {
+            fprintf(stderr, "mellum_trace: the logits at position %u are not finite\n", pos[i]);
             rc = 1;
         }
     }
