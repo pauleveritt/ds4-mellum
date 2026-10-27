@@ -7948,6 +7948,66 @@ static void test_mellum_server_render(void) {
     if (!bad) printf("mellum-server: %zu renders equal 2.1's template text\n", sizeof(msc_cases) / sizeof(msc_cases[0]));
 }
 
+/* Mellum's generated text, parsed: reasoning (the model writes its own <think>), content, and Hermes calls whose
+ * arguments keep the model's JSON text, so the next request renders the turn back byte for byte */
+static void mellum_parse(const char *text, bool closed, char **content, char **reasoning, tool_calls *calls) {
+    *content = *reasoning = NULL;
+    memset(calls, 0, sizeof(*calls));
+    TEST_ASSERT(parse_generated_message_ex_for_syntax(SERVER_MODEL_SYNTAX_HERMES, text, closed, content, reasoning, calls));
+}
+
+static void test_mellum_server_parse(void) {
+    const int failures_before = test_failures;
+    char *content, *reasoning;
+    tool_calls calls;
+    mellum_parse("<think>\nThe user greets me.\n</think>\n\nHello!", true, &content, &reasoning, &calls);
+    TEST_ASSERT(reasoning && !strcmp(reasoning, "The user greets me.") && content && !strcmp(content, "Hello!") && calls.len == 0);
+    free(content); free(reasoning); tool_calls_free(&calls);
+    /* thinking off: the prompt closed the think block, so the text is the answer */
+    mellum_parse("Hello!", false, &content, &reasoning, &calls);
+    TEST_ASSERT(!reasoning && content && !strcmp(content, "Hello!") && calls.len == 0);
+    free(content); free(reasoning); tool_calls_free(&calls);
+
+    const char *one = "<think>\nRead it first.\n</think>\n\n<tool_call>\n{\"name\": \"read\", \"arguments\": {\"path\": \"hello.py\"}}\n</tool_call>";
+    mellum_parse(one, true, &content, &reasoning, &calls);
+    TEST_ASSERT(reasoning && !strcmp(reasoning, "Read it first.") && content && !strcmp(content, ""));
+    TEST_ASSERT(calls.len == 1 && !strcmp(calls.v[0].name, "read") && !strcmp(calls.v[0].arguments, "{\"path\": \"hello.py\"}"));
+    {   /* the round trip: rendered back within its tool cycle, the turn is the model's own text */
+        chat_msgs msgs = {0};
+        chat_msgs_push(&msgs, (chat_msg){.role = xstrdup("user"), .content = xstrdup("Q")});
+        chat_msg a = {.role = xstrdup("assistant"), .content = content, .reasoning = reasoning, .calls = calls};
+        chat_msgs_push(&msgs, a);
+        char *text = render_chat_prompt_text_for_syntax(SERVER_MODEL_SYNTAX_HERMES, &msgs, NULL, NULL, DS4_THINK_HIGH);
+        buf want = {0};
+        buf_puts(&want, "<|im_start|>user\nQ<|im_end|>\n<|im_start|>assistant\n");
+        buf_puts(&want, one);
+        buf_puts(&want, "<|im_end|>\n");
+        TEST_ASSERT(text && !strcmp(text, want.ptr));
+        free(text); buf_free(&want); chat_msgs_free(&msgs);
+    }
+    /* content, then two calls; a call's end marker inside a JSON string is text */
+    mellum_parse("<think>\nTwo.\n</think>\n\nWriting.\n<tool_call>\n{\"name\": \"write\", \"arguments\": {\"path\": \"a\", \"content\": \"x </tool_call> y\"}}\n</tool_call>\n<tool_call>\n{\"name\": \"bash\", \"arguments\": {\"command\": \"ls\"}}\n</tool_call>",
+                 true, &content, &reasoning, &calls);
+    TEST_ASSERT(content && !strcmp(content, "Writing.") && calls.len == 2);
+    TEST_ASSERT(calls.len == 2 && !strcmp(calls.v[0].arguments, "{\"path\": \"a\", \"content\": \"x </tool_call> y\"}") &&
+                !strcmp(calls.v[1].name, "bash"));
+    free(content); free(reasoning); tool_calls_free(&calls);
+    /* arguments sent as a JSON string, as json.loads would take them; an unknown key is skipped */
+    mellum_parse("<think>\nx\n</think>\n\n<tool_call>\n{\"name\": \"bash\", \"id\": 7, \"arguments\": \"{\\\"command\\\": \\\"ls\\\"}\"}\n</tool_call>",
+                 true, &content, &reasoning, &calls);
+    TEST_ASSERT(calls.len == 1 && !strcmp(calls.v[0].arguments, "{\"command\": \"ls\"}"));
+    free(content); free(reasoning); tool_calls_free(&calls);
+    /* not JSON (single quotes): refused, as json.loads refuses it */
+    content = reasoning = NULL;
+    memset(&calls, 0, sizeof(calls));
+    TEST_ASSERT(!parse_generated_message_ex_for_syntax(SERVER_MODEL_SYNTAX_HERMES,
+        "<think>\nx\n</think>\n\n<tool_call>\n{\"name\": \"edit\", \"arguments\": {'a': 1}}\n</tool_call>", true,
+        &content, &reasoning, &calls));
+    free(content); free(reasoning); tool_calls_free(&calls);
+    if (test_failures == failures_before)
+        printf("mellum-server: Hermes output parsed into reasoning, content and calls, and rendered back byte for byte\n");
+}
+
 /* With the real vocabulary (DS4_TEST_MELLUM_MODEL): each rendered case, tokenized as the server tokenizes a prompt
  * (ds4_tokenize_rendered_chat), gives the template's ids. */
 static void test_mellum_server_ids(void) {
@@ -7992,6 +8052,7 @@ static void test_mellum_server_ids(void) {
 static void test_server_unit_group(void) {
     ds4_server_unit_tests_run();
     test_mellum_server_render();
+    test_mellum_server_parse();
 }
 
 typedef void (*test_fn)(void);
