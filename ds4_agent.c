@@ -11116,32 +11116,74 @@ static void pi_departure_side(const char *s, const char *end, char *out, size_t 
     snprintf(out, out_size, "`%.*s`", (int)n, s);
 }
 
-/* Step 45: where a missed edit's oldText departs from the file.  The longest start of oldText the file holds (a
- * longer start can only occur where a shorter one does, so a binary search finds it), at its first place; appended
- * to msg as a sentence.  Nothing when not even oldText's first byte is in the file. */
+/* The byte in s[0..n) that pi_normalize_fuzzy's output offset off came from: the start of the character it lies in,
+ * or the line's end (its newline, or n) when off is where the normalised line ends, since trimmed trailing
+ * whitespace is no text to point at.  Every mapped character becomes one byte, every other keeps its bytes. */
+static size_t pi_fuzzy_raw_offset(const char *s, size_t n, size_t off) {
+    size_t o = 0, i = 0;
+    for (;;) {
+        const char *nl = i < n ? memchr(s + i, '\n', n - i) : NULL;
+        const size_t line_end = nl ? (size_t)(nl - s) : n;
+        size_t keep = i;
+        for (size_t k = i; k < line_end;) {
+            uint32_t cp;
+            const size_t w = pi_utf8_decode((const unsigned char *)s + k, line_end - k, &cp);
+            if (!pi_is_js_space(cp)) keep = k + w;
+            k += w;
+        }
+        for (size_t k = i; k < keep;) {
+            uint32_t cp;
+            const size_t w = pi_utf8_decode((const unsigned char *)s + k, keep - k, &cp);
+            /* the characters pi_normalize_fuzzy maps to one ASCII byte */
+            const bool mapped = (cp >= 0x2010 && cp <= 0x201f && cp != 0x2016 && cp != 0x2017) || cp == 0x2212 ||
+                                cp == 0xa0 || (cp >= 0x2002 && cp <= 0x200a) || cp == 0x202f || cp == 0x205f ||
+                                cp == 0x3000;
+            const size_t ow = mapped ? 1 : w;
+            if (off < o + ow) return k;
+            o += ow;
+            k += w;
+        }
+        if (off <= o || !nl) return line_end;
+        o++;                                       /* the newline */
+        i = line_end + 1;
+    }
+}
+
+/* Step 45: where a missed edit's oldText departs from the file, found under Pi's fuzzy normalisation (step 49: the
+ * one the edit itself tries, so a curly quote typed straight or dropped trailing spaces are no departure) and told in
+ * the file's own bytes.  The longest start of oldText the file holds (a longer start can only occur where a shorter
+ * one does, so a binary search finds it), at its first place; appended to msg as a sentence.  Nothing when not even
+ * oldText's first character is in the file.  The normalisation keeps the line count, so lines agree. */
 static void pi_edit_departure(const char *content, size_t content_len, const char *old, size_t old_len,
                               char *msg, size_t msg_size) {
-    size_t lo = 0, hi = old_len;
+    size_t fc_len = 0, fo_len = 0;
+    char *fc = pi_normalize_fuzzy(content, content_len, &fc_len), *fo = pi_normalize_fuzzy(old, old_len, &fo_len);
+    size_t lo = 0, hi = fo_len;
     while (hi - lo > 1) {
         const size_t mid = lo + (hi - lo) / 2;
-        if (agent_memmem(content, content_len, old, mid)) lo = mid;
+        if (agent_memmem(fc, fc_len, fo, mid)) lo = mid;
         else hi = mid;
     }
-    if (lo == 0 && !(old_len && agent_memmem(content, content_len, old, 1))) return;
-    if (lo == 0) lo = 1;
-    const char *at = agent_memmem(content, content_len, old, lo) + lo;
-    int line = 1;
-    const char *line_start = content;
-    for (const char *c = content; c < at; c++) {
-        if (*c == '\n') { line++; line_start = c + 1; }
+    if (lo == 0 && fo_len && agent_memmem(fc, fc_len, fo, 1)) lo = 1;
+    if (lo > 0) {
+        const size_t f_at = (size_t)(agent_memmem(fc, fc_len, fo, lo) - fc) + lo;
+        const char *at = content + pi_fuzzy_raw_offset(content, content_len, f_at);
+        const char *old_at = old + pi_fuzzy_raw_offset(old, old_len, lo);
+        int line = 1;
+        const char *line_start = content;
+        for (const char *c = content; c < at; c++) {
+            if (*c == '\n') { line++; line_start = c + 1; }
+        }
+        char old_side[64], file_side[64];
+        pi_departure_side(old_at, old + old_len, old_side, sizeof(old_side));
+        pi_departure_side(at, content + content_len, file_side, sizeof(file_side));
+        const size_t used = strlen(msg);
+        snprintf(msg + used, msg_size - used,
+                 " The file matches oldText's start up to line %d, column %d, where oldText has %s and the file has %s.",
+                 line, (int)(at - line_start) + 1, old_side, file_side);
     }
-    char old_side[64], file_side[64];
-    pi_departure_side(old + lo, old + old_len, old_side, sizeof(old_side));
-    pi_departure_side(at, content + content_len, file_side, sizeof(file_side));
-    const size_t used = strlen(msg);
-    snprintf(msg + used, msg_size - used,
-             " The file matches oldText's start up to line %d, column %d, where oldText has %s and the file has %s.",
-             line, (int)(at - line_start) + 1, old_side, file_side);
+    free(fc);
+    free(fo);
 }
 
 /* applyEditsToNormalizedContent: every edit is matched against the same original text, exactly
