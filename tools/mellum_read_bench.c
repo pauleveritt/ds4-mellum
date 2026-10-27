@@ -1,5 +1,7 @@
 #include "mellum_read.h"
 #include <fcntl.h>
+#include <limits.h>
+#include <signal.h>
 #include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -50,24 +52,45 @@ static void report(const mellum_read_plan *p,unsigned workers,bool avoid,struct 
     }
     puts("]}");
 }
+static int pipe_fd(const char *text,int access) {
+    if (!text || !*text) return -1;
+    unsigned long value=0;
+    for (const char *p=text;*p;++p) {
+        if (*p<'0' || *p>'9' || value>((unsigned long)INT_MAX-(unsigned)(*p-'0'))/10) return -1;
+        value=value*10+(unsigned)(*p-'0');
+    }
+    struct stat st;
+    int fd=(int)value,flags=fcntl(fd,F_GETFL);
+    if (fd<=2 || flags<0 || (flags&O_ACCMODE)!=access || fstat(fd,&st) || !S_ISFIFO(st.st_mode)) return -1;
+    return fd;
+}
 int main(int argc,char **argv) {
     const char *input=NULL,*plan_path=NULL,*mode=NULL,*worker_text=NULL;
+    const char *control_text=NULL,*event_text=NULL;
+    mellum_read_gate gate={-1,-1};
+    mellum_read_observers hooks={mellum_read_gate_ready,mellum_read_gate_done,&gate};
     mellum_read_plan plan={0}; mellum_read_sample *samples=NULL;
     unsigned char *buffer=NULL; int fd=-1,rc=1;
     char err[160]="invalid arguments";
-    if (argc!=9) goto finish;
+    if (argc!=9 && argc!=13) goto finish;
     for (int i=1;i<argc;i+=2) {
         const char **slot=NULL;
         if (!strcmp(argv[i],"--input")) slot=&input;
         else if (!strcmp(argv[i],"--plan")) slot=&plan_path;
         else if (!strcmp(argv[i],"--mode")) slot=&mode;
         else if (!strcmp(argv[i],"--workers")) slot=&worker_text;
+        else if (!strcmp(argv[i],"--control-fd")) slot=&control_text;
+        else if (!strcmp(argv[i],"--event-fd")) slot=&event_text;
         if (!slot || *slot) goto finish;
         *slot=argv[i+1];
     }
     if (!input || !plan_path || !mode || !worker_text ||
         (strcmp(mode,"buffered") && strcmp(mode,"avoid")) ||
         (strcmp(worker_text,"1") && strcmp(worker_text,"2") && strcmp(worker_text,"4"))) goto finish;
+    if (control_text || event_text) {
+        gate.control_fd=pipe_fd(control_text,O_RDONLY); gate.event_fd=pipe_fd(event_text,O_WRONLY);
+        if (gate.control_fd<0 || gate.event_fd<0 || gate.control_fd==gate.event_fd || signal(SIGPIPE,SIG_IGN)==SIG_ERR) goto finish;
+    }
     unsigned workers=(unsigned)(worker_text[0]-'0'); bool avoid=!strcmp(mode,"avoid");
     if (mellum_read_plan_load(plan_path,&plan,err,sizeof(err))) goto finish;
     struct stat before,opened,after,path_after;
@@ -88,7 +111,7 @@ int main(int argc,char **argv) {
     samples=calloc(plan.count,sizeof(*samples));
     if (!samples) goto finish;
     mellum_read_summary summary={0};
-    if (mellum_read_execute(fd,&plan,workers,samples,&summary,err,sizeof(err))) goto finish;
+    if (mellum_read_execute_observed(fd,&plan,workers,samples,&summary,control_text ? &hooks : NULL,err,sizeof(err))) goto finish;
     summary.prewarm_bytes=prewarm.bytes;
     snprintf(err,sizeof(err),"input identity/close changed after reads");
     if (MELLUM_READ_FSTAT(fd,&after) || lstat(input,&path_after) || !same(opened,after) || !same(opened,path_after)) goto finish;

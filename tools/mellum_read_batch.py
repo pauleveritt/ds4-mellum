@@ -17,7 +17,7 @@ index_tools = identity.sibling('mellum_expert_index')
 pack_tools = identity.sibling('mellum_expert_pack')
 plans = identity.sibling('mellum_read_plan')
 BUDGET = 256 * 2**30
-COMPILER_COMMAND = 'cc -std=c99 -O2 -D_POSIX_C_SOURCE=200809L -D_DARWIN_C_SOURCE -Wall -Wextra -Werror -pthread tools/mellum_read_bench.c tools/mellum_read_plan.c tools/mellum_read_io.c tools/mellum_read_run.c -o tools/mellum_read_bench'
+COMPILER_COMMAND = 'cc -std=c99 -O2 -D_POSIX_C_SOURCE=200809L -D_DARWIN_C_SOURCE -Wall -Wextra -Werror -pthread tools/mellum_read_bench.c tools/mellum_read_plan.c tools/mellum_read_io.c tools/mellum_read_run.c tools/mellum_read_gate.c -o tools/mellum_read_bench'
 
 
 def frozen_runs() -> list[dict]:

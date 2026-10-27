@@ -1664,7 +1664,7 @@ clean-mellum-read-run:
 	rm -f tests/test_mellum_read_run tools/mellum_read_bench
 clean: clean-mellum-read-run
 
-MELLUM_READ_SOURCES = tools/mellum_read_bench.c tools/mellum_read_plan.c tools/mellum_read_io.c tools/mellum_read_run.c
+MELLUM_READ_SOURCES = tools/mellum_read_bench.c tools/mellum_read_plan.c tools/mellum_read_io.c tools/mellum_read_run.c tools/mellum_read_gate.c
 
 tools/mellum_read_bench: $(MELLUM_READ_SOURCES) tools/mellum_read.h
 	$(CC) $(MELLUM_READ_CFLAGS) $(MELLUM_READ_SOURCES) -o $@
