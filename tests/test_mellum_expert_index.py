@@ -188,6 +188,7 @@ def test_source_changes_during_inspection_fail():
         with patch.object(api.gguf, 'read_directory', side_effect=changing), rejected():
             api.build_index(path)
         output = Path(directory) / 'output'
+        assert (ROOT / 'tools/mellum_storage.py').is_file(), 'storage CLI is not implemented'
         process = subprocess.run([sys.executable, '-I', str(ROOT / 'tools/mellum_storage.py'),
                                   'index', '--model', str(path), '--output', str(output)], capture_output=True)
         assert process.returncode != 0
