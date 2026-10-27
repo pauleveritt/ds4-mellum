@@ -1041,6 +1041,11 @@ static bool ds4_model_is_mellum(void) {
     return DS4_MODEL_VARIANT == DS4_VARIANT_MELLUM;
 }
 
+/* The QWEN4_EXP family's model, as its messages name it. */
+static const char *ds4_qwen4_family_name(void) {
+    return ds4_model_is_mellum() ? "Mellum" : "Qwen3.8";
+}
+
 /* Mellum's attention pattern: three sliding-window layers, then one full
  * layer, i.e. layer il slides unless il % 4 == 3.  The validator checks this
  * rule against the GGUF's sliding_window_pattern array. */
@@ -60828,8 +60833,7 @@ static bool qwen4_graph_forward_tokens(ds4_qwen4_gpu_graph *g, const ds4_model *
     if (!ds4_model_is_mellum() && all_rows && T > g->n_logit_rows) return false;
     for (uint32_t t = 0; t < T; t++) {
         if (tokens[t] < 0 || tokens[t] >= (int)DS4_N_VOCAB) {
-            fprintf(stderr, "ds4: %s token id %d is outside the vocabulary\n",
-                    ds4_model_is_mellum() ? "Mellum" : "Qwen3.8", tokens[t]);
+            fprintf(stderr, "ds4: %s token id %d is outside the vocabulary\n", ds4_qwen4_family_name(), tokens[t]);
             return false;
         }
     }
@@ -61364,7 +61368,7 @@ static int generate_qwen4_metal_argmax(
     }
     const double t_prefill1 = now_sec();
     if (!ok) {
-        fprintf(stderr, "ds4: Qwen3.8 prefill failed\n");
+        fprintf(stderr, "ds4: %s prefill failed\n", ds4_qwen4_family_name());
         free(logits);
         qwen4_graph_free(g);
         free(g);
@@ -61379,7 +61383,7 @@ static int generate_qwen4_metal_argmax(
         n_generated++;
         if (i == n_predict - 1 || g->pos + 1u >= g->ctx_cap) break;
         if (!qwen4_graph_forward_token(g, model, weights, token, logits)) {
-            fprintf(stderr, "ds4: Qwen3.8 decode failed at position %u\n", g->pos);
+            fprintf(stderr, "ds4: %s decode failed at position %u\n", ds4_qwen4_family_name(), g->pos);
             free(logits);
             qwen4_graph_free(g);
             free(g);
@@ -61390,7 +61394,7 @@ static int generate_qwen4_metal_argmax(
     if (done) done(emit_ud);
     const double prefill_s = t_prefill1 - t_prefill0;
     const double decode_s = t_decode1 - t_decode0;
-    ds4_log(stderr, DS4_LOG_TIMING, "ds4: Qwen3.8 prefill: %.2f t/s, generation: %.2f t/s\n",
+    ds4_log(stderr, DS4_LOG_TIMING, "ds4: %s prefill: %.2f t/s, generation: %.2f t/s\n", ds4_qwen4_family_name(),
             prefill_s > 0.0 ? (double)prompt->len / prefill_s : 0.0,
             decode_s > 0.0 ? (double)n_generated / decode_s : 0.0);
     free(logits);
@@ -75550,7 +75554,7 @@ int ds4_session_create(ds4_session **out, ds4_engine *e, int ctx_size) {
     if (ds4_model_is_qwen4()) {
         if ((e->backend != DS4_BACKEND_METAL && e->backend != DS4_BACKEND_CUDA) ||
             e->distributed.role != DS4_DISTRIBUTED_NONE) {
-            fprintf(stderr, "ds4: Qwen3.8 sessions require single-host Metal or CUDA\n");
+            fprintf(stderr, "ds4: %s sessions require single-host Metal or CUDA\n", ds4_qwen4_family_name());
             free(s);
             return 1;
         }
@@ -78008,7 +78012,7 @@ static int ds4_session_sync_internal(ds4_session *s, const ds4_tokens *prompt, c
             s->checkpoint_valid = false;
             if (!qwen4_graph_forward_tokens(&s->qwen4_graph, &e->model, &e->weights,
                                             prompt->v + i, chunk, s->logits, false)) {
-                snprintf(err, errlen, "Qwen3.8 prefill failed at token %d", i);
+                snprintf(err, errlen, "%s prefill failed at token %d", ds4_qwen4_family_name(), i);
                 s->checkpoint_valid = false;
                 prefill_rc = 1;
                 break;
@@ -80198,7 +80202,7 @@ static int ds4_session_eval_internal(ds4_session *s, int token, bool probe_mtp,
 #ifdef DS4_HAS_QWEN4_GPU
     if (ds4_session_is_qwen4(s)) {
         if (!s->qwen4_graph_ready) {
-            if (errlen) snprintf(err, errlen, "Qwen3.8 graph is not initialized");
+            if (errlen) snprintf(err, errlen, "%s graph is not initialized", ds4_qwen4_family_name());
             return 1;
         }
         if (qwen4_session_replay_if_stale(s, err, errlen) != 0) return 1;
@@ -80208,7 +80212,7 @@ static int ds4_session_eval_internal(ds4_session *s, int token, bool probe_mtp,
         }
         if (!s->glm_spec_inside) { s->glm_mtp_have = 0; s->glm_mtp_have2 = false; }
         if (!qwen4_graph_forward_token(&s->qwen4_graph, &e->model, &e->weights, token, s->logits)) {
-            if (errlen) snprintf(err, errlen, "Qwen3.8 decode failed");
+            if (errlen) snprintf(err, errlen, "%s decode failed", ds4_qwen4_family_name());
             s->checkpoint_valid = false;
             return 1;
         }
