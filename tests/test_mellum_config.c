@@ -765,6 +765,17 @@ static void check_mellum_chat_tiny(void) {
         CHECK(ds4_chat_append_multimodal_message(&e, &got, "tool", parts, NULL, 0, NULL, err, sizeof(err)) == 1);
         expect_ids("tiny: tool message, multimodal path", &got, want.v, want.len);
     }
+    {   /* ds4_chat_append_tool_results: one result is that same turn; no results, or a NULL
+         * one, is refused and appends nothing */
+        const char *one[] = {"42 files"}, *holed[] = {"42 files", NULL};
+        got.len = 0;
+        CHECK(ds4_chat_append_tool_results(&e, &got, one, 1) == 1);
+        expect_ids("tiny: one tool result", &got, want.v, want.len);
+        got.len = 0;
+        CHECK(ds4_chat_append_tool_results(&e, &got, one, 0) == 0 && got.len == 0);
+        CHECK(ds4_chat_append_tool_results(&e, &got, holed, 2) == 0 && got.len == 0);
+        CHECK(ds4_chat_append_tool_results(&e, &got, NULL, 1) == 0 && got.len == 0);
+    }
     /* sibling: Flash Next keeps its own prefix (<think> and a newline when thinking) */
     g_ds4_shape = DS4_SHAPE_QWEN4_EXP;
     want.len = got.len = 0;
@@ -775,6 +786,16 @@ static void check_mellum_chat_tiny(void) {
     got.len = 0;
     ds4_chat_append_message(&e, &got, "tool", "42 files");
     CHECK(count_id(&got, 31) == 0 && count_id(&got, 32) == 0);
+    {   /* and two results are two tool messages, as its template renders them */
+        const char *two[] = {"42 files", "7 dirs"};
+        ds4_tokens each = {0};
+        ds4_chat_append_message(&e, &each, "tool", two[0]);
+        ds4_chat_append_message(&e, &each, "tool", two[1]);
+        got.len = 0;
+        CHECK(ds4_chat_append_tool_results(&e, &got, two, 2) == 1);
+        expect_ids("tiny: Flash Next, two tool results", &got, each.v, each.len);
+        ds4_tokens_free(&each);
+    }
     ds4_tokens_free(&want); ds4_tokens_free(&got);
     vocab_free(&e.vocab);
     model_close(&m);

@@ -45440,6 +45440,14 @@ void ds4_chat_append_message(ds4_engine *e, ds4_tokens *tokens, const char *role
     }
 }
 
+int ds4_chat_append_tool_results(ds4_engine *e, ds4_tokens *tokens,
+                                 const char *const *parts, size_t n) {
+    if (!e || !tokens || !parts || n == 0) return 0;
+    for (size_t i = 0; i < n; i++) if (!parts[i]) return 0;
+    for (size_t i = 0; i < n; i++) ds4_chat_append_message(e, tokens, "tool", parts[i]);
+    return 1;
+}
+
 void ds4_chat_append_assistant_prefix(ds4_engine *e, ds4_tokens *tokens, ds4_think_mode think_mode) {
     if (ds4_model_is_mellum()) {
         mellum_chat_assistant_prefix(&e->vocab, think_mode, tokens);
