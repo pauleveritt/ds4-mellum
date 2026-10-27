@@ -739,6 +739,38 @@ static void check_pi_nul(const char *dir) {
     puts("ok   agent: a Mellum call holding \\u0000 anywhere is refused and writes nothing");
 }
 
+/* P6-R10: Pi's schemas make path, content, command and a legacy oldText/newText strings.  Any other JSON type is
+ * refused before the tool touches a file or starts a shell, and an existing file is left as it was */
+static void check_pi_types(const char *dir) {
+    char *f = pi_fixture(dir, "typed.txt", "keep me\n");
+    static const char *const others[] = {"#null", "#1", "#true", "#{}", "#[]", "#[\"x\"]"};
+    for (size_t k = 0; k < sizeof(others) / sizeof(others[0]); k++) {
+        const char *v = others[k];
+        PI_EXPECT(pi_run("read", "path", v, NULL), "read requires a path string.");
+        PI_EXPECT(pi_run("write", "path", f, "content", v, NULL), "write requires a content string.");
+        PI_EXPECT(pi_run("write", "path", v, "content", "x", NULL), "write requires a path string.");
+        PI_EXPECT(pi_run("edit", "path", v, "edits", "#[{\"oldText\": \"keep\", \"newText\": \"lose\"}]", NULL),
+                  "edit requires a path string.");
+        PI_EXPECT(pi_run("edit", "path", f, "oldText", v, "newText", "lose", NULL),
+                  "Edit tool input is invalid. oldText and newText must be strings.");
+        PI_EXPECT(pi_run("edit", "path", f, "oldText", "keep", "newText", v, NULL),
+                  "Edit tool input is invalid. oldText and newText must be strings.");
+        PI_EXPECT(pi_run("bash", "command", v, NULL), "bash requires a command string.");
+    }
+    char *back = pi_slurp(f);
+    CHECK(!strcmp(back, "keep me\n"));
+    free(back);
+    /* the siblings: the same calls with strings succeed */
+    PI_EXPECT(pi_run("read", "path", f, NULL), "keep me\n");
+    PI_EXPECT_PREFIX(pi_run("edit", "path", f, "oldText", "keep", "newText", "kept", NULL), "Successfully replaced 1 block(s)");
+    PI_EXPECT_PREFIX(pi_run("write", "path", f, "content", "null", NULL), "Successfully wrote 4 bytes to ");
+    back = pi_slurp(f);
+    CHECK(!strcmp(back, "null"));
+    free(back);
+    free(f);
+    puts("ok   agent: Pi's string arguments must be strings; another JSON type is refused before any write");
+}
+
 static void check_pi_tools(void) {
     char dir[] = "/tmp/ds4-mellum-pi-XXXXXX";
     CHECK(mkdtemp(dir) != NULL);
@@ -747,6 +779,7 @@ static void check_pi_tools(void) {
     check_pi_edit(dir);
     check_pi_edit_fuzzy(dir);
     check_pi_nul(dir);
+    check_pi_types(dir);
     check_pi_bash();
     check_pi_unknown();
     char cmd[PATH_MAX + 16];
