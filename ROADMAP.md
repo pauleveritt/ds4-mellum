@@ -10,8 +10,9 @@ numbered checkpoints. This roadmap tracks the separate SSD investigation.
   synthetic replay tests and the model-free Mellum suite pass.
 - No Mellum SSD inference, real routing capture or storage benchmark has been
   performed by this investigation. Physical 8 GB feasibility is unresolved.
-- The other agent's port steps 34–40 remain parked pending Paul's go. SSD
-  milestones do not authorize those steps or depend on adopting their numbering.
+- This branch retains the Checkpoint 3.6 baseline. The separate `mellum`
+  checkout has advanced to `f635616` with frontend work; this SSD branch does
+  not integrate or change it. SSD phases keep their own numbering.
 
 ## SSD streaming milestones
 
@@ -40,7 +41,17 @@ separate red-test/fix pair resolves it, followed by the full CPU gate.
 See the [S1 design](docs/superpowers/specs/2026-10-27-mellum-ssd-evidence-design.md)
 and [implementation plan](docs/superpowers/plans/2026-10-27-mellum-ssd-evidence.md).
 
-### S2 — Native router recorder: GPU phase, not started
+### S2 — Native router recorder: preparation designed, implementation not started
+
+**S2a, CPU only:** native binary spool/layout helpers and bounded exporter to
+v2 traces, tested with fabricated selections. Includes completeness, write-error
+handling, exact-byte/token identities and atomic no-overwrite publication.
+The [capture design](docs/superpowers/specs/2026-10-27-mellum-route-capture-design.md)
+and [implementation plan](docs/superpowers/plans/2026-10-27-mellum-route-capture.md)
+are prepared for review. No S2a implementation exists yet.
+
+**S2b, GPU required:** attach the recorder to the actual session graph and
+validate the live behavior below. S2 remains open until these gates pass.
 
 Buffer selected IDs on the GPU before per-layer scratch is reused; export at
 existing synchronization points. Bound recorder memory and reject incomplete
