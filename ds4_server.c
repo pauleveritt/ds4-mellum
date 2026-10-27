@@ -7614,6 +7614,13 @@ static const dsml_syntax qwen_tool_syntax = {
     "<function=", "</function>", "<parameter=", "</parameter>",
 };
 
+/* Hermes (Mellum): a call is one JSON object between <tool_call> and </tool_call>, tracked as a single JSON
+ * parameter that the closing tag ends; the inner tags are never looked for. */
+static const dsml_syntax hermes_tool_syntax = {
+    "<tool_call>", "</tool_call>",
+    "<tool_call>", "</tool_call>", "<tool_call>", "</tool_call>",
+};
+
 typedef struct {
     dsml_track_mode mode;
     dsml_decode_state decode;
@@ -7822,9 +7829,10 @@ static void dsml_decode_tracker_update(dsml_decode_tracker *dt,
             const dsml_syntax *syn = NULL;
             bool found;
             if (dt->model_syntax == SERVER_MODEL_SYNTAX_GLM ||
-                dt->model_syntax == SERVER_MODEL_SYNTAX_QWEN) {
-                syn = dt->model_syntax == SERVER_MODEL_SYNTAX_QWEN ?
-                    &qwen_tool_syntax : &glm_tool_syntax;
+                dt->model_syntax == SERVER_MODEL_SYNTAX_QWEN ||
+                dt->model_syntax == SERVER_MODEL_SYNTAX_HERMES) {
+                syn = dt->model_syntax == SERVER_MODEL_SYNTAX_QWEN ? &qwen_tool_syntax :
+                    dt->model_syntax == SERVER_MODEL_SYNTAX_HERMES ? &hermes_tool_syntax : &glm_tool_syntax;
                 const char *start = find_lit_bounded(raw + dt->pos,
                     raw_len - dt->pos, syn->tool_calls_start);
                 found = start != NULL;
@@ -7844,6 +7852,12 @@ static void dsml_decode_tracker_update(dsml_decode_tracker *dt,
             dt->pos = pos;
             dt->mode = DSML_TRACK_STRUCTURAL;
             dt->decode = DSML_DECODE_STRUCTURAL;
+            if (dt->model_syntax == SERVER_MODEL_SYNTAX_HERMES) {
+                dt->mode = DSML_TRACK_JSON_PARAM;
+                dt->json_in_string = false;
+                dt->json_escaped = false;
+                dt->decode = DSML_DECODE_JSON_STRUCTURAL;
+            }
         }
 
         if (dt->mode == DSML_TRACK_STRING_BODY) {
@@ -7872,6 +7886,11 @@ static void dsml_decode_tracker_update(dsml_decode_tracker *dt,
                 if (!dt->json_in_string) {
                     if (raw_full_lit(raw, raw_len, dt->pos, dt->syn->param_end)) {
                         dt->pos += strlen(dt->syn->param_end);
+                        if (dt->model_syntax == SERVER_MODEL_SYNTAX_HERMES) {
+                            dt->mode = DSML_TRACK_DONE;
+                            dt->decode = DSML_DECODE_OUTSIDE;
+                            return;
+                        }
                         dt->mode = DSML_TRACK_STRUCTURAL;
                         dt->decode = DSML_DECODE_STRUCTURAL;
                         goto structural;

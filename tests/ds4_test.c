@@ -8230,8 +8230,10 @@ static void test_mellum_server_tracker(void) {
     bool start = false, end = false, orphan = false, saw_string = false, end_early = false;
     const size_t len = strlen(raw);
     for (size_t n = 1; n <= len; n++) {
-        dsml_decode_tracker_update(&dt, raw, n);
-        observe_tool_markers(&dt, raw, &start, &end, &orphan);
+        char *prefix = xstrndup(raw, n);
+        dsml_decode_tracker_update(&dt, prefix, n);
+        observe_tool_markers(&dt, prefix, &start, &end, &orphan);
+        free(prefix);
         if (dt.decode == DSML_DECODE_JSON_STRING) saw_string = true;
         if (end && n < len) end_early = true;
     }
@@ -8252,7 +8254,7 @@ static void test_mellum_server_tracker(void) {
     TEST_ASSERT(!parse_generated_message_for_response_for_syntax(SERVER_MODEL_SYNTAX_HERMES, bad, true, start, true,
                                                                  &finish, err, sizeof(err), &content, &reasoning,
                                                                  &calls, &recovered, NULL));
-    TEST_ASSERT(recovered && strcmp(finish, "stop") != 0);
+    TEST_ASSERT(recovered && !strcmp(err, "invalid tool call"));
     free(content); free(reasoning); tool_calls_free(&calls);
     if (test_failures == failures_before)
         printf("mellum-server: the generation tracker follows a Hermes call, and a malformed one is recovered\n");
