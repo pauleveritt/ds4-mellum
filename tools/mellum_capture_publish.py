@@ -79,7 +79,7 @@ def publish(root: Path, *, model: Path, tokens: Path, first_prefill: int, contex
         build_log = stage / 'build.log'
         binary_path = root / 'tests/mellum_routes_gpu'
         old_binary = identity.file_stat(binary_path) if binary_path.exists() else None
-        _run(['make', '-B', '-j4', 'tests/mellum_routes_gpu'], cwd=root, env=env, log=build_log)
+        _run(['make', '-f', 'Makefile', '-B', '-j4', 'tests/mellum_routes_gpu'], cwd=root, env=env, log=build_log)
         if source != identity.source_identity(root):
             raise ValueError('source inputs changed during build')
         binary = identity.file_identity(binary_path)
@@ -97,7 +97,7 @@ def publish(root: Path, *, model: Path, tokens: Path, first_prefill: int, contex
         if receipt['context_tokens'] != context or receipt['cap_tokens'] > prefill_chunk:
             raise ValueError('runtime receipt conflicts with requested context/chunk')
         _check_routes(stage / 'reference.routes', stage / 'owned.routes', receipt['cap_tokens'], words, first_prefill)
-        profiles = metadata_tools.read_profiles(stage / 'owned.profiles')
+        profiles = metadata_tools.read_profiles(stage / 'owned.profiles', root / 'ds4_mellum_kernels.inc')
         header = metadata_tools.complete_header(data['header'], source=source, binary=binary, receipt=receipt,
             token_file=token_file, model_stat=model_stat,
             build_log=metadata_tools.bounded_read(build_log, 256 * 1024).decode('utf-8'),

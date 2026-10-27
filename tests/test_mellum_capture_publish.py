@@ -158,7 +158,7 @@ def test_publication_derives_identity_and_observed_profiles():
     with publication() as (publisher, arguments, calls):
         publisher.publish(**arguments)
         assert len(calls) == 2
-        assert calls[0] == ['make', '-B', '-j4', 'tests/mellum_routes_gpu']
+        assert calls[0] == ['make', '-f', 'Makefile', '-B', '-j4', 'tests/mellum_routes_gpu']
         with arguments['output'].open() as source:
             replay = module('mellum_routes_to_trace').replay_module()
             trace = replay.load_trace(source)

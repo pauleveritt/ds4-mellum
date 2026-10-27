@@ -2,6 +2,7 @@
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
 import stat
 import subprocess
@@ -39,13 +40,15 @@ def file_identity(path: Path) -> dict:
 
 def source_identity(root: Path) -> dict:
     def git(*args: str) -> bytes:
-        return subprocess.run(['git', '-C', str(root), *args], check=True, capture_output=True).stdout
+        env = {name: value for name, value in os.environ.items() if not name.startswith('GIT_')}
+        return subprocess.run(['git', '-C', str(root), *args], check=True, capture_output=True, env=env).stdout
 
     paths = {Path(name.decode()) for name in git('ls-files', '-z', '--cached', '--others', '--exclude-standard').split(b'\0') if name}
     paths.update(path.relative_to(root) for path in (root / 'metal').rglob('*.metal'))
     files = {}
     for relative in sorted(paths):
-        if relative.suffix not in ('.c', '.h', '.m', '.inc', '.metal', '.py') and not relative.name.startswith('Makefile'):
+        if (relative.suffix not in ('.c', '.h', '.m', '.inc', '.metal', '.py') and
+                not relative.name.startswith('Makefile') and relative.name not in ('GNUmakefile', 'makefile')):
             continue
         path = root / relative
         if any((root / parent).is_symlink() for parent in (relative, *relative.parents)):
@@ -64,6 +67,6 @@ def source_identity(root: Path) -> dict:
 def checked_environment(env: dict[str, str]) -> dict[str, str]:
     for name in env:
         if ((name.startswith('DS4_') and name != 'DS4_TEST_MELLUM_MODEL') or name.startswith('MELLUM_TRACE_') or
-                name in ('MAKEFLAGS', 'MFLAGS', 'MAKEFILES', 'MAKEOVERRIDES')):
+                name.startswith('GIT_') or name in ('MAKEFLAGS', 'MFLAGS', 'MAKEFILES', 'MAKEOVERRIDES')):
             raise ValueError(f'inherited capture control is unsupported: {name}')
     return dict(env)

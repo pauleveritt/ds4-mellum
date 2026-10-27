@@ -18,7 +18,60 @@ def read_json(path: Path, limit: int, exporter) -> dict:
     return exporter.replay_module().parse_object(bounded_read(path, limit).decode('utf-8'), 1)
 
 
-def read_profiles(path: Path) -> dict[str, str]:
+def profile_definitions(path: Path) -> dict:
+    definitions = {}
+    roles = ('EMBED', 'PROJECTION', 'ROUTER', 'MID', 'DOWN', 'REDUCE', 'ATTENTION', 'HEAD', 'OTHER')
+    for line in bounded_read(path, 256 * 1024).decode('ascii').splitlines():
+        if not line.startswith('MELLUM_KERNEL'):
+            continue
+        match = re.fullmatch(r'MELLUM_KERNEL\(([A-Za-z_][A-Za-z_0-9]*),([A-Z]+),([0-6]),(.+)\)', line)
+        if not match:
+            raise ValueError('profile kernel catalog syntax is unsupported')
+        name, role, count, tail = match.groups()
+        labels = re.findall(r'"([A-Za-z_][A-Za-z_0-9]*)"', tail)
+        expected = ','.join(f'"{label}"' for label in labels) if int(count) else 'NULL'
+        if role not in roles or name in definitions or len(labels) != int(count) or tail != expected:
+            raise ValueError('profile kernel catalog is invalid')
+        definitions[name] = len(definitions), role, labels
+    if not definitions:
+        raise ValueError('profile kernel catalog is empty')
+    return definitions
+
+
+def validate_profile(text: str, definitions: dict) -> None:
+    roles = ('EMBED', 'PROJECTION', 'ROUTER', 'MID', 'DOWN', 'REDUCE', 'ATTENTION', 'HEAD', 'OTHER')
+    parts = text.split(';')
+    if parts[:2] not in (['profile-v1', 'head=encoded'], ['profile-v1', 'head=not-encoded']) or not 1 <= len(parts)-2 <= 64:
+        raise ValueError('profile header or descriptor count is invalid')
+    previous, observed = None, set()
+    for item in parts[2:]:
+        match = re.fullmatch(r'([A-Z]+):([A-Za-z_][A-Za-z_0-9]{0,94})\((.*)\)', item)
+        if not match or match[1] not in roles or match[2] not in definitions:
+            raise ValueError('profile descriptor is incomplete or unknown')
+        role, name, arguments = match.groups()
+        number, expected_role, labels = definitions[name]
+        if role != expected_role and not (role == 'HEAD' and expected_role == 'PROJECTION'):
+            raise ValueError('profile role conflicts with kernel catalog')
+        values = arguments.split(',') if arguments else []
+        if len(values) != len(labels):
+            raise ValueError('profile constants are incomplete')
+        numbers = []
+        for label, value in zip(labels, values, strict=True):
+            match = re.fullmatch(re.escape(label) + r'=(0|[1-9][0-9]{0,9})', value)
+            if not match or int(match[1]) > 2**32-1:
+                raise ValueError('profile constants are malformed')
+            numbers.append(int(match[1]))
+        key = roles.index(role), number, len(numbers), *numbers
+        if previous is not None and key <= previous:
+            raise ValueError('profile descriptors are duplicated or not canonical')
+        previous = key
+        observed.add(role)
+    if not set(roles[:7]) <= observed or ('HEAD' in observed) != (parts[1] == 'head=encoded'):
+        raise ValueError('profile is missing required roles or has inconsistent head state')
+
+
+def read_profiles(path: Path, catalog: Path | None = None) -> dict[str, str]:
+    definitions = profile_definitions(catalog or Path(__file__).resolve().parents[1] / 'ds4_mellum_kernels.inc')
     result = {}
     with path.open('rb') as source:
         for number in range(129):
@@ -33,6 +86,7 @@ def read_profiles(path: Path) -> dict[str, str]:
                 raise ValueError('profile catalog has invalid ID or description')
             if any(ord(char) < 32 or ord(char) > 126 for char in description):
                 raise ValueError('profile catalog contains control characters')
+            validate_profile(description, definitions)
             result[key] = description
     if not result:
         raise ValueError('profile catalog is empty')
