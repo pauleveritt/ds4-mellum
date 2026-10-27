@@ -8056,7 +8056,14 @@ static void test_mellum_server_visible_text(void) {
         buf want = {0};
         buf_puts(&want, prompt);
         buf_puts(&want, suffix ? suffix : "<none>");
-        TEST_ASSERT(starts_with(next, want.ptr));
+        if (think) {
+            TEST_ASSERT(starts_with(next, want.ptr));
+        } else {
+            /* thinking off, the prompt's empty think block is not in the next render of this turn, so no suffix
+             * makes a prefix of it: the suffix is the KV's own text after the prompt */
+            TEST_ASSERT(suffix && !strcmp(suffix, "<tool_call>\n{\"name\": \"bash\", \"arguments\": {\"command\": \"ls\"}}\n"
+                                                  "</tool_call><|im_end|>"));
+        }
         free(suffix); free(next); buf_free(&want);
         /* a final answer: the next request adds a user message, and the turn's reasoning is dropped */
         char *visible = think ? build_thinking_visible_text(&r, "The answer.") : NULL;
