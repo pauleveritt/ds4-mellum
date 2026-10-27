@@ -1011,6 +1011,13 @@ static const char *server_engine_refusal(ds4_engine *engine) {
     return NULL;
 }
 
+/* A session option the loaded model cannot serve, or NULL (step 43; a stub until its fix). */
+static const char *server_session_option_refusal(ds4_engine *engine, int batched_sessions,
+                                                 const char *kv_disk_dir) {
+    (void)engine; (void)batched_sessions; (void)kv_disk_dir;
+    return NULL;
+}
+
 static bool server_model_alias_known(const char *id) {
     return id &&
            (!strcmp(id, "deepseek-v4-flash") ||

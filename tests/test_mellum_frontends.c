@@ -529,7 +529,16 @@ static void check_engine_selection(void) {
     const char *why = server_engine_refusal(&e);
     CHECK(why && strstr(why, "Mellum 2.1"));
 
+    /* step 43: one session, no disk KV (the engine refuses session save and load for Mellum, and Mellum does
+     * not batch with other sessions); each refused by name, and the defaults accepted */
+    const char *why2 = server_session_option_refusal(&e, 2, NULL);
+    CHECK(why2 && strstr(why2, "Mellum 2.1") && strstr(why2, "--batched-session"));
+    why2 = server_session_option_refusal(&e, 0, "/tmp/kv");
+    CHECK(why2 && strstr(why2, "Mellum 2.1") && strstr(why2, "--kv-disk-dir"));
+    CHECK(server_session_option_refusal(&e, 1, NULL) == NULL && server_session_option_refusal(&e, 0, NULL) == NULL);
+
     g_ds4_shape = DS4_SHAPE_QWEN4_EXP;
+    CHECK(server_session_option_refusal(&e, 4, "/tmp/kv") == NULL);
     CHECK(!ds4_engine_is_mellum(&e));
     CHECK(!strcmp(server_model_id_from_engine(&e), "qwen3.8-flash-next"));
     CHECK(server_engine_refusal(&e) == NULL);
