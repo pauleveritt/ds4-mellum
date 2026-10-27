@@ -1,6 +1,6 @@
 # Mellum diagnostic session recorder
 
-Date: 2026-10-27. Status: proposed S2b design, awaiting approval.
+Date: 2026-10-27. Status: approved by the user on 2026-10-27; CPU-core implementation underway.
 Baseline: `8d9c53c`, isolated `codex/mellum-ssd-replay` worktree.
 
 ## Intent and evidence
