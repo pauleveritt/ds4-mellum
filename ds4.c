@@ -88683,8 +88683,11 @@ void ds4_session_rewind(ds4_session *s, int pos) {
          * read before the dropped row was committed to it, so the slot that row
          * overwrote held position pos - window, which no query at pos or later
          * reads.  Further back the ring has lost positions the next query needs:
-         * reset, and the next eval replays the kept tokens, which gives the same
-         * bytes because a prefill chunk equals its decode steps. */
+         * reset, and the next eval prefills the kept tokens again.  Its logits are
+         * then a fresh session's synced to the kept tokens, byte for byte; they
+         * equal the ones before the rewind only if the kept tokens went in the same
+         * way the first time, since a chunk of MELLUM_TILED_MIN_ROWS rows or more is
+         * not its decode steps' arithmetic (tests/ds4_test.c --mellum-rewind). */
         ds4_qwen4_gpu_graph *g = &s->qwen4_graph;
         if (g->pos == (uint32_t)s->checkpoint.len && pos + 1 == s->checkpoint.len) {
             g->pos = (uint32_t)pos;
