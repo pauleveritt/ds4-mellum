@@ -225,7 +225,7 @@ Step 22, M5 Max, Q8_0, `--temp 0`, n = 1 each:
 | forward pass vs the old port (`refs/old/mellum21-stage1`), session logits | `tests/mellum_oracle_compare.sh ORACLE_DIR $MODEL 64` | byte-equal (`cmp`) on 29, 1,100 and 2,200 templated tokens, prefill and decode; prefill equals decode in this engine on all three; 64 of 64 greedy tokens equal, with equal logits at each step | 1 |
 | prefill speed, exact experts vs tiled (step 25), 2,200 templated tokens, one chunk of 1,024 at a time | `MELLUM_TRACE_REPEAT=6 tests/mellum_trace $MODEL tests/mellum_oracle_2200.tokens prefill` (prototype switch, then the committed code) | runs 3-6 (steady clocks; run 1 is ~20% faster, then the GPU settles): exact 349-364 t/s, tiled 813-886 t/s, two alternated sessions each | 4 per arm, x2 |
 | tiled-experts crossover, one chunk | the same with 9- to 256-token prompts, runs 3-8 of 8 | 9 rows: exact 0.031 s, tiled 0.044 s; 16: 0.046 vs 0.051; 32: 0.081 vs 0.067; 48: 0.114 vs 0.080; 72: 0.164 vs 0.102; 256: 0.61 vs 0.29. Threshold: 32 rows | 6 per point |
-| batched Q8_0 projections (step 27), 2,200 tokens prefill | `MELLUM_TRACE_REPEAT=6 tests/mellum_trace ...2200.tokens prefill`, prototype switch alternated with the step-25 code, 30 s rests | runs 3-6, two rounds: step 25 805-884 t/s; batched with the Metal 4 tensor API on 1,973-2,065 t/s; batched with `DS4_METAL_DISABLE_METAL4=1` 1,971-2,066 t/s (the tensor tile adds nothing measurable here; the batching does) | 4 per arm, x2 |
+| batched Q8_0 projections (step 27), 2,200 tokens prefill | `MELLUM_TRACE_REPEAT=6 tests/mellum_trace ...2200.tokens prefill`, prototype switch alternated with the step-25 code, 30 s rests | runs 3-6, two rounds: step 25 805-884 t/s; batched with the Metal 4 tensor API on 1,973-2,065 t/s; batched with `DS4_METAL_DISABLE_METAL4=1` 1,971-2,066 t/s (the tensor tile adds nothing measurable here; the batching does). **Wrong, kept as recorded:** that arm never disabled Metal 4 ("Metal 4 record" below) | 4 per arm, x2 |
 | batched projections crossover, one chunk | runs 3-8 of 8, projections exact vs batched (experts tiled from 32 in both) | 16 rows 0.048 vs 0.043 s; 32: 0.071 vs 0.059; 96: 0.127 vs 0.076; 256: 0.28 vs 0.13; 1,024: 1.21-1.31 vs 0.51-0.61. Threshold kept at 32 (one rule with the experts) | 6 per point |
 | committed code after step 27, 2,200 tokens prefill, after a 2-minute rest | `MELLUM_TRACE_REPEAT=6 tests/mellum_trace ...2200.tokens prefill` | 1,977-2,030 t/s, all six runs. Heat-soaked (many runs just before): 930-1,005 t/s, so rest before timing | 6 |
 | generation | `./ds4 -m $MODEL -c 8192 --temp 0 -n 512 -p "Explain how a hash map works, with an example in C."` (CLI's own line) | 133.3-133.5 t/s generation; prefill of the ~25-token prompt 439-511 t/s | 3 |
@@ -296,6 +296,29 @@ flips from a broken kernel. This has three consequences:
   long prefills byte for byte against the old engine and decode. A change that reorders work without
   changing arithmetic can be held to byte equality with the release path it replaces, which is a
   stronger gate than any cap.
+
+### Metal 4 record
+
+Three measurements of the Metal 4 tensor API (`DS4_METAL_DISABLE_METAL4=1` off), 2,200 tokens prefill,
+`tests/mellum_trace`, M5 Max:
+
+| build | design | on | off | on vs off |
+|---|---|---|---|---|
+| step-27 prototype (`MELLUM_Q8_BATCHED=1` switch, before 219ac0a) | runs 3-6 of 6, two rounds, 30 s rests, arms rotated per process | 1,973-2,065 t/s | 1,971-2,066 t/s (see below) | "nothing measurable" |
+| 5aa742c (the outside review's round, its `automatic-benchmark-round-20261027`) | A/B/B/A, 6 runs per process, first dropped, 45 s between processes, AC, Automatic | median 2,051 | median 1,859 | +10.3%, n = 10 per arm |
+| 99c259d (review fix R8) | the same design; `abba.sh` in the session scratchpad, arms on, off, off, on; AC, Automatic (`powermode 0`), no thermal or performance warning recorded before or after any process | median 1,962, range 1,821-2,047 | median 1,759, range 1,636-1,864 | +11.5%, n = 10 per arm |
+
+The step-27 off arm did not run with Metal 4 off. Its loop set
+`env="MELLUM_Q8_BATCHED=1 DS4_METAL_DISABLE_METAL4=1"` and ran `env $env ...` under zsh, which does not
+split an unquoted parameter into words. That defined one variable, `MELLUM_Q8_BATCHED`, holding the
+whole string, and never set `DS4_METAL_DISABLE_METAL4`. The "off" arm was a second run of the batched
+tensor arm, which is why their ranges match. The prototype's code was otherwise the code 219ac0a committed,
+so its "nothing measurable" is withdrawn. At 99c259d the arms really differ: the two processes of
+each arm give byte-identical final logits, and on against off gives max |d logit| 1.3445 and
+KL(on || off) 1.06e-4 with the same argmax, the same distance the review recorded at 5aa742c.
+Metal 4 stays on. The absolute medians are about 4-5% below the review's. Runs within a process
+slow down (the fourth process's first run was 1,942 against the first process's 2,006), and the A/B/B/A
+order balances that drift between the arms but not its level.
 
 ## Backends covered
 
