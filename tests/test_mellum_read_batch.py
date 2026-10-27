@@ -104,6 +104,17 @@ def test_batch_rejects_input_plan_binary_or_source_mutation():
             refuse(lambda:api.verify_batch(batch))
 
 
+def test_batch_cannot_substitute_an_unindexed_model_path():
+    api=module()
+    with tiny_batch(api) as (root,batch):
+        other=root/'substitute'
+        other.write_bytes(b'x'*64)
+        value=api.common.load_json(batch/'manifest.json')
+        value['inputs']['model']=api.binding(other)
+        (batch/'manifest.json').unlink();api.common.write_json(batch/'manifest.json',value)
+        refuse(lambda:api.verify_batch(batch))
+
+
 def native_fixture(api, root):
     path=root/'input';path.write_bytes(bytes(range(64)))
     process=subprocess.run([str(BINARY),'--input',str(path),'--plan',str(ROOT/'tests/mellum_read_plan_v1.bin'),
