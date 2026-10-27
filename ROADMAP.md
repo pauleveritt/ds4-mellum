@@ -127,12 +127,13 @@ does not complete either measurement.
 
 The [storage-service design](docs/superpowers/specs/2026-10-27-mellum-storage-service-design.md)
 for controlled reads on this laptop is approved; its [implementation plan](docs/superpowers/plans/2026-10-27-mellum-storage-service.md)
-is prepared for review.
-Include a positive control for observation and an explicit cache-state setup;
-warm-cache rates cannot satisfy the SSD-read-cost result. Before reusing the
-observer, fix the reviewed cancellation path so it retains captured cell
-evidence. No automatic rerun of the spent diagnostic or new experiment follows
-from its result. The first ac-demo task remains Phase 1 only; later phases
+now has CPU-only staging, frozen plans, post-read byte verification and a
+one-shot runner implemented. Model-free integration tests cover actual tiny
+writer/reader children and failure retention; the full gate, independent review
+and one bounded real attempt are the next acceptance steps. The fresh-file
+calibration is the positive control; warm-cache rates cannot satisfy the SSD
+read-cost result. Cancellation now retains captured evidence. No automatic rerun
+of a spent attempt is permitted. The first ac-demo task remains Phase 1 only; later phases
 require their own requests and prior-phase checkpoints.
 
 Prepare the representative workload while GPU time is unavailable, then collect

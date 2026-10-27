@@ -175,3 +175,53 @@ statistical attribution guarantee: an unrelated burst can escape both controls.
 Neither consistent volume nor successful cache flags establish file-specific
 service, SSD bandwidth, NAND reads, expert miss stall or inference tok/s.
 `physical_io_verified=false` remains set. All outcomes end this four-run budget.
+
+### Fresh-file storage-service attempt
+
+The approved CPU-only service study uses a new aligned scratch file for each
+cell: 64-expert calibration, then three 512-expert repetitions if each previous
+cell is `consistent-volume` and passes exact byte verification. It preserves Q8
+bytes and routing. This measures one-worker reads of an aligned packed subset.
+
+```sh
+make -f Makefile tools/mellum_stage_bench tools/mellum_read_bench
+python3 -I tools/mellum_storage.py service-prepare \
+  --prior-batch /absolute/prior-batch/artifact \
+  --reader "$PWD/tools/mellum_read_bench" \
+  --stager "$PWD/tools/mellum_stage_bench" \
+  --output /absolute/new-service-batch
+python3 -I tools/mellum_storage.py service-run \
+  --batch /absolute/new-service-batch/artifact \
+  --output /absolute/new-service-run
+```
+
+Preparation freezes source, binaries, sorted slots, read order and budgets using
+metadata only. Run reserves once, fully verifies unchanged sources, computes
+expected hashes from selected source bytes, stages through bounded explicit
+uncached writes, then observes the reader. Scratch is first read by the timed
+native reader; its exact content, padding and hash are checked afterward in one
+streaming comparison with independent source reads. Source verification also
+runs at normal termination, including a completed nonqualifying calibration.
+Cancellation or I/O/budget failure stops immediately with closing verification
+marked incomplete. No retry or replacement is automatic or authorized.
+
+The root is exclusively created and never reused. Scratch and partial scratch
+remain under `scratch/`; raw evidence remains under `evidence/`. Publication uses
+`result/artifact` for all four qualifying cells and `failure/artifact` otherwise.
+The batch reservation stays spent after failure. Preparation and execution are
+bound to the same committed source state; changes require a separately approved
+attempt, not reuse of an old manifest.
+
+The planned native logical reads are 10,528,358,400 B in each of the timed and
+staging-source classes; writes and retained scratch are 10,538,188,800 B each.
+Each class has a 16 GiB cap, with zero explicit prewarm. The cumulative Python
+forecast is 136,920,461,888 B under 128 GiB, including expected source hashes and
+post-timing comparison. Partial native progress may remain unknown; reserved
+maxima are retained. Require 32 GiB free, 16 KiB host pages and 4 KiB media blocks.
+The stager has a 120-second deadline and 1 MiB combined output bound.
+
+All device classifiers and their thresholds remain unchanged. Even qualifying
+volume traffic cannot attribute individual expert service to SSD or NAND;
+`physical_io_verified=false` always. No inference throughput or 8 GB feasibility
+conclusion follows. Original-range costs, concurrency and representative locality
+remain separate S3 work; the all-hit GPU cache path remains S4 work.

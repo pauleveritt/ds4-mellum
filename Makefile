@@ -1724,3 +1724,10 @@ test-mellum-stage: tests/test_mellum_stage tools/mellum_stage_bench tests/mellum
 clean-mellum-stage:
 	rm -f tests/test_mellum_stage tests/mellum_stage_fault tools/mellum_stage_bench
 clean: clean-mellum-stage
+
+.PHONY: test-mellum-service
+test-mellum-service: test-mellum-stage tools/mellum_read_bench
+	python3 -I tests/test_mellum_service_plan.py
+	python3 -I tests/test_mellum_service_verify.py
+	python3 -I tests/test_mellum_service_run.py
+test-mellum-storage: test-mellum-service
