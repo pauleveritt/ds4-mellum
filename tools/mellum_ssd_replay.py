@@ -6,11 +6,13 @@ from collections import OrderedDict, defaultdict, deque
 from collections.abc import Iterable, Sequence
 from dataclasses import asdict, dataclass
 from decimal import Decimal, InvalidOperation
+import hashlib
 import heapq
 import json
 import math
 import re
 from pathlib import Path
+import platform
 
 
 class TraceError(ValueError):
@@ -479,7 +481,23 @@ def replay(trace: Trace, capacity_bytes: int, policy: str) -> dict:
     }
 
 
-def run_sweep(trace: Trace, capacities: Sequence[int] = DEFAULT_CAPACITIES) -> dict:
+def report_identity(trace: Trace, trace_sha256: str | None) -> dict:
+    if trace_sha256 is not None and not is_sha256(trace_sha256):
+        raise ValueError("trace_sha256 must be a lowercase SHA-256 digest or null")
+    if trace.header.capture_kind == "synthetic":
+        status = "synthetic-declared"
+    else:
+        status = "manifest-declared" if trace.header.schema_version == 2 else "legacy-declared"
+    return {
+        "trace_sha256": trace_sha256,
+        "replay_source_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+        "python_version": platform.python_version(),
+        "provenance_status": status,
+    }
+
+
+def run_sweep(trace: Trace, capacities: Sequence[int] = DEFAULT_CAPACITIES, *,
+              trace_sha256: str | None = None) -> dict:
     if not capacities:
         raise ValueError("at least one capacity is required")
     metadata = asdict(trace.header)
@@ -487,6 +505,7 @@ def run_sweep(trace: Trace, capacities: Sequence[int] = DEFAULT_CAPACITIES) -> d
         del metadata["capture_manifest"]
     return {
         "trace": metadata,
+        "evidence": report_identity(trace, trace_sha256),
         "assumptions": {
             "cache_starts_cold": True,
             "capacity_scope": "complete expert weights only",
@@ -523,16 +542,17 @@ def gib_bytes(text: str) -> int:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("trace", type=Path, help="complete version 1 routing trace, JSON Lines")
+    parser.add_argument("trace", type=Path, help="complete version 1 or 2 routing trace, JSON Lines")
     parser.add_argument(
         "--cache-gib", type=gib_bytes, nargs="+", metavar="GIB", default=DEFAULT_CAPACITIES,
         help="expert-cache capacities in GiB (default: 2 2.5 3 3.5); excludes staging and other memory",
     )
     args = parser.parse_args()
     try:
-        with args.trace.open(encoding="utf-8") as source:
-            trace = load_trace(source)
-        report = run_sweep(trace, args.cache_gib)
+        raw = args.trace.read_bytes()
+        digest = hashlib.sha256(raw).hexdigest()
+        trace = load_trace(raw.decode("utf-8").splitlines(keepends=True))
+        report = run_sweep(trace, args.cache_gib, trace_sha256=digest)
     except (OSError, ValueError) as exc:
         parser.error(str(exc))
     # No partial success document if a later capacity or policy fails.
