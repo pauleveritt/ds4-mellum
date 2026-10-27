@@ -1367,6 +1367,18 @@ static void test_hermes_visualizer_decodes(void) {
     AGENT_TEST_ASSERT(strstr(out, "Reading src/a.py 120:40...") != NULL);
     free(out);
     agent_dsml_parser_free(&p);
+    /* Pi's read with a path alone reads the file (to Pi's own cap), so no range is shown, not the
+     * agent's own read defaults; an offset alone reads on from there */
+    const char *whole[] = {"<tool_call>\n{\"name\": \"read\", \"arguments\": {\"path\": \"hello.py\"}}\n</tool_call>"};
+    out = agent_test_stream_capture(AGENT_TOOL_SYNTAX_HERMES, whole, 1, &p, NULL);
+    AGENT_TEST_ASSERT(strstr(out, "Reading hello.py...") != NULL);
+    free(out);
+    agent_dsml_parser_free(&p);
+    const char *from[] = {"<tool_call>\n{\"name\": \"read\", \"arguments\": {\"path\": \"a.py\", \"offset\": 50}}\n</tool_call>"};
+    out = agent_test_stream_capture(AGENT_TOOL_SYNTAX_HERMES, from, 1, &p, NULL);
+    AGENT_TEST_ASSERT(strstr(out, "Reading a.py 50:EOF...") != NULL);
+    free(out);
+    agent_dsml_parser_free(&p);
 }
 
 static void test_hermes_tool_syntax(void) {
