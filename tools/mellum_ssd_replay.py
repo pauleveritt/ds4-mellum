@@ -37,6 +37,7 @@ class Header:
     numerical_mode: str
     workload_id: str
     geometry: Geometry
+    capture_manifest: dict | None = None
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -105,6 +106,7 @@ def parse_object(text: str, line: int) -> dict:
         raw = json.loads(text, object_pairs_hook=unique_keys, parse_constant=reject_constant)
     except ValueError as exc:
         fail(line, f"invalid JSON: {exc}")
+    finite_json(raw, line, "record")
     return object_value(raw, line, "record")
 
 
@@ -184,7 +186,7 @@ def validate_capture_manifest(raw: object, header_fields: dict) -> dict:
 
 def parse_header(raw: dict) -> Header:
     version = integer(raw.get("schema_version"), 1, "schema_version", 1)
-    if version != 1:
+    if version not in (1, 2):
         fail(1, "unsupported schema_version")
     geometry = object_value(raw.get("geometry"), 1, "geometry")
     shape = Geometry(**{
@@ -203,7 +205,12 @@ def parse_header(raw: dict) -> Header:
         fail(1, "numerical_mode must be release or exact-prefill")
     if fields["capture_kind"] == "measured" and shape != MELLUM:
         fail(1, "measured traces require Mellum geometry (28/64/8, 6580224 bytes)")
-    return Header(schema_version=version, geometry=shape, **fields)
+    manifest = None
+    if version == 2:
+        manifest = validate_capture_manifest(raw.get("capture_manifest"), fields)
+    elif "capture_manifest" in raw:
+        fail(1, "capture_manifest requires schema version 2")
+    return Header(schema_version=version, geometry=shape, capture_manifest=manifest, **fields)
 
 
 def parse_request(raw: dict, line: int, geometry: Geometry) -> Request:
@@ -277,6 +284,22 @@ def load_trace(lines: Iterable[str]) -> Trace:
         fail(line + 1, "no requests after header")
     if len(requests) % header.geometry.layers:
         fail(line + 1, "truncated final forward")
+    if header.capture_manifest is not None:
+        manifest = header.capture_manifest
+        starts = requests[::header.geometry.layers]
+        actual = {
+            "forwards": len(starts), "positions": sum(len(item.positions) for item in starts),
+            "first_position": starts[0].positions[0], "last_position": starts[-1].positions[-1],
+        }
+        for key, value in actual.items():
+            if manifest["extent"][key] != value:
+                fail(line + 1, f"capture_manifest.extent.{key} must equal captured value {value}")
+        config = manifest["execution"]
+        for item in starts:
+            if item.positions[-1] >= config["context_tokens"]:
+                fail(item.line, "capture_manifest.execution.context_tokens must exceed captured positions")
+            if item.phase == "prefill" and len(item.positions) > config["prefill_chunk_tokens"]:
+                fail(item.line, "capture_manifest.execution.prefill_chunk_tokens is smaller than prefill")
     return Trace(header=header, requests=tuple(requests))
 
 
@@ -459,8 +482,11 @@ def replay(trace: Trace, capacity_bytes: int, policy: str) -> dict:
 def run_sweep(trace: Trace, capacities: Sequence[int] = DEFAULT_CAPACITIES) -> dict:
     if not capacities:
         raise ValueError("at least one capacity is required")
+    metadata = asdict(trace.header)
+    if trace.header.capture_manifest is None:
+        del metadata["capture_manifest"]
     return {
-        "trace": asdict(trace.header),
+        "trace": metadata,
         "assumptions": {
             "cache_starts_cold": True,
             "capacity_scope": "complete expert weights only",
