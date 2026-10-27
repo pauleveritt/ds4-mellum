@@ -1071,6 +1071,52 @@ static void test_hermes_quote_repair_write(void) {
     agent_dsml_parser_free(&p);
 }
 
+/* Step 44, edit (pathology 140's own call): bare quotes in each edits[].oldText and newText are escaped when the
+ * items' boundaries are unambiguous, also when an odd count of them left the raw edits value open until the turn
+ * ended.  Siblings: a strict edit parses as before; a value holding an item boundary or another member's boundary is
+ * refused, as is a bare quote in the path. */
+static void test_hermes_quote_repair_edit(void) {
+    char text[1024];
+    snprintf(text, sizeof(text), "<tool_call>\n%s\n</tool_call>",
+             "{\"name\": \"edit\", \"arguments\": {\"path\": \"r.py\", \"edits\": ["
+             "{\"oldText\": \"\",\".join(str(v) for v in r)\", \"newText\": \"\", \".join(str(v) for v in r)\"}, "
+             "{\"oldText\": \"say \"a\"\", \"newText\": \"say 'a'\"}]}}");
+    agent_dsml_parser p = hermes_parser();
+    for (size_t i = 0; text[i]; i++) {
+        agent_dsml_feed(&p, text + i, 1);
+        AGENT_TEST_ASSERT(p.state != AGENT_DSML_ERROR);
+        if (p.state == AGENT_DSML_ERROR) break;
+    }
+    agent_dsml_finish(&p);
+    AGENT_TEST_ASSERT(p.state == AGENT_DSML_DONE && p.calls.len == 1);
+    if (p.calls.len == 1) {
+        AGENT_TEST_ASSERT(!strcmp(agent_tool_arg_value(&p.calls.v[0], "path"), "r.py"));
+        AGENT_TEST_ASSERT(!strcmp(agent_tool_arg_value(&p.calls.v[0], "edits"),
+            "[{\"oldText\": \"\\\",\\\".join(str(v) for v in r)\", \"newText\": \"\\\", \\\".join(str(v) for v in r)\"}, "
+            "{\"oldText\": \"say \\\"a\\\"\", \"newText\": \"say 'a'\"}]"));
+    }
+    agent_dsml_parser_free(&p);
+
+    char err[160];
+    int n = -1;
+    AGENT_TEST_ASSERT(hermes_parse_all("{\"name\": \"edit\", \"arguments\": {\"path\": \"r.py\", \"edits\": "
+                                       "[{\"oldText\": \"say \\\"a\\\"\", \"newText\": \"b\"}]}}\n</tool_call>",
+                                       err, sizeof(err), &n) == AGENT_DSML_DONE && n == 1);
+    AGENT_TEST_ASSERT(hermes_parse_all("{\"name\": \"edit\", \"arguments\": {\"path\": \"r.py\", \"edits\": "
+                                       "[{\"oldText\": \"say \"a\"\", \"newText\": \"b\"}, {\"oldText\": \"z\"}]}}\n</tool_call>",
+                                       err, sizeof(err), &n) == AGENT_DSML_ERROR);
+    /* an odd count of bare quotes leaves the raw edits value open to the end: no call, never a repaired one */
+    AGENT_TEST_ASSERT(hermes_parse_all("{\"name\": \"edit\", \"arguments\": {\"path\": \"r.py\", \"edits\": "
+                                       "[{\"oldText\": \"say \"a\", \"path\": \"x\", \"newText\": \"b\"}]}}\n</tool_call>",
+                                       err, sizeof(err), &n) != AGENT_DSML_DONE && n == 0);
+    AGENT_TEST_ASSERT(hermes_parse_all("{\"name\": \"edit\", \"arguments\": {\"path\": \"r.py\", \"edits\": "
+                                       "[{\"oldText\": \"say \"a\", \"newText\": \"b\"}]}}\n</tool_call>",
+                                       err, sizeof(err), &n) == AGENT_DSML_DONE && n == 1);
+    AGENT_TEST_ASSERT(hermes_parse_all("{\"name\": \"edit\", \"arguments\": {\"path\": \"r\"q.py\", \"edits\": "
+                                       "[{\"oldText\": \"a\", \"newText\": \"b\"}]}}\n</tool_call>",
+                                       err, sizeof(err), &n) == AGENT_DSML_ERROR);
+}
+
 /* greedy while the call's grammar is being written, sampled inside a string */
 static void test_hermes_greedy_boundaries(void) {
     agent_tail_capture tail = {.cap = 4096};
@@ -1431,6 +1477,7 @@ static void test_hermes_tool_syntax(void) {
     test_hermes_markers_inside_strings();
     test_hermes_errors();
     test_hermes_quote_repair_write();
+    test_hermes_quote_repair_edit();
     test_hermes_greedy_boundaries();
     test_hermes_raw_values();
     test_hermes_json_loads();
