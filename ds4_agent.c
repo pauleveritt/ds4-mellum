@@ -322,6 +322,12 @@ typedef struct {
     size_t param_value_start;
     bool param_close_prefix;
     bool glm_after_call;
+    /* Hermes: where in {"name": ..., "arguments": {...}} the parser is, and how far a string
+     * value has been scanned (so each byte is looked at once). */
+    int hermes_phase;
+    char *hermes_key;
+    size_t hermes_scan;
+    bool hermes_escape;
     agent_tool_calls calls;
     char error[160];
 } agent_dsml_parser;
@@ -507,6 +513,8 @@ static void *xrealloc(void *ptr, size_t n) {
     }
     return p;
 }
+
+#include "ds4_json.h"
 
 static void agent_worker_images_clear(agent_worker *w) {
     if (!w) return;
@@ -1865,6 +1873,20 @@ static void agent_tool_call_add_arg(agent_tool_call *c, const char *name,
     if (is_string) ds4_tool_text_unescape(c->args[c->argc - 1].value, end_tag);
 }
 
+/* An argument whose value is already decoded (a JSON string): takes the value. */
+static void agent_tool_call_add_arg_owned(agent_tool_call *c, const char *name,
+                                          char *value, bool is_string) {
+    if (c->argc == c->argcap) {
+        c->argcap = c->argcap ? c->argcap * 2 : 4;
+        c->args = xrealloc(c->args, (size_t)c->argcap * sizeof(c->args[0]));
+    }
+    c->args[c->argc++] = (agent_tool_arg){
+        .name = xstrdup(name),
+        .value = value,
+        .is_string = is_string,
+    };
+}
+
 static void agent_tool_calls_push(agent_tool_calls *calls, agent_tool_call *call) {
     if (!call->name) return;
     if (calls->len == calls->cap) {
@@ -1889,6 +1911,7 @@ static void agent_dsml_parser_free(agent_dsml_parser *p) {
     free(p->raw);
     agent_tool_call_free(&p->current);
     free(p->param_name);
+    free(p->hermes_key);
     agent_tool_calls_free(&p->calls);
     memset(p, 0, sizeof(*p));
     p->syntax = syntax;
@@ -2026,6 +2049,11 @@ static bool agent_tool_value_close_tail(agent_tool_syntax syntax,
                                         bool *complete) {
     if (syntax == AGENT_TOOL_SYNTAX_QWEN)
         return agent_qwen_param_close_tail(tail, len, complete);
+    if (syntax == AGENT_TOOL_SYNTAX_HERMES) {
+        /* a JSON value ends at its own quote or bracket, not at a tag */
+        *complete = false;
+        return false;
+    }
     if (syntax == AGENT_TOOL_SYNTAX_GLM)
         return agent_glm_arg_value_close_tail(tail, len, complete);
     return agent_dsml_parameter_close_tail(syntax, tail, len, complete);
@@ -2033,6 +2061,7 @@ static bool agent_tool_value_close_tail(agent_tool_syntax syntax,
 
 static void agent_dsml_update_param_close_prefix(agent_dsml_parser *p) {
     p->param_close_prefix = false;
+    if (p->syntax == AGENT_TOOL_SYNTAX_HERMES) return;     /* a JSON value has no closing tag */
     if (p->state != AGENT_DSML_PARAM_VALUE || p->raw_len <= p->param_value_start)
         return;
 
@@ -2336,6 +2365,233 @@ static void agent_qwen_tool_parse(agent_dsml_parser *p) {
     }
 }
 
+/* ---- Hermes: <tool_call>\n{"name": "read", "arguments": {"path": "hello.py"}}\n</tool_call> ---- */
+
+enum {
+    AGENT_HERMES_OPEN,        /* the call's opening brace */
+    AGENT_HERMES_TOP_KEY,
+    AGENT_HERMES_TOP_COLON,
+    AGENT_HERMES_TOP_VALUE,
+    AGENT_HERMES_TOP_AFTER,
+    AGENT_HERMES_ARGS_KEY,
+    AGENT_HERMES_ARGS_COLON,
+    AGENT_HERMES_ARGS_VALUE,
+    AGENT_HERMES_ARGS_AFTER,
+    AGENT_HERMES_CLOSE,       /* the call object is closed; </tool_call> is next */
+};
+
+/* Is the JSON string at s (which starts with a quote) complete?  Gives the offset just past its
+ * closing quote.  A backslash makes the next byte inert, which is all that matters to find the end. */
+static bool agent_hermes_string_end(const char *s, const char *end, const char **past) {
+    bool escape = false;
+    for (const char *q = s + 1; q < end; q++) {
+        if (escape) escape = false;
+        else if (*q == '\\') escape = true;
+        else if (*q == '"') { *past = q + 1; return true; }
+    }
+    return false;
+}
+
+/* Decode the complete string at s (starting at its quote); NULL when its escapes are invalid. */
+static char *agent_hermes_decode_string(const char *s) {
+    char *out = NULL;
+    const char *q = s;
+    if (!json_string(&q, &out)) return NULL;
+    return out;
+}
+
+/* Finish the argument value in PARAM_VALUE state, when its end has arrived.  False: wait for bytes. */
+static bool agent_hermes_finish_value(agent_dsml_parser *p) {
+    const char *past = NULL;
+    bool escape = p->hermes_escape;
+    for (const char *q = p->raw + p->hermes_scan; q < p->raw + p->raw_len; q++) {
+        if (escape) escape = false;
+        else if (*q == '\\') escape = true;
+        else if (*q == '"') { past = q + 1; break; }
+    }
+    if (!past) {
+        p->hermes_scan = p->raw_len;
+        p->hermes_escape = escape;
+        return false;
+    }
+    char *value = agent_hermes_decode_string(p->raw + p->param_value_start - 1);
+    if (!value) {
+        agent_dsml_set_error(p, "invalid string escape in a tool call argument");
+        return false;
+    }
+    agent_tool_call_add_arg_owned(&p->current, p->param_name ? p->param_name : "", value, true);
+    p->parse_pos = (size_t)(past - p->raw);
+    free(p->param_name);
+    p->param_name = NULL;
+    p->param_close_prefix = false;
+    p->hermes_phase = AGENT_HERMES_ARGS_AFTER;
+    p->state = AGENT_DSML_STRUCTURAL;
+    return true;
+}
+
+/* Start reading the argument value at cur in PARAM_VALUE. */
+static bool agent_hermes_begin_value(agent_dsml_parser *p, const char *cur) {
+    if (*cur != '"') {
+        agent_dsml_set_error(p, "invalid JSON value in a tool call argument");
+        return false;
+    }
+    free(p->param_name);
+    p->param_name = xstrdup(p->hermes_key ? p->hermes_key : "");
+    p->param_close_prefix = false;
+    p->param_is_string = true;
+    p->param_value_start = p->parse_pos + 1;
+    p->hermes_scan = p->param_value_start;
+    p->hermes_escape = false;
+    p->state = AGENT_DSML_PARAM_VALUE;
+    return true;
+}
+
+/* Streaming parser for the Hermes call object.  Only an argument's value streams through
+ * PARAM_VALUE (it carries the code being written); everything else structural is parsed once the
+ * bytes of that token have arrived.  Incomplete input waits; malformed input errors. */
+static void agent_hermes_tool_parse(agent_dsml_parser *p) {
+    static const char start[] = "<tool_call>";
+    static const char close[] = "</tool_call>";
+
+    if (p->raw_len < sizeof(start) - 1 || memcmp(p->raw, start, sizeof(start) - 1) != 0)
+        return;
+    while (p->state == AGENT_DSML_STRUCTURAL || p->state == AGENT_DSML_PARAM_VALUE) {
+        if (p->state == AGENT_DSML_PARAM_VALUE) {
+            if (!agent_hermes_finish_value(p)) return;
+            continue;
+        }
+        const char *raw = p->raw;
+        const char *end = p->raw + p->raw_len;
+        const char *cur = agent_skip_ascii_space(raw + p->parse_pos, end);
+        p->parse_pos = (size_t)(cur - raw);
+        if (cur >= end) return;
+
+        if (p->glm_after_call) {
+            if (agent_bytes_starts_with(cur, end, start)) {
+                p->parse_pos += sizeof(start) - 1;
+                p->glm_after_call = false;
+                p->hermes_phase = AGENT_HERMES_OPEN;
+                continue;
+            }
+            if (agent_bytes_partial_prefix_at(cur, end, start)) return;
+            p->glm_after_call = false;
+            p->state = AGENT_DSML_DONE;
+            return;
+        }
+
+        switch (p->hermes_phase) {
+        case AGENT_HERMES_OPEN:
+            if (*cur != '{') {
+                agent_dsml_set_error(p, "expected a JSON object after <tool_call>");
+                return;
+            }
+            p->parse_pos++;
+            p->hermes_phase = AGENT_HERMES_TOP_KEY;
+            break;
+        case AGENT_HERMES_TOP_KEY:
+        case AGENT_HERMES_ARGS_KEY: {
+            const bool top = p->hermes_phase == AGENT_HERMES_TOP_KEY;
+            if (*cur == '}') {
+                p->parse_pos++;
+                p->hermes_phase = top ? AGENT_HERMES_CLOSE : AGENT_HERMES_TOP_AFTER;
+                break;
+            }
+            if (*cur != '"') {
+                agent_dsml_set_error(p, "expected a quoted key in the tool call");
+                return;
+            }
+            const char *past = NULL;
+            if (!agent_hermes_string_end(cur, end, &past)) return;
+            char *key = agent_hermes_decode_string(cur);
+            if (!key) {
+                agent_dsml_set_error(p, "invalid string escape in a tool call key");
+                return;
+            }
+            free(p->hermes_key);
+            p->hermes_key = key;
+            p->parse_pos = (size_t)(past - raw);
+            p->hermes_phase = top ? AGENT_HERMES_TOP_COLON : AGENT_HERMES_ARGS_COLON;
+            break;
+        }
+        case AGENT_HERMES_TOP_COLON:
+        case AGENT_HERMES_ARGS_COLON:
+            if (*cur != ':') {
+                agent_dsml_set_error(p, "expected ':' after a key in the tool call");
+                return;
+            }
+            p->parse_pos++;
+            p->hermes_phase = p->hermes_phase == AGENT_HERMES_TOP_COLON ?
+                              AGENT_HERMES_TOP_VALUE : AGENT_HERMES_ARGS_VALUE;
+            break;
+        case AGENT_HERMES_TOP_VALUE: {
+            const char *key = p->hermes_key ? p->hermes_key : "";
+            if (!strcmp(key, "name")) {
+                if (*cur != '"') {
+                    agent_dsml_set_error(p, "tool call name must be a string");
+                    return;
+                }
+                const char *past = NULL;
+                if (!agent_hermes_string_end(cur, end, &past)) return;
+                char *name = agent_hermes_decode_string(cur);
+                if (!name || !name[0]) {
+                    free(name);
+                    agent_dsml_set_error(p, "tool call without name");
+                    return;
+                }
+                free(p->current.name);
+                p->current.name = name;
+                p->parse_pos = (size_t)(past - raw);
+                p->hermes_phase = AGENT_HERMES_TOP_AFTER;
+            } else if (!strcmp(key, "arguments")) {
+                if (*cur != '{') {
+                    agent_dsml_set_error(p, "tool call arguments must be an object");
+                    return;
+                }
+                p->parse_pos++;
+                p->hermes_phase = AGENT_HERMES_ARGS_KEY;
+            } else {
+                agent_dsml_set_error(p, "unexpected key in the tool call object");
+                return;
+            }
+            break;
+        }
+        case AGENT_HERMES_TOP_AFTER:
+        case AGENT_HERMES_ARGS_AFTER: {
+            const bool top = p->hermes_phase == AGENT_HERMES_TOP_AFTER;
+            if (*cur == ',') {
+                p->parse_pos++;
+                p->hermes_phase = top ? AGENT_HERMES_TOP_KEY : AGENT_HERMES_ARGS_KEY;
+            } else if (*cur == '}') {
+                p->parse_pos++;
+                p->hermes_phase = top ? AGENT_HERMES_CLOSE : AGENT_HERMES_TOP_AFTER;
+            } else {
+                agent_dsml_set_error(p, top ? "expected ',' or '}' in the tool call object"
+                                            : "expected ',' or '}' in the tool call arguments");
+                return;
+            }
+            break;
+        }
+        case AGENT_HERMES_ARGS_VALUE:
+            if (!agent_hermes_begin_value(p, cur)) return;
+            break;
+        case AGENT_HERMES_CLOSE:
+            if (agent_bytes_starts_with(cur, end, close)) {
+                if (!p->current.name) {
+                    agent_dsml_set_error(p, "tool call without name");
+                    return;
+                }
+                p->parse_pos += sizeof(close) - 1;
+                agent_tool_calls_push(&p->calls, &p->current);
+                p->glm_after_call = true;
+                break;
+            }
+            if (agent_bytes_partial_prefix_at(cur, end, close)) return;
+            agent_dsml_set_error(p, "expected </tool_call> after the call object");
+            return;
+        }
+    }
+}
+
 static void agent_dsml_finish(agent_dsml_parser *p) {
     if (!p || p->state == AGENT_DSML_DONE || p->state == AGENT_DSML_ERROR)
         return;
@@ -2357,6 +2613,10 @@ static void agent_dsml_finish(agent_dsml_parser *p) {
  * until enough bytes arrive, while malformed completed input switches to
  * AGENT_DSML_ERROR so the model gets a retryable tool error. */
 static void agent_dsml_parse(agent_dsml_parser *p) {
+    if (p->syntax == AGENT_TOOL_SYNTAX_HERMES) {
+        agent_hermes_tool_parse(p);
+        return;
+    }
     if (p->syntax == AGENT_TOOL_SYNTAX_QWEN) {
         agent_qwen_tool_parse(p);
         return;
@@ -2450,6 +2710,7 @@ static void agent_dsml_start(agent_dsml_parser *p) {
     const char *start = agent_tool_start(p->syntax);
     p->state = AGENT_DSML_STRUCTURAL;
     p->search_len = 0;
+    p->hermes_phase = AGENT_HERMES_OPEN;
     agent_dsml_raw_append(p, start, strlen(start));
     p->parse_pos = strlen(start);
 }
