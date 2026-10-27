@@ -984,6 +984,8 @@ static bool model_alias_enables_thinking(const char *model) {
 }
 
 static server_model_syntax server_model_syntax_for_engine(ds4_engine *engine) {
+    /* Mellum is also a qwen4 engine, but was trained on Hermes JSON calls, not Qwen3-coder XML */
+    if (ds4_engine_is_mellum(engine)) return SERVER_MODEL_SYNTAX_HERMES;
     if (ds4_engine_is_qwen4(engine)) return SERVER_MODEL_SYNTAX_QWEN;
     return ds4_engine_is_glm_dsa(engine) ?
            SERVER_MODEL_SYNTAX_GLM : ds4_engine_is_deepseek41(engine) ?
