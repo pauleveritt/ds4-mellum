@@ -1551,7 +1551,7 @@ test-mellum-capture-api: tests/test_mellum_capture_api
 	./tests/test_mellum_capture_api
 
 # Bookkeeping only; supplied events do not prove actual Metal observation.
-tests/test_mellum_observer: tests/test_mellum_observer.c ds4_mellum_observer.c ds4_mellum_observer.h ds4_mellum_profile.c ds4_mellum_profile.h
+tests/test_mellum_observer: ds4_mellum_kernels.inc tests/test_mellum_observer.c ds4_mellum_observer.c ds4_mellum_observer.h ds4_mellum_profile.c ds4_mellum_profile.h
 	$(CC) $(filter-out -std=%,$(QUALITY_CFLAGS)) -std=c99 -I. -o $@ tests/test_mellum_observer.c ds4_mellum_observer.c ds4_mellum_profile.c
 
 .PHONY: test-mellum-observer

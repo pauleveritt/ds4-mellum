@@ -10,14 +10,14 @@ static mellum_profiles *registry(void) {
 }
 static void exact(mellum_profile_scope *scope,uint32_t nsg,bool head,bool reverse) {
     (void)scope;
-    const char *names[]={"kernel_get_rows_q8_0","kernel_rms_norm_mul_f32_4","kernel_qwen4_multi_gemv",
+    const char *names[]={"kernel_get_rows_q8_0_f32","kernel_rms_norm_mul_f32_4","kernel_qwen4_multi_gemv",
         "kernel_qwen4_router_topk","kernel_qwen4_moe_reduce","kernel_mellum_attn_swa",
         "kernel_mellum_qk_norm_rope","kernel_mellum_ring_commit","kernel_cpy_contig_f32_f16_4","kernel_add2_f32"};
     for(unsigned j=0;j<10;j++)CHECK(mellum_observer_encode(names[reverse ? 9-j:j],0,NULL));
-    uint32_t mv[]={nsg},moe[]={8,0,0,0};
+    uint32_t mv[]={nsg},moe[]={0,8,0,2048,2};
     CHECK(mellum_observer_encode("kernel_mul_mv_q8_0_f32",1,mv));
-    CHECK(mellum_observer_encode("kernel_qwen4_moe_mid",4,moe));
-    CHECK(mellum_observer_encode("kernel_qwen4_moe_down",4,moe));
+    CHECK(mellum_observer_encode("kernel_qwen4_moe_mid",5,moe));
+    CHECK(mellum_observer_encode("kernel_qwen4_moe_down",5,moe));
     if(head) {
         mellum_observer_projection_role(true);
         CHECK(mellum_observer_encode("kernel_mul_mv_q8_0_f32",1,mv));
@@ -42,7 +42,7 @@ int main(void) {
     char description[16384];CHECK(mellum_profile_describe(&r->profiles[0],description,sizeof(description)));
     CHECK(strstr(description,";PROJECTION:kernel_mul_mv_q8_0_f32(nsg=4)"));
     CHECK(strstr(description,";HEAD:kernel_mul_mv_q8_0_f32(nsg=4)"));
-    CHECK(strstr(description,";MID:kernel_qwen4_moe_mid(type=8,shared_type=0,dim=0,rows=0)"));
+    CHECK(strstr(description,";MID:kernel_qwen4_moe_mid(specialized=0,type=8,shared_type=0,dim=2048,rows=2)"));
     CHECK(mellum_profile_describe(&r->profiles[2],description,sizeof(description)));
     CHECK(strstr(description,"head=not-encoded") && !strstr(description,";HEAD:"));free(r);
     for(unsigned bad=0;bad<5;bad++) {
@@ -57,9 +57,9 @@ int main(void) {
         case 1:CHECK(!mellum_observer_encode(NULL,0,NULL));break;
         case 2:CHECK(!mellum_observer_encode("kernel_mul_mv_q8_0_f32",0,v));break;
         case 3:CHECK(!mellum_observer_encode("kernel_mul_mv_q8_0_f32",1,NULL));break;
-        case 4:CHECK(!mellum_observer_encode("kernel_get_rows_q8_0",7,v));break;
+        case 4:CHECK(!mellum_observer_encode("kernel_get_rows_q8_0_f32",7,v));break;
         }
-        CHECK(r->failed && !mellum_observer_encode("kernel_get_rows_q8_0",0,NULL));
+        CHECK(r->failed && !mellum_observer_encode("kernel_get_rows_q8_0_f32",0,NULL));
         CHECK(mellum_observer_leave(&scope));CHECK(!mellum_profile_scope_exit(&scope,r,true,&id));
         CHECK(!scope.owner && !r->active);
         CHECK(mellum_observer_enter(&foreign));CHECK(mellum_observer_leave(&foreign));
