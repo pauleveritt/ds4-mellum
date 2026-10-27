@@ -1,7 +1,10 @@
 # Mellum diagnostic session recorder
 
 Date: 2026-10-27. Status: approved by the user on 2026-10-27; CPU core implemented.
-Owned-session adapter and actual-encoding hooks compile; the publisher passes CPU tests. Live validation and a qualified source-provenance artifact remain open.
+Owned-session adapter and publisher now pass live routing/logit/profile/lifecycle
+checks and have published qualified diagnostic artifacts. A shared Metal tensor
+access lifetime defect was reproduced and repaired during allocation validation;
+see the [live evidence](../research/2026-10-27-mellum-owned-live-proof.md).
 Baseline: `8d9c53c`, isolated `codex/mellum-ssd-replay` worktree.
 
 ## Intent and evidence
@@ -10,8 +13,8 @@ Turn the [GPU primitive proof](../research/2026-10-27-mellum-route-gpu-proof.md)
 into a bounded diagnostic recorder with trustworthy operation labels, failure
 semantics and observed kernel choices. Preserve trained routes, Q8 bytes and
 the matching resident numerical path. Remain on this branch; no push or merge.
-GPU access has been released. CPU implementation can proceed after design approval and
-implementation planning; live Metal validation waits for another authorized window.
+The original CPU-first sequencing below describes the implementation work.
+The user subsequently authorized the live Metal validation recorded in that evidence.
 
 S2a supplies the native spool/layout/writer and bounded v2 exporter. The test-only
 S2b proof established ordered buffered/reference snapshots and matching final

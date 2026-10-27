@@ -206,18 +206,18 @@ The live harness retains its ordinary/buffered/synchronous-reference matrix
 and adds owned-handle operation-logit checks, observed-profile checks, ordered
 route comparison (ignoring independently assigned profile IDs), a direct
 no-head/head sequence and cancellation/header/frame/copy/read failure checks.
-It compiles, but none of these new GPU checks has run. Real allocation-failure
-injection, cancellation between chunks, actual profile/fallback coverage and
-measured allocation/overhead remain GPU gates. Ordinary Mellum session/graph
-host allocations now return errors rather than terminating the process.
+These live checks now pass, together with creation allocation-failure injection,
+between-chunk cancellation, actual profile/fallback coverage and allocation/overhead
+measurement; see the live evidence below. Ordinary Mellum session/graph host
+allocations return errors rather than terminating the process.
 
-## Source-checked publisher (CPU-tested, live collection pending)
+## Source-checked publisher (CPU and live validated)
 
-`tools/mellum_capture_publish.py` is the orchestration entry point for a future
+`tools/mellum_capture_publish.py` is the orchestration entry point during an
 authorized GPU window. It force-builds the diagnostic harness, runs its ordinary,
 buffered, synchronous-reference and owned-session comparisons, then exports the
 owned spool only if the entire harness succeeds. This command runs GPU inference;
-it has not been executed during CPU-only development. `--help` and
+it has now collected qualified live diagnostic artifacts. `--help` and
 `make test-mellum-capture-publish test-mellum-capture-receipt` are model-free.
 
 Prepare a metadata file containing only a caller-declared header. For example:
@@ -291,21 +291,47 @@ separately from requested controls. Caller conflicts with derived fields are err
 caller-supplied profile catalogs cannot be used. JSON serialization escapes catalog
 strings. Private temporary files are removed on success or failure; the existing
 exporter validates footer/catalog/extents and publishes atomically without overwrite.
-No live qualified artifact, workload locality or SSD performance follows from the
-CPU subprocess-boundary tests. Generated workloads and the remaining live failure,
-path, memory and overhead matrix are still separate gates.
+The CPU subprocess-boundary tests do not prove live behavior. A later authorized
+window has now produced five live qualified diagnostic artifacts, matching-path
+parity/failure checks and overhead/allocation measurements; see the
+[owned live evidence](superpowers/research/2026-10-27-mellum-owned-live-proof.md).
+Generated workloads, representative locality and storage measurements remain
+separate work. A shared Metal C helper lifetime defect discovered during the
+live memory gate is repaired at `e567a5f`; repeat sessions now return to baseline.
 
-## Remaining GPU work
+## Current live status
 
-The adapter now supplies per-session storage, buffered copies, completion
-readback, observed-kernel notifications and sync/eval labels in code. It needs
-byte-equal traced/untraced logits, no added per-layer host wait, ordered GPU
-snapshots and cancellation/error cleanup checks. The current blit primitive
-closes the compute encoder; overhead must be measured later. The existing
-hidden-state trace's per-layer waits do not provide that evidence.
+The owned adapter has passed release/exact/fallback route and per-operation
+logit checks, no-head profiles, multi-chunk/append schedules and failure/cleanup
+checks. Fixed recorder allocation and enabled/disabled overhead were measured.
+The copy primitive closes the compute encoder but adds no per-layer host wait.
+S2b is complete on the development laptop. Recorder-owned storage is 2097200
+bytes at cap 1024. After repairing delayed Metal buffer releases in the shared
+C access helpers, repeated ordinary/owned sessions return to the same device
+allocation baseline. These checks do not establish physical 8 GB memory limits.
+See the [roadmap](../ROADMAP.md),
+[live evidence](superpowers/research/2026-10-27-mellum-owned-live-proof.md) and
+[evaluation protocol](MELLUM_SSD_EVALUATION.md).
 
-See the [roadmap](../ROADMAP.md) and [evaluation protocol](MELLUM_SSD_EVALUATION.md).
-S2 remains open. The CPU-core work adds no GPU experiments or SSD inference.
+On macOS, an optional allocation/cancellation test uses the real model:
+
+```sh
+DS4_TEST_MELLUM_MODEL=/absolute/path/to/mellum-q8.gguf \
+  make -f Makefile test-mellum-capture-failures-gpu
+```
+
+Without the model variable, execution skips; non-macOS platforms skip the target.
+It is deliberately excluded from `make test-mellum`. It injects faults at the
+C allocation and Metal tensor API boundaries reached during capture creation,
+counts matching frees, and tests cancellation after a completed chunk. It does
+not force physical driver OOM or every later history reservation failure.
+One model process at a time; serialize even model-free engine-opening tests
+with live tests because they use the same process lock.
+
+`make -f Makefile test-metal-tensor-lifetime` explicitly initializes Metal
+without a model and checks allocation/free, read, write and returned contents
+pointer lifetime. It is also excluded from `make test-mellum`; non-macOS targets
+skip. Run it only during an authorized GPU window.
 
 ## GPU primitive proof
 
@@ -321,7 +347,8 @@ linked into the ordinary engine, with no recorder allocation until create. The s
 wrapper clears inherited Mellum trace/path and prefill-chunk controls.
 
 The [GPU proof](superpowers/research/2026-10-27-mellum-route-gpu-proof.md)
-records the earlier primitive matrix and exploratory replay. The new owned-session
-live lifecycle and actual encoded-kernel observations must be validated before
-S2b is complete. Do not turn experimental raw spools into qualified v2 evidence
-using guessed profile descriptions.
+records the earlier primitive matrix and exploratory replay. The
+[owned live evidence](superpowers/research/2026-10-27-mellum-owned-live-proof.md)
+records the later owned-session/profile checks and five source-checked captures.
+Raw direct-harness spools remain unqualified; use the checked publisher to obtain
+v2 evidence with observed profile descriptions.

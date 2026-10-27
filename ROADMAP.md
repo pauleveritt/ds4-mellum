@@ -42,7 +42,7 @@ separate red-test/fix pair resolves it, followed by the full CPU gate.
 See the [S1 design](docs/superpowers/specs/2026-10-27-mellum-ssd-evidence-design.md)
 and [implementation plan](docs/superpowers/plans/2026-10-27-mellum-ssd-evidence.md).
 
-### S2 — Native router recorder: CPU helpers implemented, GPU gates open
+### S2 — Native router recorder: complete on the development laptop
 
 **S2a, CPU only:** native binary spool/layout helpers and bounded exporter to
 v2 traces, tested with fabricated selections. Includes completeness, write-error
@@ -54,43 +54,39 @@ See [usage](docs/MELLUM_ROUTE_CAPTURE.md). S2a is complete: independent
 whole-branch review found no blockers. One existing replay-CLI nesting
 error-message issue is recorded as a deferred minor in the plan.
 
-**S2b, GPU required:** first test-only primitive proof passes: eight live cases,
-byte-identical logits/routes, bounded ID buffers and no added per-layer host
-wait in buffered hooks. Preliminary raw-spool LRU replay at 3 GiB leaves
-296–378 MB/decode token on two long teacher-forced release fixtures; these
-are unqualified policy outcomes, not a feasibility verdict. See the
-[GPU evidence](docs/superpowers/research/2026-10-27-mellum-route-gpu-proof.md).
+**S2b, live validation complete:** the earlier
+[primitive proof](docs/superpowers/research/2026-10-27-mellum-route-gpu-proof.md)
+passes eight cases with byte-identical routes/logits and no added buffered
+per-layer host wait. The approved
+[session design](docs/superpowers/specs/2026-10-27-mellum-session-capture-design.md),
+[CPU-core plan](docs/superpowers/plans/2026-10-27-mellum-capture-cpu-core.md),
+[owned adapter](docs/superpowers/plans/2026-10-27-mellum-owned-capture-adapter.md)
+and [qualified publisher](docs/superpowers/plans/2026-10-27-mellum-qualified-publisher.md)
+are now implemented and live validated. Release/exact/fallback paths,
+short/tiled/multi-chunk/append schedules, no-head profiles, per-operation logits,
+cancellation, copy/read/sink failures and sequential handles pass.
 
-Attach the production diagnostic recorder to the actual session graph and
-validate the remaining lifecycle and actual encoded-kernel provenance gates.
-S2 remains open until these gates pass. The independently reviewed
-[session-recorder proposal](docs/superpowers/specs/2026-10-27-mellum-session-capture-design.md)
-uses an owned append-only diagnostic session, CPU-testable lifecycle/controller
-and bounded actual-encoding profiles. The design is approved. Its
-[CPU-core plan](docs/superpowers/plans/2026-10-27-mellum-capture-cpu-core.md)
-now supplies canonical bounded profiles, terminal append-only operation/forward
-control, catalog-before-footer finalization and synthetic C-to-export/replay
-checks, all included in the model-free test gate. The controller is now wired
-through the diagnostic API. The [owned-session adapter plan](docs/superpowers/plans/2026-10-27-mellum-owned-capture-adapter.md)
-now adds a separate opaque diagnostic API, buffered graph snapshots and actual
-Metal encoding notifications into an immutable catalog. Metal/CPU builds and
-model-free boundaries are checked; this wiring has not run on a GPU. Next:
-validate cancellation/cleanup, routes/logits, no-head forwards, actual profiles,
-allocation and overhead during an authorized GPU window, then collect a
-qualified source-provenance artifact. The publisher is now prepared and
-CPU-tested: it force-builds and brackets the parity harness with source/binary
-checks, uses observed profiles and actual-capability receipts, and publishes
-through the existing exporter. It has not collected a live qualified artifact.
-No further GPU use has occurred.
+The optional failure target covers 107 creation allocation boundaries and
+matching frees. A shared Metal read/write/contents lifetime defect found during
+measurement was reproduced in `b84a3fa` and repaired in `e567a5f`. Recorder-owned
+storage measures 2097200 bytes at cap 1024, within the 2.2 MB bound. After repair,
+all eight ordinary/owned sessions return to the same device allocation baseline,
+and post-work device allocations remain stable per arm. The resident kernel,
+fast-path, failure matrix and final serialized model-free suite pass.
 
-Buffer selected IDs on the GPU before per-layer scratch is reused; export at
-existing synchronization points. Bound recorder memory and reject incomplete
-captures. Preserve routes and logits against the same resident execution path.
-Report the actual kernel configuration and produce the S1 manifest.
+Four source-checked v2 artifacts at `fa3d188` and a post-repair artifact at
+`e567a5f` round-trip through replay at 3 GiB. The post-repair ordered trace rows
+and replay results exactly match the earlier tiled capture. Recorder-disabled
+comparison found no resolved generation regression before the lifetime repair;
+post-repair diagnostic recording adds 2.53–8.47% decode time in three adjacent
+pairs, with timing drift. These fixtures are diagnostic tuning data, not S3's
+representative cohort. See the
+[owned live evidence](docs/superpowers/research/2026-10-27-mellum-owned-live-proof.md)
+for source identities, measurements, review findings and limits.
 
-Exit: traced/untraced parity; no added per-layer host wait; bounded recording
-storage; a capture harness that exercises appends without requiring steps 34–40.
-Instrumented timing is not product throughput evidence.
+Exit met on M5 Max / 128 GiB: matching-path parity, no added per-layer host
+wait, bounded recorder storage and append-capable qualified collection. This
+establishes neither physical 8 GB peak memory nor SSD inference performance.
 
 ### S3 — Locality and storage evidence: not started
 
