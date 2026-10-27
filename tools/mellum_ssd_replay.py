@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """Validate and replay Mellum router traces without loading weights or using a GPU."""
 
-from collections.abc import Iterable
-from dataclasses import dataclass
+from collections import OrderedDict, defaultdict, deque
+from collections.abc import Iterable, Sequence
+from dataclasses import asdict, dataclass
+import heapq
 import json
+import math
 
 
 class TraceError(ValueError):
@@ -47,6 +50,14 @@ class Request:
 class Trace:
     header: Header
     requests: tuple[Request, ...]
+
+
+DEFAULT_CAPACITIES = (2 * 2**30, 5 * 2**29, 3 * 2**30, 7 * 2**29)
+COUNTERS = (
+    "group_requests", "group_hits", "group_misses", "group_expert_hits",
+    "row_references", "row_reference_hits", "row_reference_misses",
+    "demand_loads", "demand_bytes", "evictions", "bypasses",
+)
 
 
 def fail(line: int, reason: str) -> None:
@@ -185,3 +196,193 @@ def load_trace(lines: Iterable[str]) -> Trace:
     if len(requests) % header.geometry.layers:
         fail(line + 1, "truncated final forward")
     return Trace(header=header, requests=tuple(requests))
+
+
+def group_ids(request: Request) -> tuple[tuple[int, int], ...]:
+    return tuple((request.layer, expert) for expert in sorted({
+        expert for row in request.experts for expert in row
+    }))
+
+
+class LRU:
+    """Whole-group residency, with router-order-independent refresh ties."""
+
+    def __init__(self, slots: int):
+        self.slots = slots
+        self.cache: OrderedDict[tuple[int, int], None] = OrderedDict()
+        self.peak = 0
+
+    def serve(self, required: tuple[tuple[int, int], ...]) -> tuple[set, int, int, int]:
+        protected = set(required)
+        hits = protected.intersection(self.cache)
+        missing = [key for key in required if key not in hits]
+        evictions = 0
+        for key in missing:
+            if len(self.cache) == self.slots:
+                victim = next(item for item in self.cache if item not in protected)
+                del self.cache[victim]
+                evictions += 1
+            self.cache[key] = None
+        for key in required:
+            self.cache.move_to_end(key)
+        self.peak = max(self.peak, len(self.cache))
+        return hits, len(missing), evictions, 0
+
+
+class RelaxedOptimal:
+    """Sequential farthest-next-use eviction, including bypass on a miss.
+
+    Selected experts cease to be protected once their sequential access is
+    served. This relaxation is an optimistic bound, not a native cache policy.
+    """
+
+    def __init__(self, slots: int, groups: Sequence[tuple[tuple[int, int], ...]]):
+        self.slots = slots
+        self.future: dict[tuple[int, int], deque[int]] = defaultdict(deque)
+        index = 0
+        for group in groups:
+            for key in group:
+                self.future[key].append(index)
+                index += 1
+        self.never = index
+        self.cache: dict[tuple[int, int], int] = {}
+        self.heap: list[tuple[int, tuple[int, int]]] = []
+        self.peak = 0
+
+    def serve(self, required: tuple[tuple[int, int], ...]) -> tuple[set, int, int, int]:
+        hits = set(required).intersection(self.cache)
+        loads = evictions = bypasses = 0
+        for key in required:
+            remaining = self.future[key]
+            remaining.popleft()
+            next_use = remaining[0] if remaining else self.never
+            if key not in self.cache:
+                loads += 1
+                if len(self.cache) == self.slots:
+                    # Remove obsolete heap versions before consulting the farthest use.
+                    while self.heap and self.cache.get(self.heap[0][1]) != -self.heap[0][0]:
+                        heapq.heappop(self.heap)
+                    farthest, victim = self.heap[0]
+                    if next_use >= -farthest:
+                        bypasses += 1
+                        continue
+                    heapq.heappop(self.heap)
+                    del self.cache[victim]
+                    evictions += 1
+            self.cache[key] = next_use
+            heapq.heappush(self.heap, (-next_use, key))
+            self.peak = max(self.peak, len(self.cache))
+            # A hot resident set must not grow an unbounded lazy-version heap.
+            if len(self.heap) > 2 * len(self.cache):
+                self.heap = [(-future, item) for item, future in self.cache.items()]
+                heapq.heapify(self.heap)
+        return hits, loads, evictions, bypasses
+
+
+def empty_counts() -> dict[str, int]:
+    return dict.fromkeys(COUNTERS, 0)
+
+
+def add_counts(target: dict, counts: dict[str, int]) -> None:
+    for key in COUNTERS:
+        target[key] += counts[key]
+
+
+def distribution(values: Sequence[int]) -> dict[str, int] | None:
+    """Nearest-rank percentiles; no invented zero measurements for an empty phase."""
+    if not values:
+        return None
+    ordered = sorted(values)
+    return {
+        "p50": ordered[math.ceil(0.50 * len(ordered)) - 1],
+        "p95": ordered[math.ceil(0.95 * len(ordered)) - 1],
+        "worst": ordered[-1],
+    }
+
+
+def replay(trace: Trace, capacity_bytes: int, policy: str) -> dict:
+    """Replay a complete trace. Only expert-cache residency counts toward this budget."""
+    expert_bytes = trace.header.geometry.expert_bytes
+    if type(capacity_bytes) is not int or capacity_bytes < expert_bytes:
+        raise ValueError(f"capacity must be integer bytes >= one expert ({expert_bytes})")
+    slots = capacity_bytes // expert_bytes
+    groups = tuple(group_ids(request) for request in trace.requests)
+    for request, required in zip(trace.requests, groups):
+        if len(required) > slots:
+            fail(request.line, f"group requires {len(required)} experts, capacity holds {slots}; "
+                 "unsupported by atomic group residency; prefill tiling is not modeled")
+    if policy == "lru":
+        cache = LRU(slots)
+    elif policy == "relaxed-optimal":
+        cache = RelaxedOptimal(slots, groups)
+    else:
+        raise ValueError(f"unknown cache policy {policy!r}")
+    totals = empty_counts()
+    by_phase = {}
+    by_segment = {}
+    forwards = []
+    distinct = set()
+    for request, required in zip(trace.requests, groups):
+        distinct.update(required)
+        hits, loads, evictions, bypasses = cache.serve(required)
+        references = sum(len(row) for row in request.experts)
+        row_hits = sum((request.layer, expert) in hits for row in request.experts for expert in row)
+        counts = dict(
+            group_requests=1, group_hits=int(loads == 0), group_misses=int(loads > 0),
+            group_expert_hits=len(hits), row_references=references,
+            row_reference_hits=row_hits, row_reference_misses=references - row_hits,
+            demand_loads=loads, demand_bytes=loads * expert_bytes,
+            evictions=evictions, bypasses=bypasses,
+        )
+        add_counts(totals, counts)
+        add_counts(by_phase.setdefault(request.phase, empty_counts()), counts)
+        add_counts(by_segment.setdefault(request.segment, empty_counts()), counts)
+        if request.layer == 0:
+            forwards.append(dict(
+                forward=request.forward, phase=request.phase, segment=request.segment,
+                positions=list(request.positions), **empty_counts(),
+            ))
+        add_counts(forwards[-1], counts)
+    tokens = [dict(
+        forward=item["forward"], position=item["positions"][0], segment=item["segment"],
+        demand_bytes=item["demand_bytes"], demand_loads=item["demand_loads"],
+        blocked_layers=item["group_misses"],
+    ) for item in forwards if item["phase"] == "decode"]
+    totals["distinct_experts"] = len(distinct)
+    return {
+        "policy": policy,
+        "cache": dict(requested_bytes=capacity_bytes, effective_bytes=slots * expert_bytes,
+                      slots=slots, peak_bytes=cache.peak * expert_bytes),
+        "totals": totals,
+        "cold_start": forwards[0],
+        "by_phase": by_phase,
+        "by_segment": by_segment,
+        "forwards": forwards,
+        "decode_tokens": tokens,
+        "decode_distribution": dict(
+            tokens=len(tokens), demand_bytes=distribution([t["demand_bytes"] for t in tokens]),
+            blocked_layers=distribution([t["blocked_layers"] for t in tokens]),
+        ),
+    }
+
+
+def run_sweep(trace: Trace, capacities: Sequence[int] = DEFAULT_CAPACITIES) -> dict:
+    if not capacities:
+        raise ValueError("at least one capacity is required")
+    return {
+        "trace": asdict(trace.header),
+        "assumptions": {
+            "cache_starts_cold": True,
+            "capacity_scope": "complete expert weights only",
+            "staging_bytes_modeled": False,
+            "other_process_and_system_bytes_modeled": False,
+            "prefetch_modeled": False,
+            "group_model": "atomic per-layer union; oversized groups rejected",
+            "row_hits": "references resident before the group begins",
+            "relaxed-optimal": "future-aware sequential eviction with bypass; not a grouped optimum",
+            "percentiles": "nearest rank over all decode tokens, including cold start",
+            "throughput_prediction": None,
+        },
+        "results": [replay(trace, capacity, policy) for capacity in capacities
+                    for policy in ("lru", "relaxed-optimal")],
+    }
