@@ -3620,6 +3620,12 @@ static void append_hermes_conversation(buf *b, const chat_msgs *msgs, int start,
  * is off).  Pinned against the template's text in tests/ds4_test.c --server. */
 static char *render_hermes_chat_prompt_text(const chat_msgs *msgs, const char *tool_schemas,
                                             ds4_think_mode think_mode) {
+    /* Anthropic keeps tool results in a user message (with <tool_result> wrappers and recorded
+     * spans): as V4.1 does, render each as the tool message it is, and any text around it as user */
+    int start = 0;
+    chat_msgs fragments = {0};
+    chat_msgs views = ds41_message_views(msgs, &fragments, &start);
+    msgs = &views;
     buf out = {0};
     const int n = msgs ? msgs->len : 0;
     const bool first_system = n > 0 && role_is_system(msgs->v[0].role);
@@ -3636,15 +3642,21 @@ static char *render_hermes_chat_prompt_text(const chat_msgs *msgs, const char *t
         buf_puts(&out, "<|im_end|>\n");
     }
     append_hermes_conversation(&out, msgs, 0, think_mode);
+    free(views.v);
+    chat_msgs_free(&fragments);
     return buf_take(&out);
 }
 
 /* Continue a live session after the model's tool-call turn: its <|im_end|> was the stop token
  * and is not in the KV yet.  The tail is the full render from message start on. */
 static char *render_hermes_live_tool_tail(const chat_msgs *msgs, int start, ds4_think_mode think_mode) {
+    chat_msgs fragments = {0};
+    chat_msgs views = ds41_message_views(msgs, &fragments, &start);
     buf out = {0};
     buf_puts(&out, "<|im_end|>\n");
-    append_hermes_conversation(&out, msgs, start, think_mode);
+    append_hermes_conversation(&out, &views, start, think_mode);
+    free(views.v);
+    chat_msgs_free(&fragments);
     return buf_take(&out);
 }
 
