@@ -4,6 +4,7 @@
  * Spools are experimental until actual kernel provenance is implemented. */
 #include "../ds4_gpu.h"
 #include "../ds4_mellum_routes.h"
+#include "mellum_capture_receipt.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -95,6 +96,7 @@ static bool run_owned(ds4_engine *engine,int context,const ds4_tokens *tokens,in
     ds4_mellum_capture *handle=NULL;
     ds4_mellum_capture_options options={.spool_sink=file_sink,.spool_context=spool};
     bool ok=spool && profiles && !ds4_mellum_capture_create(&handle,engine,context,&options,err,sizeof(err));
+    uint32_t cap=ok ? handle->session->qwen4_graph.cap_tokens:0;
     float logits[VOCAB],expected[VOCAB];rewind(gold);
     for(int pos=0;ok && pos<tokens->len;) {
         if(pos==0 || pos==tokens->len-1) {
@@ -113,6 +115,14 @@ static bool run_owned(ds4_engine *engine,int context,const ds4_tokens *tokens,in
         ds4_mellum_capture_finish(handle,owned_profile,&out,err,sizeof(err))!=0;
     ds4_mellum_capture_free(handle);
     if(spool && fclose(spool))ok=false;if(profiles && fclose(profiles))ok=false;
+    if(ok) {
+        int n=snprintf(path,sizeof(path),"%s/owned.runtime.json",directory);
+        FILE *receipt=n>0 && (size_t)n<sizeof(path) ? fopen(path,"wbx"):NULL;
+        ok=receipt && mellum_capture_receipt_write(receipt,(unsigned)context,cap,
+            ds4_gpu_tensor_tiles_available(),ds4_gpu_device_is_pre_m5_apple_silicon(),
+            ds4_gpu_device_is_m5_apple_silicon());
+        if(receipt && fclose(receipt))ok=false;
+    }
     fprintf(stderr,"owned capture logits/profile gate: %s (%s)\n",ok ? "PASS":"FAIL",err);
     return ok;
 }

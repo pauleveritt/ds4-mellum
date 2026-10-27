@@ -131,3 +131,4 @@ __pycache__/
 /tests/test_mellum_capture_api
 
 /tests/test_mellum_observer
+/tests/test_mellum_capture_receipt

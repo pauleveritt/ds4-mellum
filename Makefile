@@ -1522,7 +1522,7 @@ gguf-tools/quality-testing/score_official_verify: gguf-tools/quality-testing/sco
 	$(if $(filter Darwin,$(UNAME_S)),$(CC) $(CFLAGS),$(DS4_LINK)) -o $@ $^ $(if $(filter Darwin,$(UNAME_S)),$(METAL_LDLIBS),$(DS4_LINK_LIBS))
 
 # Isolated GPU route proof: engine hooks are compiled only into this test.
-tests/mellum_routes_gpu.o: tests/mellum_routes_gpu.c tests/mellum_trace.c tests/mellum_trace_context.h ds4.c ds4.h ds4_gpu.h ds4_mellum_routes.h
+tests/mellum_routes_gpu.o: tests/mellum_routes_gpu.c tests/mellum_trace.c tests/mellum_trace_context.h tests/mellum_capture_receipt.h ds4.c ds4.h ds4_gpu.h ds4_mellum_routes.h
 	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -I. -c -o $@ $<
 
 tests/mellum_routes_gpu: tests/mellum_routes_gpu.o $(filter-out ds4.o,$(CORE_OBJS))
@@ -1574,3 +1574,10 @@ ds4.o ds4_cpu.o tests/mellum_routes_gpu.o: $(MELLUM_CAPTURE_HEADERS)
 .PHONY: test-mellum-capture-build
 test-mellum-capture-build:
 	python3 -I tests/test_mellum_capture_build.py
+
+tests/test_mellum_capture_receipt: tests/test_mellum_capture_receipt.c tests/mellum_capture_receipt.h
+	$(CC) $(filter-out -std=%,$(QUALITY_CFLAGS)) -std=c99 -I. -o $@ $<
+
+.PHONY: test-mellum-capture-receipt
+test-mellum-capture-receipt: tests/test_mellum_capture_receipt
+	./tests/test_mellum_capture_receipt
