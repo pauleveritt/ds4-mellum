@@ -117,6 +117,14 @@ def test_observe_cli_exposes_commands_and_refuses_nonmac_before_io():
     result=subprocess.run([sys.executable,'-I','-c',code],capture_output=True)
     assert result.returncode!=0 and b'macOS required' in result.stderr
 
+def test_host_identity_retains_cpu_ram_and_raw_command():
+    api=module()
+    raw=dict(argv=['sysctl'],stdout=b'137438953472\nMac17,7\nApple M5 Max\n',stderr=b'',returncode=0)
+    with patch.object(api.observer,'command',return_value=raw):
+        value=api.host_metadata()
+    assert value['ram_bytes']==137438953472 and value['model']=='Mac17,7' and value['cpu']=='Apple M5 Max'
+    assert value['command']['stdout']==raw['stdout']
+
 def load_tests(loader,tests,pattern):
     return unittest.TestSuite(unittest.FunctionTestCase(v) for k,v in globals().items() if k.startswith('test_'))
 if __name__=='__main__':unittest.main()
