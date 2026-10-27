@@ -11598,6 +11598,60 @@ static char *agent_execute_tool_call(agent_worker *w, const agent_tool_call *cal
     }
 }
 
+static int agent_text_tokens(ds4_engine *e, const char *s, size_t n) {
+    char *text = xstrndup(s, n);
+    ds4_tokens tok = {0};
+    ds4_tokenize_text(e, text, &tok);
+    const int len = tok.len;
+    ds4_tokens_free(&tok);
+    free(text);
+    return len;
+}
+
+/* The longest head (tail when !head) of s[0..n) within budget tokens, in bytes, on a UTF-8 character boundary.  A
+ * longer piece never has fewer tokens, so a binary search finds it. */
+static size_t agent_piece_within(ds4_engine *e, const char *s, size_t n, int budget, bool head) {
+    size_t lo = 0, hi = n;
+    while (lo < hi) {
+        const size_t mid = lo + (hi - lo + 1) / 2;
+        if (agent_text_tokens(e, head ? s : s + n - mid, mid) <= budget) lo = mid;
+        else hi = mid - 1;
+    }
+    if (head) while (lo > 0 && lo < n && ((unsigned char)s[lo] & 0xc0) == 0x80) lo--;
+    else while (lo > 0 && ((unsigned char)s[n - lo] & 0xc0) == 0x80) lo--;
+    return lo;
+}
+
+/* Step 46: one result takes at most a quarter of the context, so a single read or command cannot crowd out the
+ * conversation.  A longer one keeps its head and its tail, half the rest of the budget each, with a note between
+ * them saying how much was cut and how to ask for less. */
+static char *agent_cap_tool_result(agent_worker *w, char *res) {
+    const int cap = agent_worker_effective_ctx_size(w) / 4;
+    const size_t n = strlen(res);
+    if (cap <= 0 || n <= (size_t)cap) return res;   /* a token is at least a byte */
+    const int total = agent_text_tokens(w->engine, res, n);
+    if (total <= cap) return res;
+    static const char cut_note[] =
+        "\n[... %d tokens cut here: one tool result may take at most a quarter of the context (%d tokens). "
+        "Ask for less: read with offset and limit, or narrow the command's output.]\n";
+    char note[320];
+    snprintf(note, sizeof(note), cut_note, total, cap);
+    const int budget = cap - agent_text_tokens(w->engine, note, strlen(note));
+    if (budget <= 0) return res;
+    const size_t head = agent_piece_within(w->engine, res, n, budget / 2, true);
+    const int head_tokens = agent_text_tokens(w->engine, res, head);
+    const size_t tail = agent_piece_within(w->engine, res + head, n - head, budget - head_tokens, false);
+    const int cut = total - head_tokens - agent_text_tokens(w->engine, res + n - tail, tail);
+    snprintf(note, sizeof(note), cut_note, cut, cap);
+    char *out = xmalloc(head + strlen(note) + tail + 1);
+    memcpy(out, res, head);
+    strcpy(out + head, note);
+    memcpy(out + head + strlen(note), res + n - tail, tail);
+    out[head + strlen(note) + tail] = '\0';
+    free(res);
+    return out;
+}
+
 static agent_tool_observation agent_execute_tool_observation(
         agent_worker *w, const agent_tool_calls *calls) {
     agent_tool_observation obs;
@@ -11607,7 +11661,7 @@ static agent_tool_observation agent_execute_tool_observation(
          * text as the tool returned it, and no images (agent_tool_observation_build). */
         for (int i = 0; i < calls->len; i++) {
             if (i > 0) agent_tool_observation_next_part(&obs);
-            char *res = agent_execute_tool_call(w, &calls->v[i]);
+            char *res = agent_cap_tool_result(w, agent_execute_tool_call(w, &calls->v[i]));
             agent_tool_observation_puts(&obs, res);
             free(res);
         }

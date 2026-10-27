@@ -717,7 +717,7 @@ static void check_pi_edit_fuzzy(const char *dir) {
 static void check_tool_result_cap(const char *dir) {
     agent_worker *w = pi_worker();
     agent_config cfg = {0};
-    cfg.gen.ctx_size = 800;   /* a cap of 200 tokens */
+    cfg.gen.ctx_size = 2000;   /* a cap of 500 tokens; the note alone is about 170 */
     w->cfg = &cfg;
     char big[2048] = "";
     for (int i = 0; i < 60; i++) {
@@ -738,7 +738,7 @@ static void check_tool_result_cap(const char *dir) {
     const char *text = obs.parts[0].text;
     ds4_tokens tok = {0};
     ds4_tokenize_text(w->engine, text, &tok);
-    CHECK(tok.len <= 200 && tok.len >= 150);
+    CHECK(tok.len <= 500 && tok.len >= 450);
     CHECK(strncmp(text, "line 00 of the long file\n", 25) == 0);
     CHECK(strstr(text, "line 59 of the long file\n") != NULL);
     CHECK(strstr(text, "tokens cut here") != NULL && strstr(text, "a quarter of the context") != NULL);
