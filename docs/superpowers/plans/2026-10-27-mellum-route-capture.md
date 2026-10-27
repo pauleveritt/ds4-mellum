@@ -158,7 +158,7 @@ stderr, no traceback or stdout artifact.
 - [x] Add `test-mellum-routes` to model-free `test-mellum`. Document a fully synthetic fixture/metadata/export/replay recipe, binary version, metadata ownership, file publication guarantees, diagnostic memory formula and S2b's remaining source/parity gates. Do not imply a native recorder is attached or an actual kernel path has been measured.
 - [x] Run `make test-mellum-routes`, `make test-mellum-ssd-replay`, then `env -u DS4_TEST_MELLUM_MODEL make -j4 test-mellum`; require all pass and record actual test counts/commands. No Metal/default make target or model environment variables.
 - [x] Check changed local Markdown links, `git diff --check`, source diff and per-commit product-line counts. Confirm no inference/default link changes, GPU calls or new dependencies. Mark only S2a complete after gates; S2b/S2 remain open.
-- [ ] Commit docs/gate: `docs: record CPU route capture preparation and remaining GPU gates`. Execute one independent whole-branch review, with one red/green fix pass for Important/Critical findings per executing-plans; record findings and disposition before handoff. Keep the branch/worktree.
+- [x] Commit docs/gate: `docs: record CPU route capture preparation and remaining GPU gates`. Execute one independent whole-branch review, with one red/green fix pass for Important/Critical findings per executing-plans; record findings and disposition before handoff. Keep the branch/worktree.
 
 ## Plan self-review
 
@@ -198,4 +198,24 @@ Gate: `make test-mellum-routes` passes native checks and 12 Python tests;
 checks and 14 logits-comparison tests. The documented synthetic example exports
 and replays successfully. Local Markdown links and whitespace are checked.
 No model, GPU initialization, inference, Metal build or storage benchmark ran.
-The final independent whole-branch review follows this commit. S2b remains open.
+Independent review of `59932c9..46c0a24` found no Critical/Important findings.
+It independently passed C99/native checks, 12 capture/export tests, 33 replay
+tests and an additional native-to-Python fixture with distinct layers/rows/slots,
+invalid padding and boundary token IDs. No S2a fix pass was needed.
+
+Deferred minor: `tools/mellum_ssd_replay.py:107` does not catch RecursionError
+for deeply nested JSON. The CLI emits a traceback while still returning nonzero
+with empty stdout. This is a diagnostics issue in the existing replay tool;
+it does not publish invalid evidence. It is deferred rather than bundled into
+the completed capture milestone.
+
+Rulings on declined review areas: GPU synchronization/parity, capture overhead,
+physical 8 GB behavior and SSD performance remain S2b/later gates under the
+user's no-GPU constraint. Cost if assumptions fail: hardware correctness or
+feasibility may fail; this CPU milestone makes no measured claim. Publication
+remains scoped to local macOS/Linux filesystems, excluding power-loss durability
+and network-filesystem semantics. Cost outside that contract: an artifact may
+not survive a crash or unsupported filesystem behavior.
+
+S2a is complete. Branch/worktree retained, nothing pushed or merged. S2b remains
+open; no GPU experiment or native inference attachment occurred.

@@ -1,6 +1,6 @@
 # Mellum router capture preparation
 
-Date: 2026-10-27. Status: CPU helpers implemented and verified; final branch review pending.
+Date: 2026-10-27. Status: S2a complete and reviewed; S2b GPU gates remain open.
 S2 of the [roadmap](../../../ROADMAP.md), following the completed
 [S1 evidence contract](2026-10-27-mellum-ssd-evidence-design.md).
 
@@ -205,7 +205,8 @@ spool/body/final artifacts grow on disk. Streaming export is not an SSD benchmar
 
 A fresh independent C/Python builder read this design and reported “nothing
 important left” on 2026-10-27. The user approved the companion plan; its CPU
-implementation passes the gate and awaits final independent branch review.
+implementation passes the gate. Final independent whole-branch review found
+no blockers; its deferred diagnostics minor is recorded in the plan.
 
 ## Acceptance and deferred evidence
 

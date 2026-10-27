@@ -49,8 +49,9 @@ handling, exact-byte/token identities and atomic no-overwrite publication.
 The [capture design](docs/superpowers/specs/2026-10-27-mellum-route-capture-design.md)
 and [implementation plan](docs/superpowers/plans/2026-10-27-mellum-route-capture.md)
 are implemented, with native checks and 12 Python export tests passing.
-See [usage](docs/MELLUM_ROUTE_CAPTURE.md). Final independent branch review
-remains before closing S2a.
+See [usage](docs/MELLUM_ROUTE_CAPTURE.md). S2a is complete: independent
+whole-branch review found no blockers. One existing replay-CLI nesting
+error-message issue is recorded as a deferred minor in the plan.
 
 **S2b, GPU required:** attach the recorder to the actual session graph and
 validate the live behavior below. S2 remains open until these gates pass.
