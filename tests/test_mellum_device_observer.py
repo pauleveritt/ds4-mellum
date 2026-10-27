@@ -1,6 +1,11 @@
 """Map fabricated APFS topology without selecting a busy unrelated driver."""
 from copy import deepcopy
 import importlib.util
+import os
+import plistlib
+import sys
+import time
+from unittest.mock import patch
 from pathlib import Path
 import unittest
 
@@ -46,6 +51,40 @@ def test_multistore_duplicate_driver_wrong_size_and_st_dev_refused():
         if mode==3:v['model']['device_rdev']=43
         if mode==4:v['payload']['VolumeUUID']='different'
         refused(lambda:api.parse_topology(*args))
+
+def test_command_bounds_both_streams_and_reaps_timeout():
+    api=module()
+    for code,limit,timeout in (("import os;os.write(2,b'x'*10000)",100,.5),
+                               ("import time;time.sleep(2)",100,.02)):
+        try:api.command([sys.executable,'-c',code],limit=limit,timeout=timeout)
+        except api.CommandFailure as exc:
+            assert len(exc.evidence['stdout'])+len(exc.evidence['stderr']) <= limit
+            assert exc.evidence['returncode'] is not None
+        else:raise AssertionError('unbounded metadata command accepted')
+    result=api.command([sys.executable,'-c',"print('ok')"])
+    assert result['stdout']==b'ok\n' and result['returncode']==0
+    assert result['start_ns'] <= result['end_ns'] <= time.clock_gettime_ns(time.CLOCK_MONOTONIC)
+
+def test_snapshot_records_uncertainty_and_raw_bytes():
+    api=module();top=api.parse_topology(*fixture())
+    counters={name:0 for name in api.COUNTERS}
+    root=dict(IORegistryEntryID=11,IORegistryEntryChildren=[dict(IORegistryEntryID=12)],Statistics=counters)
+    raw=plistlib.dumps([root]);result=dict(argv=['ioreg'],start_ns=1,end_ns=2,returncode=0,stdout=raw,stderr=b'')
+    with patch.object(api,'command',return_value=result):
+        sample=api.snapshot(top)
+    assert sample['command']['stdout']==raw and sample['command']['start_ns']==1
+    assert sample['counters']['Bytes (Read)']==0 and sample['media_id']==12
+    for mode in range(5):
+        bad=deepcopy(root)
+        if mode==0:bad['IORegistryEntryID']=13
+        if mode==1:bad['IORegistryEntryChildren'][0]['IORegistryEntryID']=14
+        if mode==2:bad['Statistics']['Bytes (Read)']=True
+        if mode==3:bad['Statistics']['Bytes (Read)']=-1
+        if mode==4:del bad['Statistics']['Bytes (Read)']
+        with patch.object(api,'command',return_value=dict(result,stdout=plistlib.dumps([bad]))):
+            refused(lambda:api.snapshot(top))
+    with patch.object(api,'command',return_value=dict(result,stdout=b'not plist')):
+        refused(lambda:api.snapshot(top))
 
 def load_tests(loader,tests,pattern):
     return unittest.TestSuite(unittest.FunctionTestCase(v) for k,v in globals().items() if k.startswith('test_'))
