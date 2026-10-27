@@ -151,4 +151,129 @@ fail:
     return false;
 }
 
+static inline bool json_number(const char **p, double *out) {
+    json_ws(p);
+    char *end = NULL;
+    double v = strtod(*p, &end);
+    if (end == *p) return false;
+    *p = end;
+    *out = v;
+    return true;
+}
+
+static inline bool json_int(const char **p, int *out) {
+    double v = 0.0;
+    if (!json_number(p, &v)) return false;
+    /* json_number() uses strtod(), which accepts "NaN"/"Infinity". NaN fails
+     * every comparison, so a plain `v < 0` clamp would let it through to the
+     * (int) cast, which is undefined for NaN; `!(v >= 0)` folds NaN (and
+     * negatives) to 0. +/-Infinity are handled by the two clamps. */
+    if (!(v >= 0)) v = 0;
+    if (v > INT_MAX) v = INT_MAX;
+    *out = (int)v;
+    return true;
+}
+
+static inline bool json_bool(const char **p, bool *out) {
+    json_ws(p);
+    if (json_lit(p, "true")) {
+        *out = true;
+        return true;
+    }
+    if (json_lit(p, "false")) {
+        *out = false;
+        return true;
+    }
+    return false;
+}
+
+/* The request parser only understands the API fields we use and skips the
+ * rest.  Skipping is recursive because JSON values nest, so keep an explicit
+ * ceiling: without it, a useless ignored field like {"x":[[[...]]]} can spend
+ * the whole C stack before the request is rejected. */
+#define JSON_MAX_NESTING 256
+
+static inline bool json_skip_value_depth(const char **p, int depth);
+
+static inline bool json_skip_array_depth(const char **p, int depth) {
+    if (depth >= JSON_MAX_NESTING) return false;
+    json_ws(p);
+    if (**p != '[') return false;
+    (*p)++;
+    json_ws(p);
+    if (**p == ']') {
+        (*p)++;
+        return true;
+    }
+    for (;;) {
+        if (!json_skip_value_depth(p, depth + 1)) return false;
+        json_ws(p);
+        if (**p == ']') {
+            (*p)++;
+            return true;
+        }
+        if (**p != ',') return false;
+        (*p)++;
+    }
+}
+
+static inline bool json_skip_object_depth(const char **p, int depth) {
+    if (depth >= JSON_MAX_NESTING) return false;
+    json_ws(p);
+    if (**p != '{') return false;
+    (*p)++;
+    json_ws(p);
+    if (**p == '}') {
+        (*p)++;
+        return true;
+    }
+    for (;;) {
+        char *key = NULL;
+        if (!json_string(p, &key)) return false;
+        free(key);
+        json_ws(p);
+        if (**p != ':') return false;
+        (*p)++;
+        if (!json_skip_value_depth(p, depth + 1)) return false;
+        json_ws(p);
+        if (**p == '}') {
+            (*p)++;
+            return true;
+        }
+        if (**p != ',') return false;
+        (*p)++;
+    }
+}
+
+static inline bool json_skip_value_depth(const char **p, int depth) {
+    json_ws(p);
+    if (**p == '"') {
+        char *s = NULL;
+        bool ok = json_string(p, &s);
+        free(s);
+        return ok;
+    }
+    if (**p == '{') return json_skip_object_depth(p, depth);
+    if (**p == '[') return json_skip_array_depth(p, depth);
+    if (json_lit(p, "true") || json_lit(p, "false") || json_lit(p, "null")) return true;
+    double v = 0.0;
+    return json_number(p, &v);
+}
+
+static inline bool json_skip_value(const char **p) {
+    return json_skip_value_depth(p, 0);
+}
+
+static inline bool json_raw_value(const char **p, char **out) {
+    json_ws(p);
+    const char *start = *p;
+    if (!json_skip_value(p)) return false;
+    size_t n = (size_t)(*p - start);
+    char *s = xmalloc(n + 1);
+    memcpy(s, start, n);
+    s[n] = '\0';
+    *out = s;
+    return true;
+}
+
 #endif
