@@ -492,6 +492,15 @@ static bool agent_stop_is_clean_end(agent_tool_syntax syntax, int stop_class) {
     return true;
 }
 
+/* Whether the token cap cut a turn off (step 37; a stub until its fix). */
+static bool agent_turn_cut_off(agent_tool_syntax syntax, bool model_stopped, bool got_tool,
+                               bool malformed_tool, bool early_tool_error, bool interrupted,
+                               int generated, int max_tokens) {
+    (void)syntax; (void)model_stopped; (void)got_tool; (void)malformed_tool; (void)early_tool_error;
+    (void)interrupted; (void)generated; (void)max_tokens;
+    return false;
+}
+
 /* The [upto] forcer rewrites an edit's old text; Pi's edit takes edits[{oldText,newText}], which it
  * has no place in. */
 static bool agent_edit_upto_enabled(bool cfg_edit_upto, agent_tool_syntax syntax) {

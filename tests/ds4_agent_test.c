@@ -1308,6 +1308,22 @@ static void test_hermes_stop_classes(void) {
     }
 }
 
+/* step 37: a Mellum turn the token cap ended (no stop token, no complete call) is cut off, not an answer; a stop,
+ * a call, a malformed call, an early tool error, an interruption or a turn short of the cap is not; and the other
+ * syntaxes accept a capped turn as before */
+static void test_hermes_turn_cut_off(void) {
+    const agent_tool_syntax H = AGENT_TOOL_SYNTAX_HERMES;
+    AGENT_TEST_ASSERT(agent_turn_cut_off(H, false, false, false, false, false, 512, 512));
+    AGENT_TEST_ASSERT(!agent_turn_cut_off(H, true, false, false, false, false, 512, 512));
+    AGENT_TEST_ASSERT(!agent_turn_cut_off(H, false, true, false, false, false, 512, 512));
+    AGENT_TEST_ASSERT(!agent_turn_cut_off(H, false, false, true, false, false, 512, 512));
+    AGENT_TEST_ASSERT(!agent_turn_cut_off(H, false, false, false, true, false, 512, 512));
+    AGENT_TEST_ASSERT(!agent_turn_cut_off(H, false, false, false, false, true, 512, 512));
+    AGENT_TEST_ASSERT(!agent_turn_cut_off(H, false, false, false, false, false, 100, 512));
+    AGENT_TEST_ASSERT(!agent_turn_cut_off(AGENT_TOOL_SYNTAX_QWEN, false, false, false, false, false, 512, 512));
+    AGENT_TEST_ASSERT(!agent_turn_cut_off(AGENT_TOOL_SYNTAX_DSML, false, false, false, false, false, 512, 512));
+}
+
 /* the [upto] forcer rewrites an edit's old text; Pi's edit has no place for it, so it stays off */
 static void test_hermes_upto_forcer_off(void) {
     AGENT_TEST_ASSERT(!agent_edit_upto_enabled(true, AGENT_TOOL_SYNTAX_HERMES));
@@ -1356,6 +1372,7 @@ static void test_hermes_tool_syntax(void) {
     test_hermes_stop_classes();
     test_hermes_upto_forcer_off();
     test_hermes_visualizer_decodes();
+    test_hermes_turn_cut_off();
 }
 
 static void test_v41_tool_syntax(void) {
