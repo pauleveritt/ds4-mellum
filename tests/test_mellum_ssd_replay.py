@@ -99,7 +99,7 @@ def test_header_requires_provenance_and_valid_geometry():
         del items[0][field]
         with invalid(1, field):
             load(items)
-    for field, value in (("schema_version", 2), ("capture_kind", "benchmark"), ("numerical_mode", "unknown")):
+    for field, value in (("schema_version", 3), ("capture_kind", "benchmark"), ("numerical_mode", "unknown")):
         items = records()
         items[0][field] = value
         with invalid(1, field):
@@ -525,6 +525,77 @@ def test_manifest_rejects_missing_wrong_and_inconsistent_fields():
         manifest["generation"]["settings"]["extension"] = [value]
         with invalid(1, "capture_manifest.generation.settings.extension"):
             tool().validate_capture_manifest(manifest, metadata)
+
+
+def test_v2_manifest_round_trip_and_v1_compatibility():
+    assert tool().run_sweep(load(records()), [40])["trace"] == header()
+    for kind in ("synthetic", "measured"):
+        metadata = header() if kind == "synthetic" else header(layers=28, experts=64, top_k=8, expert_bytes=6580224)
+        metadata.update(schema_version=2, capture_kind=kind)
+        manifest = manifest_fixture(metadata)
+        manifest["extension"] = {"nested": [None, {"kept": True}]}
+        metadata["capture_manifest"] = manifest
+        routes = [[list(reversed(range(metadata["geometry"]["top_k"])))]] * metadata["geometry"]["layers"]
+        trace = load([metadata, *forward(0, routes)])
+        assert trace.requests[0].experts == (tuple(routes[0][0]),)
+        assert tool().run_sweep(trace)["trace"] == metadata
+    for version in (1, 2, 3, True):
+        metadata = header()
+        metadata["schema_version"] = version
+        if version == 1 and type(version) is int:
+            metadata["capture_manifest"] = manifest_fixture(metadata)
+            reason = "version 2"
+        else:
+            reason = "capture_manifest" if version == 2 else "schema_version"
+        with invalid(1, reason):
+            load([metadata, *records()[1:]])
+
+
+def test_v2_capture_extent_and_execution_checks():
+    metadata = header()
+    metadata.update(schema_version=2, capture_manifest=manifest_fixture(metadata, forwards=2, positions=3, first=42, last=44))
+    items = [metadata,
+             *forward(0, [[[0, 1], [1, 2]], [[0, 1], [2, 3]]], phase="prefill", position=42),
+             *forward(1, [[[1, 2]], [[0, 1]]], position=44)]
+    assert len(load(items).requests) == 4
+    with invalid(4, "extent.forwards"):
+        load(items[:-2])  # Truncated at a complete-forward boundary.
+    for field, value in (("forwards", 3), ("positions", 4), ("first_position", 41), ("last_position", 45)):
+        broken = deepcopy(items)
+        broken[0]["capture_manifest"]["extent"][field] = value
+        with invalid(6, "extent." + field):
+            load(broken)
+    for field in ("forwards", "positions", "first_position", "last_position"):
+        broken = deepcopy(items)
+        broken[0]["capture_manifest"]["extent"][field] = True
+        with invalid(1, "extent." + field):
+            load(broken)
+    for field, bad, good, line in (("context_tokens", 44, 45, 4), ("prefill_chunk_tokens", 1, 2, 2)):
+        broken = deepcopy(items)
+        broken[0]["capture_manifest"]["execution"][field] = bad
+        with invalid(line, "execution." + field):
+            load(broken)
+        broken[0]["capture_manifest"]["execution"][field] = good
+        assert len(load(broken).requests) == 4
+    with invalid(5, "truncated final forward"):
+        load(items[:-1])
+
+
+def test_nested_json_exponent_overflow_is_rejected():
+    for version in (1, 2):
+        metadata = header()
+        metadata["schema_version"] = version
+        extension = metadata
+        if version == 2:
+            metadata["capture_manifest"] = manifest_fixture(metadata)
+            extension = metadata["capture_manifest"]
+        extension["extension"] = {"nested": ["OVERFLOW"]}
+        raw = json.dumps(metadata).replace('"OVERFLOW"', '1e999')
+        with invalid(1, "finite JSON"):
+            tool().load_trace([raw, *(json.dumps(item) for item in records()[1:])])
+    raw = json.dumps(header())[:-1] + ', "extension": {"nested": {"x": 1, "x": 2}}}'
+    with invalid(1, "duplicate JSON key"):
+        tool().load_trace([raw])
 
 
 def load_tests(loader, tests, pattern):
