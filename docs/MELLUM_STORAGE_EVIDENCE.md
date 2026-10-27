@@ -142,8 +142,13 @@ active inference, changed identities and consumed-wire substitution are refusals
 The optional native R/G/D/L pipe gates pause after prewarm/buffer preparation and
 after timed worker join. Python collects one-second idle controls on both sides
 and counters enclosing the active work, holding snapshots/output in memory until
-controls finish. Snapshot start/end uncertainty is retained. Metadata commands
-have 5-second/32 MiB bounds, native gates 30 seconds, and active work 120 seconds.
+controls finish. Retained container sizes plus 128 MiB of transient capture/decoder
+headroom must fit a 256 MiB accounting ceiling; this is not a measured whole-process
+RSS limit. Previous cell raw data is released before the next capture. Snapshot
+start/end uncertainty is retained. Metadata commands
+have 5-second/32 MiB capture bounds; XML decoding additionally requires at most
+1 MiB, 16,384 nodes and depth 64, with internal entities refused. Native gates
+have 30-second bounds, and active work 120 seconds.
 No hashing, prewarm or experiment report writes occur inside these windows.
 
 The new reservation permits 13,476,298,752 timed logical bytes (16 GiB cap),
