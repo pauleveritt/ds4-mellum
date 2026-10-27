@@ -5,7 +5,8 @@
 A and B are trace prefixes: the logits at position N are A.pN.logits.f32 (little-endian f32) and the
 session's last-row logits are A.session.logits.f32.  POSITIONS is a comma-separated list.  EXACT 1:
 every file must be byte-equal; 0: the same top-1 everywhere, max|d logit| <= TOL and mean
-KL(B || A) <= KLTOL.  Prints one summary line; exit 0 when the rule holds, 1 otherwise.
+KL(B || A) <= KLTOL.  Under either rule every logit of both runs must be finite first.  Prints one
+summary line; exit 0 when the rule holds, 1 otherwise.
 """
 
 import math
@@ -24,14 +25,22 @@ def main(argv):
     a, b, positions, exact = argv[1], argv[2], argv[3].split(','), argv[4] == '1'
     tol, kltol = float(argv[5]), float(argv[6])
     files = ['p%s.logits' % p for p in positions] + ['session.logits']
-    worst, agree, equal, kl = 0.0, 0, 0, 0.0
+    rows = []
     for f in files:
         x = open('%s.%s.f32' % (a, f), 'rb').read()
         y = open('%s.%s.f32' % (b, f), 'rb').read()
+        u = struct.unpack('<%df' % (len(x) // 4), x)
+        v = struct.unpack('<%df' % (len(y) // 4), y)
+        for prefix, row in ((a, u), (b, v)):
+            bad = sum(not math.isfinite(t) for t in row)
+            if bad:
+                print('FAIL %s.%s.f32: %d of %d logits are not finite' % (prefix, f, bad, len(row)))
+                return 1
+        rows.append((x, y, u, v))
+    worst, agree, equal, kl = 0.0, 0, 0, 0.0
+    for x, y, u, v in rows:
         equal += x == y
-        n = len(x) // 4
-        u = struct.unpack('<%df' % n, x)
-        v = struct.unpack('<%df' % n, y)
+        n = len(u)
         worst = max(worst, max(abs(i - j) for i, j in zip(u, v)))
         agree += max(range(n), key=u.__getitem__) == max(range(n), key=v.__getitem__)
         if x != y:
