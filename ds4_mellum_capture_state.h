@@ -7,7 +7,8 @@ enum { MELLUM_CAPTURE_FAILED, MELLUM_CAPTURE_READY, MELLUM_CAPTURE_BUSY, MELLUM_
 typedef struct {
     mellum_routes_writer writer;
     mellum_profiles profiles;
-    uint64_t position;
+    uint64_t position,operation_end;
+    mellum_profile_scope *scope; /* Borrowed until forward end or abort; caller keeps alive. */
     uint32_t state,phase,segment,rows,layers;
     bool forward_active,logits;
 } mellum_capture_state;

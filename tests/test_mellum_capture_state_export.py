@@ -53,7 +53,7 @@ def test_aborted_controller_fixture_cannot_be_published() -> None:
     with tempfile.TemporaryDirectory() as directory:
         source = Path(directory) / "capture.bin"
         subprocess.run([str(BINARY), "--emit-incomplete", str(source)], check=True)
-        with HELPERS["invalid"]("footer"):
+        with HELPERS["invalid"]("truncated record"):
             HELPERS["consume"](source.read_bytes())
         metadata = HELPERS["metadata_fixture"]()
         metadata["segments"] = {"0": "initial", "1": "decode", "2": "append"}

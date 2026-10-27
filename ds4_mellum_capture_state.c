@@ -3,8 +3,12 @@
 
 void mellum_capture_abort(mellum_capture_state *c, mellum_profile_scope *scope) {
     if (!c || c->state==MELLUM_CAPTURE_FINISHED) return;
+    if (c->scope && c->scope->owner==&c->profiles)
+        (void)mellum_profile_scope_exit(c->scope,&c->profiles,false,NULL);
+    c->scope=NULL;
     if (scope && scope->owner==&c->profiles)
         (void)mellum_profile_scope_exit(scope,&c->profiles,false,NULL);
+    c->profiles.active=false;
     c->profiles.failed=true;
     c->writer.state=0;
     c->forward_active=false;
@@ -41,6 +45,7 @@ bool mellum_capture_begin_sync(mellum_capture_state *c, const uint32_t *committe
         mellum_capture_abort(c,NULL);
         return false;
     }
+    c->operation_end=length;
     c->phase=1;
     c->segment=segment;
     c->state=MELLUM_CAPTURE_BUSY;
@@ -49,7 +54,8 @@ bool mellum_capture_begin_sync(mellum_capture_state *c, const uint32_t *committe
 
 bool mellum_capture_begin_eval(mellum_capture_state *c, uint64_t position, uint32_t segment) {
     if (!operation_ready(c)) return false;
-    if (position!=c->writer.positions) { mellum_capture_abort(c,NULL); return false; }
+    if (position!=c->writer.positions || position==UINT64_MAX) { mellum_capture_abort(c,NULL); return false; }
+    c->operation_end=position+1;
     c->phase=2;
     c->segment=segment;
     c->state=MELLUM_CAPTURE_BUSY;
@@ -58,7 +64,8 @@ bool mellum_capture_begin_eval(mellum_capture_state *c, uint64_t position, uint3
 
 int mellum_capture_end_operation(mellum_capture_state *c, mellum_profile_scope *scope, int status) {
     if (!c || status || c->state!=MELLUM_CAPTURE_BUSY || c->forward_active ||
-        c->profiles.active || c->profiles.failed || c->writer.state!=1) {
+        c->profiles.active || c->profiles.failed || c->writer.state!=1 ||
+        c->writer.positions!=c->operation_end) {
         mellum_capture_abort(c,scope);
         return status ? status:1;
     }
@@ -71,16 +78,62 @@ bool mellum_capture_has_logits(const mellum_capture_state *c) {
 }
 
 bool mellum_capture_forward_begin(mellum_capture_state *c, mellum_profile_scope *s,
-                                  uint64_t p, uint32_t r, bool h) {
-    (void)c;(void)s;(void)p;(void)r;(void)h;return false;
+                                  uint64_t position, uint32_t rows, bool head) {
+    mellum_routes_layout_info layout;
+    if (!c || c->state!=MELLUM_CAPTURE_BUSY || c->forward_active ||
+        c->writer.state!=1 || c->profiles.failed ||
+        position!=c->writer.positions || position>UINT64_MAX-rows ||
+        position+rows>c->operation_end || (c->phase==2 && rows!=1) ||
+        !mellum_routes_layout(c->writer.cap,rows,0,&layout) ||
+        !mellum_profile_scope_enter(s,&c->profiles,head)) {
+        mellum_capture_abort(c,NULL);
+        return false;
+    }
+    c->scope=s;
+    c->position=position;
+    c->rows=rows;
+    c->layers=0;
+    c->forward_active=true;
+    return true;
 }
-bool mellum_capture_layer(mellum_capture_state *c, uint32_t l) {
-    (void)c;(void)l;return false;
+
+bool mellum_capture_layer(mellum_capture_state *c, uint32_t layer) {
+    if (!c || c->state!=MELLUM_CAPTURE_BUSY || !c->forward_active ||
+        layer!=c->layers || layer>=MELLUM_ROUTES_LAYERS || c->profiles.failed) {
+        mellum_capture_abort(c,NULL);
+        return false;
+    }
+    c->layers++;
+    return true;
 }
+
 bool mellum_capture_forward_end(mellum_capture_state *c, mellum_profile_scope *s, bool ok,
-    const uint32_t *t, size_t nt, const uint32_t *ids, size_t ni) {
-    (void)c;(void)s;(void)ok;(void)t;(void)nt;(void)ids;(void)ni;return false;
+    const uint32_t *tokens, size_t token_count, const uint32_t *selected, size_t selected_count) {
+    uint32_t id;
+    if (!c || c->state!=MELLUM_CAPTURE_BUSY || !c->forward_active || !ok ||
+        s!=c->scope || c->layers!=MELLUM_ROUTES_LAYERS ||
+        !mellum_profile_scope_exit(s,&c->profiles,true,&id)) {
+        mellum_capture_abort(c,NULL);
+        return false;
+    }
+    c->scope=NULL;
+    if (!mellum_routes_forward(&c->writer,c->writer.forwards,c->position,c->rows,
+                              c->phase,c->segment,id,tokens,token_count,selected,selected_count)) {
+        mellum_capture_abort(c,NULL);
+        return false;
+    }
+    c->forward_active=false;
+    c->logits=c->profiles.current.with_head;
+    return true;
 }
+
 bool mellum_capture_finish(mellum_capture_state *c, mellum_profile_sink sink, void *ctx) {
-    (void)c;(void)sink;(void)ctx;return false;
+    if (!operation_ready(c)) return false;
+    if (!c->writer.forwards || !mellum_profiles_emit(&c->profiles,sink,ctx) ||
+        !mellum_routes_finish(&c->writer)) {
+        mellum_capture_abort(c,NULL);
+        return false;
+    }
+    c->state=MELLUM_CAPTURE_FINISHED;
+    return true;
 }

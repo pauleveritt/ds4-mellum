@@ -1539,3 +1539,4 @@ tests/test_mellum_capture_state: tests/test_mellum_capture_state.c ds4_mellum_ca
 .PHONY: test-mellum-capture-state
 test-mellum-capture-state: tests/test_mellum_capture_state
 	./tests/test_mellum_capture_state
+	python3 -I tests/test_mellum_capture_state_export.py
