@@ -73,13 +73,8 @@ endif
 # Native diagnostic helpers are GPU-free; unsupported builds keep linkable APIs.
 MELLUM_CAPTURE_OBJS = ds4_mellum_routes.o ds4_mellum_profile.o ds4_mellum_capture_state.o ds4_mellum_observer.o
 MELLUM_CAPTURE_HEADERS = ds4_mellum_capture.h ds4_mellum_capture_state.h ds4_mellum_observer.h ds4_mellum_profile.h ds4_mellum_routes.h
-CORE_OBJS += $(MELLUM_CAPTURE_OBJS)
-CPU_CORE_OBJS += $(MELLUM_CAPTURE_OBJS)
-ds4_mellum_routes.o: ds4_mellum_routes.c ds4_mellum_routes.h
-ds4_mellum_profile.o: ds4_mellum_profile.c ds4_mellum_profile.h
-ds4_mellum_capture_state.o: ds4_mellum_capture_state.c $(MELLUM_CAPTURE_HEADERS)
-ds4_mellum_observer.o: ds4_mellum_observer.c ds4_mellum_observer.h ds4_mellum_profile.h ds4_mellum_kernels.inc
-ds4.o ds4_cpu.o tests/mellum_routes_gpu.o: $(MELLUM_CAPTURE_HEADERS)
+override CORE_OBJS := $(filter-out $(MELLUM_CAPTURE_OBJS),$(CORE_OBJS)) $(MELLUM_CAPTURE_OBJS)
+override CPU_CORE_OBJS := $(filter-out $(MELLUM_CAPTURE_OBJS),$(CPU_CORE_OBJS)) $(MELLUM_CAPTURE_OBJS)
 
 .PHONY: all help clean test test-rocm test-glm53-kda-rocm test-metal-session-batch test-mxfp4-cuda test-mxfp4-rocm test-cuda-session-batch test-cuda-mixed-batch dspark-acceptance dspark-verify-depth mtp-verify-depth cpu cuda cuda-spark cuda-generic cuda-regression strix-halo rocm
 
@@ -1568,3 +1563,14 @@ tests/test_mellum_observer: ds4_mellum_kernels.inc tests/test_mellum_observer.c 
 .PHONY: test-mellum-observer
 test-mellum-observer: tests/test_mellum_observer
 	./tests/test_mellum_observer
+
+ds4_mellum_routes.o: ds4_mellum_routes.c ds4_mellum_routes.h
+ds4_mellum_profile.o: ds4_mellum_profile.c ds4_mellum_profile.h
+ds4_mellum_capture_state.o: ds4_mellum_capture_state.c $(MELLUM_CAPTURE_HEADERS)
+ds4_mellum_observer.o: ds4_mellum_observer.c ds4_mellum_observer.h ds4_mellum_profile.h ds4_mellum_kernels.inc
+ds4.o ds4_cpu.o tests/mellum_routes_gpu.o: $(MELLUM_CAPTURE_HEADERS)
+
+
+.PHONY: test-mellum-capture-build
+test-mellum-capture-build:
+	python3 -I tests/test_mellum_capture_build.py
