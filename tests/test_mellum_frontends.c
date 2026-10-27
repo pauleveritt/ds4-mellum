@@ -534,7 +534,8 @@ static void check_pi_edit(const char *dir) {
     free(back);
     /* the refusals; the edit above is their success sibling, and none of them writes */
     snprintf(want, sizeof(want), "Could not find the exact text in %s. The old text must match exactly including all "
-             "whitespace and newlines.", f);
+             "whitespace and newlines. The file matches oldText's start up to line 2, column 12, where oldText has `99` "
+             "and the file has `10`.", f);
     PI_EXPECT(pi_run("edit", "path", f, "edits", "#[{\"oldText\": \"return 99\", \"newText\": \"x\"}]", NULL), want);
     snprintf(want, sizeof(want), "Found 2 occurrences of the text in %s. The text must be unique. Please provide more "
              "context to make it unique.", f);
@@ -572,6 +573,37 @@ static void check_pi_edit(const char *dir) {
     PI_EXPECT(pi_run("edit", "path", gone, "edits", "#[{\"oldText\": \"a\", \"newText\": \"b\"}]", NULL), want);
     free(f); free(crlf); free(gone);
     puts("ok   agent: Pi's edit for Mellum, exact (edits[] against the original, Pi's refusals, BOM and CRLF kept)");
+}
+
+/* Step 45: a missed edit says where its oldText departs from the file, after Pi's own message: the longest start of
+ * oldText the file holds, the line and column where it stops matching, and what each side has there (to the end of
+ * the line).  Sibling: an oldText whose first character is nowhere in the file gets Pi's message alone. */
+static void check_pi_edit_departure(const char *dir) {
+    char want[PATH_MAX + 512];
+    char *f = pi_fixture(dir, "d.py", "def f():\n    x = \"a\"\n    return x\n\nabc def\n");
+    snprintf(want, sizeof(want), "Could not find the exact text in %s. The old text must match exactly including all "
+             "whitespace and newlines. The file matches oldText's start up to line 2, column 9, where oldText has `'a'` "
+             "and the file has `\"a\"`.", f);
+    PI_EXPECT(pi_run("edit", "path", f, "edits",
+                     "#[{\"oldText\": \"def f():\\n    x = 'a'\\n    return x\\n\", \"newText\": \"y\"}]", NULL), want);
+    snprintf(want, sizeof(want), "Could not find the exact text in %s. The old text must match exactly including all "
+             "whitespace and newlines. The file matches oldText's start up to line 5, column 4, where oldText has the "
+             "end of the line and the file has ` def`.", f);
+    PI_EXPECT(pi_run("edit", "path", f, "edits", "#[{\"oldText\": \"abc\\nxyz\", \"newText\": \"y\"}]", NULL), want);
+    snprintf(want, sizeof(want), "Could not find edits[1] in %s. The oldText must match exactly including all whitespace "
+             "and newlines. The file matches oldText's start up to line 3, column 12, where oldText has `y` and the "
+             "file has the end of the line.", f);
+    PI_EXPECT(pi_run("edit", "path", f, "edits",
+                     "#[{\"oldText\": \"def f\", \"newText\": \"def h\"}, {\"oldText\": \"    return xy\", \"newText\": \"z\"}]",
+                     NULL), want);
+    snprintf(want, sizeof(want), "Could not find the exact text in %s. The old text must match exactly including all "
+             "whitespace and newlines.", f);
+    PI_EXPECT(pi_run("edit", "path", f, "edits", "#[{\"oldText\": \"zzz\", \"newText\": \"y\"}]", NULL), want);
+    char *back = pi_slurp(f);
+    CHECK(!strcmp(back, "def f():\n    x = \"a\"\n    return x\n\nabc def\n"));
+    free(back);
+    free(f);
+    puts("ok   agent: a missed Pi edit says where its oldText departs from the file");
 }
 
 /* bash: stdout and stderr merged, Pi's texts for no output, a failing exit, a timeout, and a tail cut */
@@ -833,6 +865,7 @@ static void check_pi_tools(void) {
     check_pi_write(dir);
     check_pi_edit(dir);
     check_pi_edit_fuzzy(dir);
+    check_pi_edit_departure(dir);
     check_pi_nul(dir);
     check_pi_types(dir);
     check_pi_duplicate_arguments(dir);
