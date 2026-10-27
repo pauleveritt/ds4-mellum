@@ -60788,6 +60788,10 @@ static bool mellum_graph_forward_tokens(ds4_qwen4_gpu_graph *g, const ds4_model 
     for (uint32_t il = 0; il < n_layer && ok; il++) {
         ok = mellum_graph_layer(g, m, &w->layer[il], il, full_slot, pos0, T, &rope);
         if (!ds4_mellum_layer_is_sliding(il)) full_slot++;
+#ifdef DS4_MELLUM_ROUTES_TEST
+        /* Test executable only: preserve IDs before the next layer reuses them. */
+        if (ok) ok = route_layer(g->cap_tokens, il, T, s[MELLUM_S_SELECTED]);
+#endif
         if (ok && tr_n) {
             /* the rows are on the GPU: wait, then read this layer's output row, its MoE input row and its
              * post-RoPE Q and K row */
@@ -60831,6 +60835,10 @@ static bool mellum_graph_forward_tokens(ds4_qwen4_gpu_graph *g, const ds4_model 
     }
     if (ds4_gpu_commands_active() && !ds4_gpu_end_commands()) ok = false;
     free(hid); free(ffn); free(qk); free(row_logits);
+#ifdef DS4_MELLUM_ROUTES_TEST
+    /* Completion above is the ordinary forward wait, including no-logits calls. */
+    if (ok) ok = route_done(pos0, T, tokens);
+#endif
     if (ok) g->pos += T;
     return ok;
 #endif
