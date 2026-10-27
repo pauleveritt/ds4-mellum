@@ -44,6 +44,25 @@ static void invalid_operations(void) {
     CHECK(c->core.state==MELLUM_CAPTURE_FINISHED && bytes==before);free(out);release_fixture(c);
     c=fixture();size_t n=bytes;release_fixture(c);CHECK(bytes==n);
 }
+static bool cancelled(void *ctx) { unsigned *calls=ctx;(*calls)++;return true; }
+static void cancellation_and_noop(void) {
+    ds4_engine engine={.backend=DS4_BACKEND_CPU};
+    ds4_mellum_capture *c=fixture();c->session->engine=&engine;
+    unsigned calls=0;ds4_session_set_cancel(c->session,cancelled,&calls);
+    int token=10;ds4_tokens prompt={.v=&token,.len=1};char err[128];size_t before=bytes;
+    CHECK(ds4_mellum_capture_sync(c,&prompt,0,err,sizeof(err))==DS4_SESSION_SYNC_INTERRUPTED);
+    CHECK(calls==1 && c->core.state==MELLUM_CAPTURE_FAILED && bytes==before);release_fixture(c);
+    c=fixture();c->session->engine=&engine;
+    uint32_t selected[448];for(unsigned i=0;i<448;i++)selected[i]=i%8;
+    CHECK(mellum_routes_forward(&c->core.writer,0,0,1,1,0,0,(const uint32_t *)&token,1,selected,448));
+    c->session->checkpoint=prompt;c->session->checkpoint_valid=true;c->core.logits=true;
+    before=bytes;CHECK(!ds4_mellum_capture_sync(c,&prompt,123,err,sizeof(err)));
+    CHECK(bytes==before && mellum_capture_has_logits(&c->core));
+    token=11;int old=10;c->session->checkpoint.v=&old;
+    CHECK(ds4_mellum_capture_sync(c,&prompt,0,err,sizeof(err))!=0);
+    CHECK(c->core.state==MELLUM_CAPTURE_FAILED && bytes==before);release_fixture(c);
+    CHECK(sizeof(ds4_mellum_capture)+2*917504u+MELLUM_PROFILE_TEXT<=2200000u);
+}
 int main(void) {
     ds4_mellum_capture_options opts={.spool_sink=spool};
     ds4_mellum_capture *sentinel=(ds4_mellum_capture *)&opts,*out=sentinel;
@@ -61,6 +80,6 @@ int main(void) {
     CHECK(ds4_mellum_capture_copy_logits(NULL,NULL,0)==0);
     CHECK(ds4_mellum_capture_finish(NULL,NULL,NULL,NULL,0)!=0);
     ds4_mellum_capture_free(NULL);CHECK(!bytes);
-    invalid_operations();
+    invalid_operations();cancellation_and_noop();
     puts("Mellum capture API boundary checks: PASS");return 0;
 }

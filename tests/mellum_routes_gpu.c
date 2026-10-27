@@ -124,6 +124,10 @@ static size_t owned_bytes(void *ctx,const void *data,size_t n) {
 }
 static bool owned_cancel(void *ctx) { (void)ctx;return true; }
 static bool owned_failures(ds4_engine *engine,int context,int token) {
+    owned_sink header={.limit=0};ds4_mellum_capture *failed=(void *)&header;char error[128];
+    ds4_mellum_capture_options bad={.spool_sink=owned_bytes,.spool_context=&header};
+    if(!ds4_mellum_capture_create(&failed,engine,context,&bad,error,sizeof(error)) ||
+       failed || header.bytes || header.calls!=1 || ds4_gpu_commands_active())return false;
     for(unsigned fault=0;fault<4;fault++) {
         owned_sink sink={.limit=SIZE_MAX};ds4_mellum_capture *c=NULL;char err[512]={0};
         ds4_mellum_capture_options options={.spool_sink=owned_bytes,.spool_context=&sink,
@@ -144,6 +148,27 @@ static bool owned_failures(ds4_engine *engine,int context,int token) {
         ds4_mellum_capture_free(c);if(!ok || sink.calls!=calls)return false;
     }
     return true;
+}
+
+static bool owned_nohead(ds4_engine *engine,int context,const ds4_tokens *tokens) {
+    FILE *spool=tmpfile(),*profiles=tmpfile();ds4_mellum_capture *c=NULL;ds4_session *base=NULL;
+    ds4_mellum_capture_options options={.spool_sink=file_sink,.spool_context=spool};char err[512]={0};
+    bool ok=spool && profiles && !ds4_mellum_capture_create(&c,engine,context,&options,err,sizeof(err)) &&
+        !ds4_session_create(&base,engine,context);
+    float expected[VOCAB],actual[VOCAB];
+    if(ok)ok=mellum_capture_begin_sync(&c->core,NULL,0,(const uint32_t *)tokens->v,2,0) &&
+        mellum_graph_forward_tokens(&c->session->qwen4_graph,&engine->model,&engine->weights,tokens->v,1,NULL,false) &&
+        !c->core.logits && !ds4_mellum_capture_copy_logits(c,actual,VOCAB) &&
+        mellum_graph_forward_tokens(&base->qwen4_graph,&engine->model,&engine->weights,tokens->v,1,NULL,false) &&
+        mellum_graph_forward_tokens(&c->session->qwen4_graph,&engine->model,&engine->weights,tokens->v+1,1,c->session->logits,false) &&
+        mellum_graph_forward_tokens(&base->qwen4_graph,&engine->model,&engine->weights,tokens->v+1,1,expected,false) &&
+        !mellum_capture_end_operation(&c->core,&c->scope,0) &&
+        ds4_mellum_capture_copy_logits(c,actual,VOCAB)==VOCAB && !memcmp(actual,expected,sizeof(actual));
+    owned_profiles out={.file=profiles};
+    if(ok)ok=c->core.profiles.count==2 && !ds4_mellum_capture_finish(c,owned_profile,&out,err,sizeof(err)) && out.count==2;
+    ds4_mellum_capture_free(c);ds4_session_free(base);
+    if(spool && fclose(spool))ok=false;if(profiles && fclose(profiles))ok=false;
+    return ok;
 }
 
 int main(int argc, char **argv) {
@@ -230,6 +255,7 @@ int main(int argc, char **argv) {
     if (ok) ok = same_files(paths[0], paths[1]);
     if (ok) ok=run_owned(engine,opt.context_size,&tokens,(int)first,argv[4],gold);
     if (ok) ok=owned_failures(engine,opt.context_size,tokens.v[0]);
+    if (ok) ok=owned_nohead(engine,opt.context_size,&tokens);
     if (gold) fclose(gold);
     ds4_engine_close(engine); ds4_tokens_free(&tokens);
     fprintf(stderr, "routing GPU proof: %s\n", ok ? "PASS (all logits and ordered spool bytes match)" : "FAIL");
