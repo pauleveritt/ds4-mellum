@@ -72,3 +72,8 @@ bool mellum_profile_valid(const mellum_profile *p) {
     const unsigned required=(1u<<MELLUM_ROLE_HEAD)-1u;
     return (roles&required)==required && ((roles>>MELLUM_ROLE_HEAD)&1u)==p->with_head;
 }
+
+bool mellum_profiles_init(mellum_profiles *r,const mellum_kernel_catalog *c) {(void)r;(void)c;return false;}
+bool mellum_profile_scope_enter(mellum_profile_scope *s,mellum_profiles *r,bool h) {(void)s;(void)r;(void)h;return false;}
+bool mellum_profile_scope_record(mellum_profile_scope *s,mellum_kernel_descriptor d) {(void)s;(void)d;return false;}
+bool mellum_profile_scope_exit(mellum_profile_scope *s,mellum_profiles *r,bool ok,uint32_t *id) {(void)s;(void)r;(void)ok;(void)id;return false;}

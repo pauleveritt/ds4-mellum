@@ -85,7 +85,59 @@ static void check_refusals(void) {
     CHECK(!mellum_profile_record(&p,desc(MELLUM_ROLE_OTHER,57)));
     CHECK(!mellum_profile_valid(&p));
 }
+static void observe(mellum_profile_scope *scope, bool head, unsigned tile, bool reverse) {
+    for (int i=0;i<7;i++) {
+        mellum_kernel_descriptor d=desc(reverse ? 6-i:i,tile);
+        d.values[5]=UINT32_MAX;
+        CHECK(mellum_profile_scope_record(scope,d));
+    }
+    if(head) CHECK(mellum_profile_scope_record(scope,(mellum_kernel_descriptor){1,MELLUM_ROLE_HEAD,2,{64,8}}));
+}
+static uint32_t register_profile(mellum_profiles *r, mellum_profile_scope *scope,
+                                 bool head, unsigned tile, bool reverse) {
+    uint32_t id=UINT32_MAX;
+    CHECK(mellum_profile_scope_enter(scope,r,head));
+    observe(scope,head,tile,reverse);
+    CHECK(mellum_profile_scope_exit(scope,r,true,&id));
+    CHECK(!scope->owner && !r->active);
+    return id;
+}
+static void check_registry(void) {
+    mellum_profiles *a=calloc(1,sizeof(*a)),*b=calloc(1,sizeof(*b));
+    mellum_profile_scope scope={0},second={0};
+    CHECK(a && b && mellum_profiles_init(a,&catalog) && mellum_profiles_init(b,&catalog));
+    CHECK(register_profile(a,&scope,true,0,false)==0);
+    CHECK(register_profile(a,&scope,true,0,true)==0 && a->count==1);
+    CHECK(register_profile(a,&scope,false,0,false)==1);
+    CHECK(register_profile(a,&scope,true,1,false)==2);
+    CHECK(register_profile(b,&scope,true,1,false)==0 && b->count==1);
+    CHECK(mellum_profile_scope_enter(&scope,a,true));
+    CHECK(!mellum_profile_scope_enter(&scope,b,true) && scope.owner==a);
+    CHECK(!mellum_profile_scope_enter(&second,a,true) && !second.owner);
+    CHECK(!mellum_profile_scope_exit(&scope,b,false,NULL) && scope.owner==a);
+    observe(&scope,true,0,false);
+    uint32_t id=99;
+    CHECK(mellum_profile_scope_exit(&scope,a,true,&id) && id==0);
+    free(a);free(b);
+    a=calloc(1,sizeof(*a));CHECK(a && mellum_profiles_init(a,&catalog));
+    for(unsigned i=0;i<128;i++) CHECK(register_profile(a,&scope,true,i,false)==i);
+    CHECK(a->count==128 && register_profile(a,&scope,true,127,true)==127);
+    CHECK(mellum_profile_scope_enter(&scope,a,true));observe(&scope,true,128,false);
+    CHECK(!mellum_profile_scope_exit(&scope,a,true,&id));
+    CHECK(!scope.owner && a->failed && !a->active);
+    CHECK(!mellum_profile_scope_enter(&scope,a,true));free(a);
+    for(unsigned failure=0;failure<4;failure++) {
+        a=calloc(1,sizeof(*a));CHECK(a && mellum_profiles_init(a,&catalog));
+        CHECK(mellum_profile_scope_enter(&scope,a,true));
+        if(failure==0) CHECK(!mellum_profile_scope_record(&scope,desc(9,0)));
+        else if(failure>1) observe(&scope,true,0,false);
+        CHECK(!mellum_profile_scope_exit(&scope,a,failure!=2,failure==3 ? NULL:&id));
+        CHECK(!scope.owner && !a->active && a->failed);
+        CHECK(!mellum_profile_scope_record(&scope,desc(0,0)));
+        CHECK(!mellum_profile_scope_enter(&scope,a,true));free(a);
+    }
+}
 int main(void) {
-    check_catalog();check_profiles();check_refusals();
+    check_catalog();check_profiles();check_refusals();check_registry();
     puts("Mellum profile set checks: PASS");return 0;
 }

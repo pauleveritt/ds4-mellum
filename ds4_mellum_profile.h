@@ -30,4 +30,15 @@ bool mellum_kernel_catalog_init(mellum_kernel_catalog*, const mellum_kernel_def*
 bool mellum_profile_init(mellum_profile*, const mellum_kernel_catalog*, bool with_head);
 bool mellum_profile_record(mellum_profile*, mellum_kernel_descriptor);
 bool mellum_profile_valid(const mellum_profile*);
+typedef struct {
+    const mellum_kernel_catalog *catalog;
+    bool failed, active;
+    uint32_t count;
+    mellum_profile current, profiles[MELLUM_PROFILE_LIMIT];
+} mellum_profiles;
+typedef struct { mellum_profiles *owner; } mellum_profile_scope;
+bool mellum_profiles_init(mellum_profiles*, const mellum_kernel_catalog*);
+bool mellum_profile_scope_enter(mellum_profile_scope*, mellum_profiles*, bool head);
+bool mellum_profile_scope_record(mellum_profile_scope*, mellum_kernel_descriptor);
+bool mellum_profile_scope_exit(mellum_profile_scope*, mellum_profiles*, bool success, uint32_t *id);
 #endif
