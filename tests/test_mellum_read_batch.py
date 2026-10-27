@@ -83,6 +83,7 @@ def test_prepare_binds_both_layouts_and_existing_trace_digest():
         assert set(value['plans'])=={'uniform-original','uniform-packed','diagnostic-original','diagnostic-packed'}
         assert value['inputs']['trace']['sha256']==api.identity.file_identity(root/'trace')['sha256']
         assert value['physical_io_verified'] is False
+        assert value['untimed_python_read_bytes'] > 0
         assert value['diagnostic']['approved_trace_sha256']==api.plans.TRACE_SHA256
         api.verify_batch(batch)
 
@@ -192,6 +193,7 @@ def test_flags_cannot_claim_physical_ssd_reads():
         artifact=api.run_batch(batch,root/'run')
         report=api.common.load_json(artifact/'report.json')
         assert report['physical_io_verified'] is False
+        assert report['untimed_python_read_bytes'] > 0
         assert report['completed_logical_bytes']==720 and len(report['runs'])==72
         assert len(list((artifact/'raw').glob('*.stdout')))==72
         assert all('service_ms' in run['metrics'] for run in report['runs'])
