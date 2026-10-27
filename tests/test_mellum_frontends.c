@@ -113,7 +113,7 @@ static void check_sampling_defaults(void) {
 }
 #endif
 
-#if defined(MELLUM_FRONTEND_AGENT)
+#if defined(MELLUM_FRONTEND_AGENT) || defined(MELLUM_FRONTEND_SERVER)
 /* A byte-level vocabulary with 2.1's special ids at their real places and no merges: byte c is
  * id 35 + c, as in tests/mellum_fixture.h. */
 static void tiny_vocab(ds4_engine *e) {
@@ -150,7 +150,84 @@ static void tiny_vocab(ds4_engine *e) {
     v->think_start_id = 23; v->think_end_id = 24;
     v->bos_id = v->system_id = v->user_id = v->assistant_id = -1;
 }
+#endif
 
+#if defined(MELLUM_FRONTEND_SERVER)
+/* P6-R1: a reuse tier that matches a remembered visible text appends the next request's text after
+ * it to the live KV.  Whatever tier a Mellum request takes, the prompt the session then holds must be
+ * the request's own render, tokenized: no end token skipped, and no reasoning the template dropped. */
+static void check_reuse_effective_prompt(void) {
+    static ds4_engine e;
+    tiny_vocab(&e);
+    static uint8_t stops[291];
+    stops[28] = DS4_STOP_EOS;
+    e.vocab.stop_class = stops;
+    g_ds4_shape = DS4_SHAPE_MELLUM;
+    for (int api = 0; api < 2; api++) {
+        server s;
+        memset(&s, 0, sizeof(s));
+        s.engine = &e;
+        pthread_mutex_init(&s.tool_mu, NULL);
+        chat_msgs msgs = {0};
+        chat_msgs_push(&msgs, (chat_msg){.role = xstrdup("user"), .content = xstrdup("Q")});
+        request old;
+        memset(&old, 0, sizeof(old));
+        old.kind = REQ_CHAT;
+        old.api = api ? API_RESPONSES : API_OPENAI;
+        old.model_syntax = SERVER_MODEL_SYNTAX_HERMES;
+        old.think_mode = DS4_THINK_HIGH;
+        old.prompt_text = render_chat_prompt_text_for_syntax(SERVER_MODEL_SYNTAX_HERMES, &msgs, NULL, NULL, DS4_THINK_HIGH);
+        /* the live session: the prompt and the answer as sampled, stopped before <|im_end|> */
+        buf live = {0};
+        buf_puts(&live, old.prompt_text);
+        buf_puts(&live, "<think>\nr\n</think>\n\nA");
+        ds4_tokens toks = {0};
+        ds4_tokenize_rendered_chat(&e, live.ptr, &toks);
+        server_slot slot;
+        memset(&slot, 0, sizeof(slot));
+        slot.session = ds4_session_new_test_checkpoint(toks.v, toks.len);
+        if (api) {
+            char *key = server_responses_visible_key(&s, &slot, &old, "A", "r", NULL);
+            responses_live_remember(&s, &slot, key ? key : "", NULL, &old);
+            free(key);
+        } else {
+            char *visible = build_thinking_visible_text(&old, "A");
+            if (visible) thinking_live_remember(&s, &slot, visible, &old);
+            free(visible);
+        }
+        chat_msgs_push(&msgs, (chat_msg){.role = xstrdup("assistant"), .content = xstrdup("A"), .reasoning = xstrdup("r")});
+        chat_msgs_push(&msgs, (chat_msg){.role = xstrdup("user"), .content = xstrdup("Q2")});
+        request next;
+        memset(&next, 0, sizeof(next));
+        next.kind = REQ_CHAT;
+        next.api = old.api;
+        next.model_syntax = SERVER_MODEL_SYNTAX_HERMES;
+        next.think_mode = DS4_THINK_HIGH;
+        next.prompt_text = render_chat_prompt_text_for_syntax(SERVER_MODEL_SYNTAX_HERMES, &msgs, NULL, NULL, DS4_THINK_HIGH);
+        ds4_tokenize_rendered_chat(&e, next.prompt_text, &next.prompt);
+        slot_reuse reuse = slot_probe_reuse_locked(&s, &slot, &next);
+        if (reuse.kind == REUSE_THINKING_VISIBLE || reuse.kind == REUSE_RESPONSES_VISIBLE) {
+            ds4_tokens effective = {0};
+            CHECK(build_live_prompt_suffix(&s, &slot, &next, next.prompt_text + reuse.suffix_off, &effective));
+            CHECK(effective.len == next.prompt.len &&
+                  !memcmp(effective.v, next.prompt.v, (size_t)effective.len * sizeof(int)));
+            ds4_tokens_free(&effective);
+        }
+        ds4_tokens_free(&toks);
+        buf_free(&live);
+        visible_live_free(&slot.thinking_live);
+        chat_msgs_free(&msgs);
+        free(old.prompt_text);
+        free(next.prompt_text);
+        ds4_tokens_free(&next.prompt);
+    }
+    puts("ok   server: after a Mellum answer, the reused prompt is the next request's render (Chat and Responses)");
+}
+#else
+static void check_reuse_effective_prompt(void) {}
+#endif
+
+#if defined(MELLUM_FRONTEND_AGENT)
 static void push_bytes(ds4_tokens *t, const char *s) {
     for (; *s; s++) ds4_tokens_push(t, 35 + (unsigned char)*s);
 }
@@ -571,5 +648,6 @@ int main(void) {
     check_resume_prefix();
     check_tool_observation();
     check_pi_tools();
+    check_reuse_effective_prompt();
     return 0;
 }
