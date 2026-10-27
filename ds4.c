@@ -45145,10 +45145,12 @@ static void mellum_chat_assistant_prefix(const ds4_vocab *vocab, ds4_think_mode 
 
 /* Mellum 2.1's system turn: the caller's text, or none.  Its template has no
  * reasoning-effort instruction, which Qwen's system turn prepends. */
+static void tokenize_rendered_chat_vocab(const ds4_vocab *vocab, const char *text, token_vec *out);
+
 static void mellum_chat_system(const ds4_vocab *vocab, const char *system, token_vec *out) {
     if (!system || !system[0]) return;
     qwen4_chat_open(vocab, "system", out);
-    bpe_tokenize_text(vocab, system, out);
+    tokenize_rendered_chat_vocab(vocab, system, out);   /* as ds4_chat_append_message's system turn */
     qwen4_chat_close(vocab, out);
 }
 
