@@ -1132,6 +1132,56 @@ static void test_hermes_raw_values(void) {
     agent_dsml_parser_free(&p);
 }
 
+/* the call object as training's json.loads-based parser read it: key order, extra keys,
+ * arguments as a JSON string, repeated keys; and what it refuses */
+static void test_hermes_json_loads(void) {
+    char err[160];
+    int n;
+    AGENT_TEST_ASSERT(hermes_parse_all("{\"arguments\": {\"path\": \"x\"}, \"name\": \"read\"}\n</tool_call>",
+                                       err, sizeof(err), &n) == AGENT_DSML_DONE && n == 1);
+    AGENT_TEST_ASSERT(hermes_parse_all("{\"id\": \"c1\", \"name\": \"read\", \"arguments\": {\"path\": \"x\"}, \"meta\": {\"a\": [1, \"}\"]}}\n</tool_call>",
+                                       err, sizeof(err), &n) == AGENT_DSML_DONE && n == 1);
+    AGENT_TEST_ASSERT(hermes_parse_all("{\"id\": 7, \"arguments\": {\"path\": \"x\"}}\n</tool_call>",
+                                       err, sizeof(err), &n) == AGENT_DSML_ERROR);   /* still no name */
+
+    /* arguments given as a JSON string are decoded and read as the object */
+    const char *as_string = "<tool_call>\n{\"name\": \"read\", \"arguments\": \"{\\\"path\\\": \\\"a b.py\\\", \\\"offset\\\": 3}\"}\n</tool_call>";
+    agent_dsml_parser p = hermes_parser();
+    agent_dsml_feed(&p, as_string, strlen(as_string));
+    agent_dsml_finish(&p);
+    AGENT_TEST_ASSERT(p.state == AGENT_DSML_DONE && p.calls.len == 1);
+    if (p.calls.len == 1) {
+        AGENT_TEST_ASSERT(!strcmp(agent_tool_arg_value(&p.calls.v[0], "path"), "a b.py"));
+        AGENT_TEST_ASSERT(!strcmp(agent_tool_arg_value(&p.calls.v[0], "offset"), "3"));
+        AGENT_TEST_ASSERT(p.calls.v[0].args[0].is_string && !p.calls.v[0].args[1].is_string);
+    }
+    agent_dsml_parser_free(&p);
+    AGENT_TEST_ASSERT(hermes_parse_all("{\"name\": \"read\", \"arguments\": \"not json\"}\n</tool_call>",
+                                       err, sizeof(err), &n) == AGENT_DSML_ERROR);
+    AGENT_TEST_ASSERT(hermes_parse_all("{\"name\": \"read\", \"arguments\": \"[1]\"}\n</tool_call>",
+                                       err, sizeof(err), &n) == AGENT_DSML_ERROR);
+
+    /* a repeated key keeps its last value, as in Python */
+    p = hermes_parser();
+    const char *dup = "<tool_call>\n{\"name\": \"read\", \"arguments\": {\"path\": \"first\", \"path\": \"second\"}}\n</tool_call>";
+    agent_dsml_feed(&p, dup, strlen(dup));
+    agent_dsml_finish(&p);
+    AGENT_TEST_ASSERT(p.calls.len == 1 && p.calls.v[0].argc == 1 &&
+                      !strcmp(agent_tool_arg_value(&p.calls.v[0], "path"), "second"));
+    agent_dsml_parser_free(&p);
+
+    /* \u0000 would cut a C string short: refused; an escaped backslash before u0000 is no NUL */
+    AGENT_TEST_ASSERT(hermes_parse_all("{\"name\": \"write\", \"arguments\": {\"path\": \"x\", \"content\": \"a\\u0000b\"}}\n</tool_call>",
+                                       err, sizeof(err), &n) == AGENT_DSML_ERROR);
+    AGENT_TEST_ASSERT(hermes_parse_all("{\"name\": \"write\", \"arguments\": {\"path\": \"x\", \"content\": \"a\\\\u0000b\"}}\n</tool_call>",
+                                       err, sizeof(err), &n) == AGENT_DSML_DONE && n == 1);
+    /* trailing commas */
+    AGENT_TEST_ASSERT(hermes_parse_all("{\"name\": \"read\", \"arguments\": {\"path\": \"x\",}}\n</tool_call>",
+                                       err, sizeof(err), &n) == AGENT_DSML_ERROR);
+    AGENT_TEST_ASSERT(hermes_parse_all("{\"name\": \"read\", \"arguments\": {\"path\": \"x\"},}\n</tool_call>",
+                                       err, sizeof(err), &n) == AGENT_DSML_ERROR);
+}
+
 static void test_hermes_tool_syntax(void) {
     test_hermes_syntax_basics();
     test_hermes_split_points();
@@ -1140,6 +1190,7 @@ static void test_hermes_tool_syntax(void) {
     test_hermes_errors();
     test_hermes_greedy_boundaries();
     test_hermes_raw_values();
+    test_hermes_json_loads();
 }
 
 static void test_v41_tool_syntax(void) {
