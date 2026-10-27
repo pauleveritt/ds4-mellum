@@ -1,6 +1,6 @@
 # Mellum SSD evidence qualification
 
-Date: 2026-10-27. Status: proposed for review; documentation only so far.
+Date: 2026-10-27. Status: implemented; CPU gates pass, final branch review pending.
 Implements S1 of the [roadmap](../../../ROADMAP.md), building on the
 [completed replay design](2026-10-27-mellum-ssd-replay-design.md).
 
@@ -174,13 +174,12 @@ functional test machine; physical 8 GB validation remains required later.
 ## Builder check
 
 A fresh independent builder read this design and evaluation protocol on
-2026-10-27 and reported “nothing important left.” Implementation remains
-pending review of the concrete plan.
+2026-10-27 and reported “nothing important left.” The user authorized the implementation plan; its CPU tasks are now implemented.
 
 ## Acceptance
 
 The two bound witnesses, union rejection, v1 compatibility, v2 preservation,
 manifest rejection/completeness and CLI byte-identity regressions pass, followed
 by `make test-mellum-ssd-replay` and the full model-free Mellum suite.
-Documentation distinguishes current v1 behavior from proposed S1 additions.
+Documentation describes both supported versions and the S1 additions.
 No GPU, inference or storage result is claimed by completing S1.

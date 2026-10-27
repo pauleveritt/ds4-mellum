@@ -23,7 +23,7 @@ byte-demand statistics and synthetic tests. See the [completed plan](docs/superp
 Completion establishes accounting under the declared model. The later review
 identified interpretation and capture-provenance gaps, addressed by S1.
 
-### S1 — Qualify replay evidence and prepare captures: next, CPU only
+### S1 — Qualify replay evidence and prepare captures: implemented, review pending
 
 - Restrict the lower-bound claim to whole-trace total loads/bytes under the
   atomic residency model or the specified fixed access order.
@@ -34,8 +34,8 @@ identified interpretation and capture-provenance gaps, addressed by S1.
 - Freeze a collection/evaluation protocol before tuning policies or capturing
   the evidence used for a decision.
 
-Exit: focused synthetic regressions, provenance round trips and failure tests
-pass; the CPU suite passes; review confirms report claims match their scope.
+CPU gate: 32 synthetic replay tests and the model-free Mellum suite pass.
+Final independent branch review remains before marking S1 complete.
 See the [S1 design](docs/superpowers/specs/2026-10-27-mellum-ssd-evidence-design.md)
 and [implementation plan](docs/superpowers/plans/2026-10-27-mellum-ssd-evidence.md).
 

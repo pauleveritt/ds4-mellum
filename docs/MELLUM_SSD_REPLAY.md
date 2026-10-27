@@ -51,9 +51,9 @@ Both policies load 224 experts on the first token and none on the second.
 That is 1,473,970,176 demand bytes cold. This result is constructed, and is
 not a measured hit rate or a warm steady-state performance claim.
 
-## Version 1 JSONL contract
+## JSONL contracts: versions 1 and 2
 
-The first line is the metadata object shown above. Required nonempty strings
+Version 1 uses the metadata object shown above as its first line. Required nonempty strings
 identify the model artifact, engine revision, numerical mode and workload.
 `capture_kind` is `synthetic` or `measured`; this label is declared by the
 producer, not independently verified. `numerical_mode` is `release` or
@@ -83,7 +83,9 @@ The ordered rows are retained; duplicate IDs across prefill rows are legal.
 A trace may begin at a nonzero position, but forwards must then advance
 without gaps or overlaps. Every trace starts with an empty expert cache;
 there is no seed-cache or independently warmed-session claim. Independent
-workloads use separate traces. Idle intervals cannot be inferred.
+workloads use separate traces. Idle intervals cannot be inferred. Both versions are append-only: reset,
+rewind, compaction and cache reuse across held sessions need future lifecycle
+events; concatenating independent traces does not model them.
 
 Malformed JSON, duplicate keys, non-finite JSON constants, invalid integer
 types (including booleans), missing provenance, incomplete forwards and
@@ -97,6 +99,64 @@ The GPU recorder is a subsequent deliverable. It should buffer exact router
 IDs on the GPU and export at normal synchronization points rather than add
 per-layer host waits. Existing hidden-state trace timings are not a product
 throughput baseline. Record the integrated engine revision when capturing.
+
+## Version 2 capture manifest
+
+Version 2 adds a required `capture_manifest` for synthetic and measured traces.
+Its complete field/type contract is in the [S1 design](superpowers/specs/2026-10-27-mellum-ssd-evidence-design.md#version-2-capture-manifest).
+The parser preserves the entire manifest, including nested extension keys.
+Version 1 headers keep their existing report shape; placing a manifest in a
+version 1 header is an error requiring version 2. Other unknown header fields
+are still discarded. Put new provenance inside the manifest.
+
+The manifest identifies artifacts, token stream, build/source state, recorder,
+actual execution path/capabilities, generation settings and workload cohort.
+It requires `complete: true` and forward/position extents; these must match
+the validated body, counting positions once per forward. The parser rejects
+complete-forward truncation against that declaration, context overflow and
+prefill chunks larger than declared. Integers exclude booleans, all JSON
+numbers must be finite, and SHA-256 strings are 64 lowercase hex characters.
+Declared identities are not independently authenticated or checked against
+model/tokenizer files. A producer can still lie about a capture's extent.
+
+After creating the preceding synthetic fixture, this constructs a v2 example.
+The dummy hashes and identities are synthetic declarations, not real captures:
+
+```sh
+python3 - <<'PYEXAMPLE' > /tmp/mellum-synthetic-v2.jsonl
+import json
+from pathlib import Path
+lines = Path('/tmp/mellum-synthetic.jsonl').read_text().splitlines()
+h = json.loads(lines[0])
+h['schema_version'] = 2
+h['capture_manifest'] = {
+    'manifest_version': 1, 'capture_id': 'synthetic-two-tokens', 'complete': True,
+    'artifacts': {'model_id': h['model_id'], 'tokenizer_id': 'synthetic-tokenizer',
+                  'template_id': 'synthetic-template', 'token_stream_sha256': '0' * 64},
+    'build': {'engine_revision': h['engine_revision'], 'source_state_id': 'synthetic-source',
+              'binary_sha256': '0' * 64, 'recorder_revision': 'synthetic-recorder'},
+    'execution': {'context_tokens': 8192, 'prefill_chunk_tokens': 1024,
+                  'numerical_mode': h['numerical_mode'], 'requested_kernel': 'synthetic',
+                  'effective_kernel': 'synthetic', 'device': 'synthetic', 'os': 'synthetic',
+                  'capabilities': {}},
+    'generation': {'mode': 'teacher-forced', 'settings': {'seed': None}},
+    'workload': {'protocol_id': 'synthetic-example', 'conversation_id': 'synthetic',
+                 'repository_id': 'synthetic', 'split': 'tuning', 'continuation_kind': 'synthetic'},
+    'extent': {'forwards': 2, 'positions': 2, 'first_position': 0, 'last_position': 1},
+}
+print(json.dumps(h))
+print('\n'.join(lines[1:]))
+PYEXAMPLE
+python3 -I tools/mellum_ssd_replay.py /tmp/mellum-synthetic-v2.jsonl > /tmp/mellum-synthetic-v2-replay.json
+```
+
+For measured data, record immutable artifact identities, all effective sampling
+settings and the actual selected kernel including fallback. The token digest
+hashes consecutive unsigned 32-bit little-endian token IDs once per captured
+position. Source-state identity distinguishes dirty patches. Capture publication
+must finalize extent/digest before publishing a complete artifact; the native
+recorder is not implemented. Follow the [evaluation protocol](MELLUM_SSD_EVALUATION.md)
+before selecting policies or collecting decisive evidence.
 
 ## Policies and request groups
 
@@ -123,19 +183,35 @@ full-group residency and an optimum for that fixed sorted sequential order.
 The claim excludes order-flexible tiled execution. Phase, segment, token,
 blocked-layer and percentile results are policy outcomes, not independent
 lower bounds. This is not an implementable predictor or an exact optimum
-under group residency. Tests
-compare it to exhaustive tiny-state search. Sequential relaxation may
+under group residency. Tests compare it to exhaustive tiny-state search. Sequential relaxation may
 understate both memory requirements and blocked layers.
 
 ## Reading the JSON report
 
-`trace` preserves the required version 1 header fields and geometry. Unknown
-header metadata is currently discarded; version 1 cannot preserve a full
-capture manifest. The proposed [S1 design](superpowers/specs/2026-10-27-mellum-ssd-evidence-design.md)
-adds version 2 manifests and report identities before measured capture. These
-additions are not implemented yet. `assumptions`
-explicitly records cold starts, unmodeled allocations and absent prefetch.
+`trace` preserves the required header fields/geometry and the full v2 manifest.
+`assumptions` records cold starts, unmodeled allocations and absent prefetch.
 `results` has both policies for each requested capacity, in argument order.
+
+`evidence` records:
+
+- `trace_sha256`: digest of the exact CLI input bytes, including whitespace and
+  CRLF. The CLI reads one snapshot, hashes it and parses that same snapshot.
+  Programmatic `run_sweep` defaults to null because original bytes are unknown;
+  its optional `trace_sha256` keyword accepts a caller-declared digest.
+- `replay_source_sha256`: digest of the standalone replay script file contents.
+- `python_version`: interpreter version used for replay.
+- `provenance_status`: `synthetic-declared`, `legacy-declared` (measured v1),
+  or `manifest-declared` (measured v2). None means independently verified.
+
+Legacy measured v1 is accepted for compatibility but cannot supply the full
+provenance required for decisive evidence. Digests identify bytes, not truth.
+
+Every result's `interpretation` identifies its objective and scheduling scope.
+For `relaxed-optimal`, only whole-trace demand loads/bytes are bounds under
+atomic full-group residency or the fixed sorted sequential schedule. LRU is a
+causal policy. Both explicitly mark diagnostics as non-bounds and exclude
+order-flexible tiling. Phase/window/tail demand cannot reject decode feasibility
+on its own. There is no automatic latency or throughput verdict.
 
 Each result contains:
 
