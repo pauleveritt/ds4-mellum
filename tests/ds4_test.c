@@ -976,6 +976,45 @@ static void test_mellum_moe_real(void) {
         if (!tiled) TEST_ASSERT(row0_diff == 0);
         else TEST_ASSERT(row0_diff > 0);   /* the tiled path is not the decode arithmetic */
     }
+    if (x && out && out1 && ref) {
+        /* Experiment E1: by default 64 rows take the Metal 4 tensor tiles where the device has them, which sum in
+         * another order than the simdgroup tiles DS4_MELLUM_MOE_NAX=0 keeps; both stage the same half operands, so
+         * both stay within MOE_STAGED_TOL of the staged reference */
+        enum { T = 64 };
+        const uint32_t il = 13, rows[] = { 0, 7, 31, 63 };
+        float *simd = malloc((uint64_t)T * MREF_E * sizeof(float));
+        mref_weights mw = { 0 };
+        const void *map = NULL;
+        TEST_ASSERT(simd && ds4_test_mellum_moe_weights(engine, il, &map, &mw.router, &mw.gate, &mw.up, &mw.down));
+        mw.base = map;
+        for (uint64_t i = 0; i < (uint64_t)T * MREF_E; i++) x[i] = 1.7f * test_mellum_frand(&rng);
+        setenv("DS4_MELLUM_MOE_NAX", "0", 1);
+        TEST_ASSERT(simd && ds4_test_mellum_moe(engine, il, x, T, simd, out1, &sel[0][0], &w[0][0]));
+        unsetenv("DS4_MELLUM_MOE_NAX");
+        TEST_ASSERT(ds4_test_mellum_moe(engine, il, x, T, out, out1, &sel[0][0], &w[0][0]));
+        uint64_t differ = 0;
+        double worst_simd = 0.0, worst_tiles = 0.0;
+        for (uint64_t i = 0; simd && i < (uint64_t)T * MREF_E; i++) differ += memcmp(&simd[i], &out[i], sizeof(float)) != 0;
+        for (size_t ri = 0; simd && map && ri < sizeof(rows) / sizeof(rows[0]); ri++) {
+            const uint32_t r = rows[ri];
+            mref_moe_row_staged(&mw, x + (uint64_t)r * MREF_E, ref);
+            double scale = 1e-30, ds = 0.0, dt = 0.0;
+            for (uint32_t i = 0; i < MREF_E; i++) scale = fmax(scale, fabs(ref->out[i]));
+            for (uint32_t i = 0; i < MREF_E; i++) {
+                ds = fmax(ds, fabs((double)simd[(uint64_t)r * MREF_E + i] - ref->out[i]));
+                dt = fmax(dt, fabs((double)out[(uint64_t)r * MREF_E + i] - ref->out[i]));
+            }
+            worst_simd = fmax(worst_simd, ds / scale);
+            worst_tiles = fmax(worst_tiles, dt / scale);
+        }
+        const bool tiles = ds4_gpu_tensor_tiles_available() != 0;
+        printf("mellum-moe: T=64 layer 13, the default (%s) against DS4_MELLUM_MOE_NAX=0 (simdgroup tiles): %llu of %llu "
+               "words differ; staged reference: simdgroup %.2e, default %.2e\n", tiles ? "tensor tiles" : "no tensor API",
+               (unsigned long long)differ, (unsigned long long)T * MREF_E, worst_simd, worst_tiles);
+        TEST_ASSERT(tiles ? differ > 0 : differ == 0);
+        TEST_ASSERT(worst_simd <= MOE_STAGED_TOL && worst_tiles <= MOE_STAGED_TOL);
+        free(simd);
+    }
     free(x); free(out); free(out1); free(ref);
     test_mellum_moe_real_rows(engine);
     ds4_engine_close(engine);
