@@ -1535,6 +1535,16 @@ test-mellum-routes-gpu: tests/mellum_routes_gpu
 
 # Allocation faults at C/Metal API boundaries, not physical driver OOM.
 ifeq ($(UNAME_S),Darwin)
+tests/test_metal_tensor_lifetime.o: tests/test_metal_tensor_lifetime.m ds4_gpu.h
+	$(CC) $(OBJCFLAGS) -I. -c -o $@ $<
+
+tests/test_metal_tensor_lifetime: tests/test_metal_tensor_lifetime.o $(CORE_OBJS)
+	$(CC) $(CFLAGS) -o $@ $^ $(METAL_LDLIBS)
+
+.PHONY: test-metal-tensor-lifetime
+test-metal-tensor-lifetime: tests/test_metal_tensor_lifetime
+	./tests/test_metal_tensor_lifetime
+
 tests/mellum_capture_failures_gpu.o: tests/mellum_capture_failures_gpu.c ds4.c ds4.h ds4_gpu.h $(MELLUM_CAPTURE_HEADERS) ds4_mellum_unicode.inc ds4_ssd.h ds4_distributed.h ds4_gpu_copy.h ds4_gpu_tp.h ds4_deepseek41_gpu.h ds4_deepseek41_dspark.h ds4_linux_memory.h ds4_engram.h
 	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -I. -c -o $@ $<
 
@@ -1547,6 +1557,10 @@ test-mellum-capture-failures-gpu: tests/mellum_capture_failures_gpu
 		./tests/mellum_capture_failures_gpu "$$DS4_TEST_MELLUM_MODEL"; \
 	else echo 'SKIP Mellum live capture failures: set DS4_TEST_MELLUM_MODEL'; fi
 else
+.PHONY: test-metal-tensor-lifetime
+test-metal-tensor-lifetime:
+	@echo 'SKIP Metal tensor lifetime: macOS Metal required'
+
 .PHONY: test-mellum-capture-failures-gpu
 test-mellum-capture-failures-gpu:
 	@echo 'SKIP Mellum live capture failures: macOS Metal required'

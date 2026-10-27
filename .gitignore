@@ -126,6 +126,7 @@ __pycache__/
 
 /tests/mellum_routes_gpu
 /tests/mellum_capture_failures_gpu
+/tests/test_metal_tensor_lifetime
 /tests/test_mellum_profile
 /tests/test_mellum_capture_state
 
