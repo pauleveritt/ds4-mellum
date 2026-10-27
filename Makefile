@@ -1532,3 +1532,10 @@ tests/test_mellum_profile: tests/test_mellum_profile.c ds4_mellum_profile.c ds4_
 .PHONY: test-mellum-profile
 test-mellum-profile: tests/test_mellum_profile
 	./tests/test_mellum_profile
+
+tests/test_mellum_capture_state: tests/test_mellum_capture_state.c ds4_mellum_capture_state.c ds4_mellum_capture_state.h ds4_mellum_profile.c ds4_mellum_profile.h ds4_mellum_routes.c ds4_mellum_routes.h
+	$(CC) $(filter-out -std=%,$(QUALITY_CFLAGS)) -std=c99 -I. -o $@ tests/test_mellum_capture_state.c ds4_mellum_capture_state.c ds4_mellum_profile.c ds4_mellum_routes.c
+
+.PHONY: test-mellum-capture-state
+test-mellum-capture-state: tests/test_mellum_capture_state
+	./tests/test_mellum_capture_state
