@@ -27,7 +27,11 @@ static int same(struct stat a,struct stat b) {
 static void report(const mellum_read_plan *p,unsigned workers,bool avoid,struct stat st,
                    const mellum_read_sample *samples,mellum_read_summary s,uint64_t prewarm_calls) {
     const char *control=avoid ? "true" : "false";
-    printf("{\"schema_version\":1,\"mode\":\"%s\",\"physical_io_verified\":false,"
+    mellum_read_file_identity id=p->identity;
+    printf("{\"plan\":{\"dev\":%" PRIu64 ",\"ino\":%" PRIu64 ",\"size\":%" PRIu64
+           ",\"mtime_ns\":%" PRIu64 ",\"ctime_ns\":%" PRIu64 "},",
+           id.dev,id.ino,id.size,id.mtime_ns,id.ctime_ns);
+    printf("\"schema_version\":1,\"mode\":\"%s\",\"physical_io_verified\":false,"
            "\"cache_controls\":{\"nocache\":%s,\"rdahead_disabled\":%s},\"workers\":%u,"
            "\"jobs\":%u,\"logical_bytes\":%" PRIu64 ",\"file\":{\"dev\":%" PRIu64
            ",\"ino\":%" PRIu64 ",\"size\":%" PRIu64 ",\"mtime_ns\":%" PRIu64 ",\"ctime_ns\":%" PRIu64 "},",

@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #ifndef MELLUM_READ_CALLOC
 #define MELLUM_READ_CALLOC calloc
@@ -10,6 +11,28 @@
 #ifndef MELLUM_READ_FCLOSE
 #define MELLUM_READ_FCLOSE fclose
 #endif
+
+int mellum_read_identity_get(const struct stat *s,mellum_read_file_identity *out) {
+    if (!S_ISREG(s->st_mode) || s->st_size<0) return -1;
+#ifdef __APPLE__
+    struct timespec m=s->st_mtimespec,c=s->st_ctimespec;
+#else
+    struct timespec m=s->st_mtim,c=s->st_ctim;
+#endif
+    *out=(mellum_read_file_identity){(uint64_t)s->st_dev,(uint64_t)s->st_ino,(uint64_t)s->st_size,
+          (uint64_t)m.tv_sec*1000000000+(uint64_t)m.tv_nsec,
+          (uint64_t)c.tv_sec*1000000000+(uint64_t)c.tv_nsec};
+    return 0;
+}
+int mellum_read_identity_equal(mellum_read_file_identity a,mellum_read_file_identity b) {
+    return a.dev==b.dev && a.ino==b.ino && a.size==b.size && a.mtime_ns==b.mtime_ns && a.ctime_ns==b.ctime_ns;
+}
+static int plan_identity(FILE *f,const char *path,mellum_read_file_identity *out) {
+    struct stat fd,path_stat;
+    mellum_read_file_identity linked;
+    return fstat(fileno(f),&fd) || lstat(path,&path_stat) || mellum_read_identity_get(&fd,out) ||
+        mellum_read_identity_get(&path_stat,&linked) || !mellum_read_identity_equal(*out,linked);
+}
 
 static uint64_t le64(const unsigned char *p) {
     uint64_t value=0;
@@ -35,6 +58,7 @@ int mellum_read_plan_load(const char *path, mellum_read_plan *out, char *err, si
     if (n) err[0]=0;
     f=fopen(path,"rb");
     if (!f) { why="cannot open plan"; goto fail; }
+    if (plan_identity(f,path,&plan.identity) || plan.identity.size>64+4096*3*32) goto fail;
     if (fread(h,1,64,f)!=64 || memcmp(h,"MLREAD01",8) || le32(h+8)!=1 || le32(h+12)!=64) goto fail;
     plan.count=le32(h+16); ranges=le32(h+20);
     plan.file_bytes=le64(h+24); plan.total_bytes=le64(h+32); plan.max_job_bytes=le64(h+40);
@@ -62,6 +86,8 @@ int mellum_read_plan_load(const char *path, mellum_read_plan *out, char *err, si
     }
     if (previous!=plan.count-1 || total!=plan.total_bytes || maximum!=plan.max_job_bytes ||
         fgetc(f)!=EOF || ferror(f)) goto fail;
+    mellum_read_file_identity final_identity;
+    if (plan_identity(f,path,&final_identity) || !mellum_read_identity_equal(plan.identity,final_identity)) goto fail;
     if (MELLUM_READ_FCLOSE(f)!=0) { f=NULL; why="plan close failed"; goto fail; }
     *out=plan;
     return 0;

@@ -63,7 +63,9 @@ def prepare_batch(index_path: Path, packed_dir: Path, trace_path: Path, binary: 
                         raise OSError('short wire-plan write')
                     stream.flush()
                 common.write_json(stage/f'{key}.json',dict(ids=logical_ids,jobs=jobs))
-                definitions[key] = dict(wire=wire.name,sha256=common.file_identity(wire)['sha256'],
+                wire_identity = common.file_identity(wire)
+                definitions[key] = dict(wire=wire.name,sha256=wire_identity['sha256'],
+                                        identity={key:wire_identity[key] for key in common.STAT_KEYS},
                                         jobs=f'{key}.json', jobs_sha256=common.file_identity(stage/f'{key}.json')['sha256'],
                                         logical_bytes=sum(sum(s['bytes'] for s in j['ranges']) for j in jobs))
         runs = frozen_runs()
@@ -116,6 +118,8 @@ def verify_batch(batch_dir: Path) -> tuple[dict, dict]:
         for field,hash_key in (('wire','sha256'),('jobs','jobs_sha256')):
             if common.file_identity(batch_dir/definition[field])['sha256'] != common.digest(definition[hash_key]):
                 raise ValueError('frozen plan changed')
+        if identity.file_stat(batch_dir/definition['wire']) != definition['identity']:
+            raise ValueError('wire plan identity changed')
         logical = common.load_json(batch_dir/definition['jobs'])
         jobs = plans.make_jobs(index if layout == 'original' else packed,ids[name],layout)
         size = batch['inputs']['model' if layout == 'original' else 'payload']['size']
@@ -138,7 +142,7 @@ def distribution(values: list[float]) -> dict:
     return {name:ordered[math.ceil(q*len(ordered))-1] for name,q in (('p50',.5),('p95',.95),('p99',.99),('max',1))}
 
 
-def validate_native(report: dict, jobs: list[dict], run: dict, expected_file: dict) -> dict:
+def validate_native(report: dict, jobs: list[dict], run: dict, expected_file: dict, expected_plan: dict | None = None) -> dict:
     try:
         total = sum(sum(span['bytes'] for span in job['ranges']) for job in jobs)
         maximum = max(sum(span['bytes'] for span in job['ranges']) for job in jobs)
@@ -155,6 +159,10 @@ def validate_native(report: dict, jobs: list[dict], run: dict, expected_file: di
             raise ValueError('native file identity differs')
         for key in common.STAT_KEYS:
             common.integer(report['file'][key],expected_file[key],expected_file[key])
+        for key in common.STAT_KEYS:
+            common.integer(report['plan'][key])
+        if expected_plan is not None and report['plan'] != expected_plan:
+            raise ValueError('native consumed a different plan identity')
         summary = report['summary']
         start = common.integer(summary['start_ns'],1)
         end = common.integer(summary['end_ns'],start+1)
@@ -251,7 +259,7 @@ def run_batch(batch_dir: Path, container: Path) -> Path:
                     check_binding(value,full=False)
                 native = common.load_json(stdout)
                 expected = {key:batch['inputs'][input_key][key] for key in common.STAT_KEYS}
-                metrics = validate_native(native,jobs_by_key[key],run,expected)
+                metrics = validate_native(native,jobs_by_key[key],run,expected,definition['identity'])
                 common.write_json(raw/f'{number:02}.metrics.json',metrics)
                 # Raw samples and derived per-job metrics stay in separately bounded files.
                 brief = {key:value for key,value in metrics.items() if key not in ('jobs','completion_order')}
