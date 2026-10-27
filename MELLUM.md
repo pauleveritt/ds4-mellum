@@ -70,6 +70,14 @@ and `chat_template.jinja` are byte-identical to the Hugging Face snapshot
   `<tool_response>` as plain text (fork commit `14212a9` changed that for
   every qwen4 model; this branch does not), and a tiny-vocabulary test checks
   that it is unchanged.
+- The `ds4` CLI's `-n` cap message (step 28, `a6c2eb0`): for every model, a
+  turn that generated as many tokens as `-n` allows now ends with
+  `ds4: stopped at the -n cap of N tokens` on stderr. This applies to the
+  one-shot greedy and sampled paths and to a REPL turn. A turn that ends on
+  its own prints nothing new, and stdout is unchanged.
+- The DeepSeek max-effort preamble (`chat_push_think_prefix`, review fix R6) is skipped for Mellum by name.
+  Other models' max thinking is unchanged; a tiny-vocabulary sibling test
+  checks that Flash Next still pushes it.
 - `ds4_prompt_prefix_append` (`ds4_prompt_prefix.h`, review fix R4): for Mellum
   it no longer pushes EOS after an imported assistant turn, because
   `ds4_chat_append_message` has already closed the turn with `<|im_end|>\n`.
