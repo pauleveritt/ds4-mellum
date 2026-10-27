@@ -337,6 +337,35 @@ spread forward. 0.75 is that maximum rounded up. It covers 31 of the 256 held-ou
 not used to set it. There E1 changes the top-1 at 1,100 p1082 (margin 0.032) and 2,200 p1675 (0.156); the
 current path changes none.
 
+### Held-out log loss (E1b)
+
+The per-position caps can't tell router flips from a broken kernel, so the quality check is log loss. For
+each of the four held-out files, the trace driver recorded the mean negative log-likelihood of the file's
+own next token, at every position: all of them for the code, tool and Unicode files, and every fourth for
+the 6,000-id file (64 positions per run, 47 runs per path, n = 2,826 tokens). It was measured under three
+paths:
+
+- the exact prefill, `DS4_MELLUM_EXACT_PREFILL=1`;
+- the current release prefill, with the simdgroup tiles;
+- E1, the tensor-tile experts, measured on the scratch probe build with `DS4_QWEN4_MOE_MM_NAX=2`. Without
+  that variable, the probe build gives the clean build's logits on all 413 traced rows.
+
+Rebased head 9986668, one process at a time. The release paths are deterministic (two processes give
+the same bytes), so the spread below is that of the paired per-token difference: its standard error
+and a 2,000-sample bootstrap 95% interval.
+
+| file | n | exact | current | E1 | E1 - current | se | 95% interval |
+|---|---|---|---|---|---|---|---|
+| code | 163 | 2.11981 | 2.11405 | 2.11403 | -0.00002 | 0.00032 | -0.0007 to +0.0006 |
+| tool | 965 | 1.79379 | 1.78756 | 1.79014 | +0.00258 | 0.00827 | -0.0130 to +0.0198 |
+| unicode | 198 | 2.94366 | 2.95096 | 2.95309 | +0.00212 | 0.00230 | -0.0023 to +0.0063 |
+| long (every 4th) | 1,500 | 0.61689 | 0.61669 | 0.61641 | -0.00028 | 0.00065 | -0.0016 to +0.0010 |
+| all | 2,826 | 1.26848 | 1.26642 | 1.26730 | +0.00088 | 0.00285 | -0.0045 to +0.0065 |
+
+E1 is not worse than the current path beyond the spread: +0.0009 nats per token, with an interval
+that spans zero. Both release paths are within 0.0021 nats per token of the exact path; the current path
+is 0.0021 below it and E1 0.0012 below it.
+
 ### Metal 4 record
 
 Three measurements of the Metal 4 tensor API (`DS4_METAL_DISABLE_METAL4=1` off), 2,200 tokens prefill,
