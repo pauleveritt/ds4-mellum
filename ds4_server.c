@@ -2835,6 +2835,8 @@ static void append_qwen_tool_calls_text(buf *b, const tool_calls *calls, bool ha
     }
 }
 
+static void append_hermes_tool_calls_text(buf *b, const tool_calls *calls, bool has_content);
+
 static void append_tool_calls_text_for_syntax(buf *b,
                                               server_model_syntax syntax,
                                               const tool_calls *calls,
@@ -2843,6 +2845,8 @@ static void append_tool_calls_text_for_syntax(buf *b,
         append_glm_tool_calls_text(b, calls, tool_orders);
     } else if (syntax == SERVER_MODEL_SYNTAX_QWEN) {
         append_qwen_tool_calls_text(b, calls, b->len > 0, tool_orders);
+    } else if (syntax == SERVER_MODEL_SYNTAX_HERMES) {
+        append_hermes_tool_calls_text(b, calls, b->len > 0);
     } else {
         append_dsml_tool_calls_text(b, calls, syntax == SERVER_MODEL_SYNTAX_DEEPSEEK41);
     }
@@ -3489,6 +3493,20 @@ static void append_strip_newlines(buf *b, const char *s, bool left, bool right) 
     buf_append(b, s, n);
 }
 
+/* An assistant turn's calls as the template writes them: a newline before each but a first
+ * one with no content, the client's argument text as is. */
+static void append_hermes_tool_calls_text(buf *b, const tool_calls *calls, bool has_content) {
+    for (int i = 0; calls && i < calls->len; i++) {
+        const tool_call *tc = &calls->v[i];
+        if (i > 0 || has_content) buf_putc(b, '\n');
+        buf_puts(b, "<tool_call>\n{\"name\": \"");
+        buf_puts(b, tc->name ? tc->name : "");
+        buf_puts(b, "\", \"arguments\": ");
+        buf_puts(b, tc->arguments && tc->arguments[0] ? tc->arguments : "{}");
+        buf_puts(b, "}\n</tool_call>");
+    }
+}
+
 static void append_hermes_assistant_message(buf *b, const chat_msg *m, bool keep_reasoning) {
     const char *content = m->content ? m->content : "";
     char *split_reasoning = NULL, *split_content = NULL;
@@ -3523,15 +3541,7 @@ static void append_hermes_assistant_message(buf *b, const chat_msg *m, bool keep
     } else {
         buf_puts(b, content);
     }
-    for (int i = 0; i < m->calls.len; i++) {
-        const tool_call *tc = &m->calls.v[i];
-        if (i > 0 || content[0]) buf_putc(b, '\n');
-        buf_puts(b, "<tool_call>\n{\"name\": \"");
-        buf_puts(b, tc->name ? tc->name : "");
-        buf_puts(b, "\", \"arguments\": ");
-        buf_puts(b, tc->arguments && tc->arguments[0] ? tc->arguments : "{}");
-        buf_puts(b, "}\n</tool_call>");
-    }
+    append_hermes_tool_calls_text(b, &m->calls, content[0] != '\0');
     buf_puts(b, "<|im_end|>\n");
     free(split_reasoning);
     free(split_content);
@@ -12929,6 +12939,28 @@ static char *build_qwen_assistant_suffix(const request *r, const char *content,
     return buf_take(&suffix);
 }
 
+/* The bytes render_hermes_chat_prompt_text() writes for this turn after its generation prompt,
+ * through <|im_end|>: with thinking on and with_reasoning, the turn as the template keeps it
+ * within a tool cycle (which is also the KV's text); otherwise its content and calls. */
+static char *build_hermes_assistant_suffix(const request *r, const char *content,
+                                           const char *reasoning, bool with_reasoning,
+                                           const tool_calls *calls) {
+    const bool keep = with_reasoning && r && ds4_think_mode_enabled(r->think_mode);
+    chat_msg m = {0};
+    m.role = (char *)"assistant";
+    m.content = (char *)(content ? content : "");
+    m.reasoning = (char *)(keep && reasoning ? reasoning : "");   /* "": none taken from the content */
+    if (calls) m.calls = *calls;
+    buf turn = {0};
+    append_hermes_assistant_message(&turn, &m, keep);
+    static const char open[] = "<|im_start|>assistant\n";
+    const char *body = turn.ptr + strlen(open);
+    const size_t len = turn.len - strlen(open) - 1;                /* without the final newline */
+    char *suffix = xstrndup(body, len);
+    buf_free(&turn);
+    return suffix;
+}
+
 static char *build_tool_checkpoint_suffix(const request *r, const char *content,
                                           const char *reasoning, const tool_calls *calls) {
     const server_model_syntax syntax =
@@ -12936,6 +12968,8 @@ static char *build_tool_checkpoint_suffix(const request *r, const char *content,
     if (syntax == SERVER_MODEL_SYNTAX_QWEN) {
         return build_qwen_assistant_suffix(r, content, reasoning, true, calls);
     }
+    if (syntax == SERVER_MODEL_SYNTAX_HERMES)
+        return build_hermes_assistant_suffix(r, content, reasoning, true, calls);
     buf suffix = {0};
     if (r && ds4_think_mode_enabled(r->think_mode)) {
         buf_puts(&suffix, reasoning ? reasoning : "");
@@ -12959,6 +12993,10 @@ static char *build_responses_visible_assistant_suffix(const request *r,
     if (syntax == SERVER_MODEL_SYNTAX_QWEN) {
         return build_qwen_assistant_suffix(r, content, reasoning,
                                            r && r->reasoning_summary_emit && calls && calls->len > 0, calls);
+    }
+    if (syntax == SERVER_MODEL_SYNTAX_HERMES) {
+        return build_hermes_assistant_suffix(r, content, reasoning,
+                                             r && r->reasoning_summary_emit && calls && calls->len > 0, calls);
     }
     buf suffix = {0};
     /* This suffix mirrors what a Responses client can replay, not necessarily
@@ -13003,6 +13041,18 @@ static char *build_thinking_visible_text(const request *r,
     if (!ds4_think_mode_enabled(r->think_mode)) return NULL;
 
     size_t pt_len = strlen(r->prompt_text);
+    if (r->model_syntax == SERVER_MODEL_SYNTAX_HERMES) {
+        /* the next request renders this turn after a new user message, so without its
+         * reasoning: the content as answered, closed by <|im_end|> */
+        const char *gen = "<|im_start|>assistant\n";
+        const size_t gen_len = strlen(gen);
+        if (pt_len < gen_len || memcmp(r->prompt_text + pt_len - gen_len, gen, gen_len) != 0) return NULL;
+        buf visible = {0};
+        buf_append(&visible, r->prompt_text, pt_len);
+        buf_puts(&visible, content ? content : "");
+        buf_puts(&visible, "<|im_end|>\n");
+        return buf_take(&visible);
+    }
     if (r->model_syntax == SERVER_MODEL_SYNTAX_QWEN) {
         /* the next request renders this turn as an empty think block plus the
          * trimmed content, closed by <|im_end|> */
