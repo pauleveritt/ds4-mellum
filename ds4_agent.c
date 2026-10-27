@@ -2564,7 +2564,8 @@ static char *agent_hermes_decode_string(const char *s) {
 
 /* A strict JSON validator (RFC 8259 numbers and literals, no trailing commas, no hex, nan or inf),
  * for the raw values: json_number takes whatever strtod does.  Raw control characters inside
- * strings are let through, as the argument strings are. */
+ * strings are let through, as the argument strings are; \u0000 is not, since every string in a
+ * call is decoded to a C string sooner or later, and it would end there. */
 static bool agent_hermes_valid_value(const char **p, const char *end, int depth) {
     if (depth > AGENT_HERMES_MAX_DEPTH) return false;
     *p = agent_skip_ascii_space(*p, end);
@@ -2576,6 +2577,7 @@ static bool agent_hermes_valid_value(const char **p, const char *end, int depth)
             if (++q >= end) return false;
             if (*q == 'u') {
                 for (int i = 1; i <= 4; i++) if (q + i >= end || json_hex(q[i]) < 0) return false;
+                if (!strncmp(q + 1, "0000", 4)) return false;
                 q += 4;
             } else if (!strchr("\"\\/bfnrt", *q)) {
                 return false;
@@ -10992,7 +10994,8 @@ static char *pi_tool_edit(const agent_tool_call *call) {
     pi_edits edits = {0};
     bool parsed = true;
     const char *edits_arg = agent_tool_arg_value(call, "edits");
-    if (edits_arg) parsed = pi_parse_edits_json(edits_arg, &edits);
+    /* edits sent as a JSON string were not validated as the call was parsed */
+    if (edits_arg) parsed = agent_hermes_valid_json(edits_arg, strlen(edits_arg)) && pi_parse_edits_json(edits_arg, &edits);
     /* the legacy single-edit form: top-level oldText and newText */
     const char *legacy_old = agent_tool_arg_value(call, "oldText");
     const char *legacy_new = agent_tool_arg_value(call, "newText");

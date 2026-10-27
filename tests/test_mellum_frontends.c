@@ -713,10 +713,13 @@ static void check_pi_nul(const char *dir) {
         "{\"name\": \"edit\", \"arguments\": {\"path\": \"%s\", \"edits\": [{\"old\\u0000Text\": \"abc\", \"newText\": \"X\"}]}}",
         "{\"name\": \"edit\", \"arguments\": {\"path\": \"%s\", \"edits\": \"[{\\\"oldText\\\": \\\"abc\\\\u0000T\\\", \\\"newText\\\": \\\"X\\\"}]\"}}",
     };
-    for (size_t k = 0; k < sizeof(nested) / sizeof(nested[0]); k++) {
+    for (size_t k = 0; k < sizeof(nested) / sizeof(nested[0]) - 1; k++) {
         snprintf(call, sizeof(call), nested[k], f);
         PI_REFUSED(pi_hermes_run(call));
     }
+    /* edits as a JSON string parse as a string argument; the edit tool refuses them */
+    snprintf(call, sizeof(call), nested[3], f);
+    PI_EXPECT(pi_hermes_run(call), "Edit tool input is invalid. edits must be an array of {oldText, newText} string pairs.");
     char *back = pi_slurp(f);
     CHECK(!strcmp(back, "abc def\n"));
     free(back);
