@@ -3551,6 +3551,45 @@ static bool hermes_is_tool_message(const chat_msg *m) {
     return !strcmp(m->role, "tool") || !strcmp(m->role, "function");
 }
 
+/* The template's message loop from message start on, and the generation prompt.  Reasoning is
+ * kept after the latest user message that is not a wrapped tool response, wherever start is. */
+static void append_hermes_conversation(buf *b, const chat_msgs *msgs, int start, ds4_think_mode think_mode) {
+    const int n = msgs ? msgs->len : 0;
+    int last_query = n - 1;
+    for (int i = n - 1; i >= 0; i--) {
+        const chat_msg *m = &msgs->v[i];
+        const char *c = m->content ? m->content : "";
+        const size_t cl = strlen(c);
+        const bool wrapped = !strncmp(c, "<tool_response>", 15) && cl >= 16 &&
+                             !strcmp(c + cl - 16, "</tool_response>");
+        if (!strcmp(m->role, "user") && !wrapped) {
+            last_query = i;
+            break;
+        }
+    }
+    for (int i = start; i < n; i++) {
+        const chat_msg *m = &msgs->v[i];
+        const char *content = m->content ? m->content : "";
+        if (!strcmp(m->role, "user") || (!strcmp(m->role, "system") && i > 0)) {
+            buf_printf(b, "<|im_start|>%s\n", m->role);
+            buf_puts(b, content);
+            buf_puts(b, "<|im_end|>\n");
+        } else if (!strcmp(m->role, "assistant")) {
+            append_hermes_assistant_message(b, m, i > last_query);
+        } else if (hermes_is_tool_message(m)) {
+            if (i == 0 || !hermes_is_tool_message(&msgs->v[i - 1])) buf_puts(b, "<|im_start|>user");
+            buf_puts(b, "\n<tool_response>\n");
+            buf_puts(b, content);
+            buf_puts(b, "\n</tool_response>");
+            if (i == n - 1 || !hermes_is_tool_message(&msgs->v[i + 1])) buf_puts(b, "<|im_end|>\n");
+        }
+    }
+    if (n == 0 || strcmp(msgs->v[n - 1].role, "assistant") != 0) {
+        buf_puts(b, "<|im_start|>assistant\n");
+        if (!ds4_think_mode_enabled(think_mode)) buf_puts(b, "<think>\n\n</think>\n\n");
+    }
+}
+
 /* Mellum 2.1's chat_template.jinja: the first system message (with the tools block when
  * there are tools), user and later system turns as given, an assistant turn's reasoning
  * kept only after the latest user message that is not a wrapped tool response (so within
@@ -3574,39 +3613,16 @@ static char *render_hermes_chat_prompt_text(const chat_msgs *msgs, const char *t
         buf_puts(&out, msgs->v[0].content ? msgs->v[0].content : "");
         buf_puts(&out, "<|im_end|>\n");
     }
-    int last_query = n - 1;
-    for (int i = n - 1; i >= 0; i--) {
-        const chat_msg *m = &msgs->v[i];
-        const char *c = m->content ? m->content : "";
-        const size_t cl = strlen(c);
-        const bool wrapped = !strncmp(c, "<tool_response>", 15) && cl >= 16 &&
-                             !strcmp(c + cl - 16, "</tool_response>");
-        if (!strcmp(m->role, "user") && !wrapped) {
-            last_query = i;
-            break;
-        }
-    }
-    for (int i = 0; i < n; i++) {
-        const chat_msg *m = &msgs->v[i];
-        const char *content = m->content ? m->content : "";
-        if (!strcmp(m->role, "user") || (!strcmp(m->role, "system") && i > 0)) {
-            buf_printf(&out, "<|im_start|>%s\n", m->role);
-            buf_puts(&out, content);
-            buf_puts(&out, "<|im_end|>\n");
-        } else if (!strcmp(m->role, "assistant")) {
-            append_hermes_assistant_message(&out, m, i > last_query);
-        } else if (hermes_is_tool_message(m)) {
-            if (i == 0 || !hermes_is_tool_message(&msgs->v[i - 1])) buf_puts(&out, "<|im_start|>user");
-            buf_puts(&out, "\n<tool_response>\n");
-            buf_puts(&out, content);
-            buf_puts(&out, "\n</tool_response>");
-            if (i == n - 1 || !hermes_is_tool_message(&msgs->v[i + 1])) buf_puts(&out, "<|im_end|>\n");
-        }
-    }
-    if (n == 0 || strcmp(msgs->v[n - 1].role, "assistant") != 0) {
-        buf_puts(&out, "<|im_start|>assistant\n");
-        if (!ds4_think_mode_enabled(think_mode)) buf_puts(&out, "<think>\n\n</think>\n\n");
-    }
+    append_hermes_conversation(&out, msgs, 0, think_mode);
+    return buf_take(&out);
+}
+
+/* Continue a live session after the model's tool-call turn: its <|im_end|> was the stop token
+ * and is not in the KV yet.  The tail is the full render from message start on. */
+static char *render_hermes_live_tool_tail(const chat_msgs *msgs, int start, ds4_think_mode think_mode) {
+    buf out = {0};
+    buf_puts(&out, "<|im_end|>\n");
+    append_hermes_conversation(&out, msgs, start, think_mode);
     return buf_take(&out);
 }
 
@@ -3851,6 +3867,8 @@ static char *render_live_tool_tail_for_syntax(server_model_syntax syntax,
     if (syntax == SERVER_MODEL_SYNTAX_QWEN) {
         return render_qwen_live_tool_tail(msgs, start, tool_orders, think_mode);
     }
+    if (syntax == SERVER_MODEL_SYNTAX_HERMES)
+        return render_hermes_live_tool_tail(msgs, start, think_mode);
     return render_deepseek_live_tool_tail(msgs, start, think_mode);
 }
 
@@ -12485,9 +12503,32 @@ static char *build_invalid_qwen_tool_error_suffix(const request *r,
     return buf_take(&suffix);
 }
 
+/* A malformed Hermes call is not run: the turn is closed and the error comes back as a tool
+ * result, then the generation prompt, as the next request would render them. */
+static char *build_invalid_hermes_tool_error_suffix(const request *r,
+                                                    const thinking_state *thinking,
+                                                    const char *detail) {
+    buf suffix = {0};
+    const bool think = r && ds4_think_mode_enabled(r->think_mode);
+    if (think && thinking && thinking->inside) buf_puts(&suffix, "\n</think>\n\n");
+    buf_puts(&suffix, "<|im_end|>\n<|im_start|>user\n<tool_response>\nTool error: invalid Hermes tool call");
+    if (detail && detail[0]) {
+        buf_puts(&suffix, ": ");
+        buf_puts(&suffix, detail);
+    }
+    buf_puts(&suffix, "\nThe previous assistant output was not executed because its <tool_call> was not a "
+                      "valid JSON object {\"name\": ..., \"arguments\": {...}}. Emit a new valid <tool_call>, "
+                      "or answer normally if no tool is needed.\n</tool_response><|im_end|>\n"
+                      "<|im_start|>assistant\n");
+    if (!think) buf_puts(&suffix, "<think>\n\n</think>\n\n");
+    return buf_take(&suffix);
+}
+
 static char *build_invalid_tool_call_error_suffix(const request *r,
                                                   const thinking_state *thinking,
                                                   const char *detail) {
+    if (r && r->model_syntax == SERVER_MODEL_SYNTAX_HERMES)
+        return build_invalid_hermes_tool_error_suffix(r, thinking, detail);
     if (r && r->model_syntax == SERVER_MODEL_SYNTAX_GLM) {
         return build_invalid_glm_tool_error_suffix(r, thinking, detail);
     }
