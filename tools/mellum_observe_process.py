@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import selectors
 import subprocess
+import sys
 import time
 
 _spec=importlib.util.spec_from_file_location('mellum_capture_identity',Path(__file__).with_name('mellum_capture_identity.py'))
@@ -23,10 +24,15 @@ class ObservationFailure(ValueError):
 
 
 def byte_size(value: object) -> int:
-    if isinstance(value,(bytes,str)):return len(value)
-    if isinstance(value,dict):return sum(byte_size(k)+byte_size(v) for k,v in value.items())
-    if isinstance(value,(list,tuple)):return sum(map(byte_size,value))
-    return 8
+    """Count retained Python containers including bytearray capacity, once each."""
+    seen=set()
+    def size(item):
+        if id(item) in seen:return 0
+        seen.add(id(item));total=sys.getsizeof(item)
+        if isinstance(item,dict):total+=sum(size(k)+size(v) for k,v in item.items())
+        elif isinstance(item,(list,tuple)):total+=sum(map(size,item))
+        return total
+    return size(value)
 
 
 def observe(argv: list[str],topology: dict) -> dict:
@@ -66,7 +72,9 @@ def observe(argv: list[str],topology: dict) -> dict:
                 result['events'].append(dict(token=token.decode(),time_ns=observer.now_ns()))
                 if os.write(cw,token)!=1:raise ValueError('short native control write')
             def sample(name):
-                if byte_size(topology)+byte_size(result)+sum(map(len,buffers.values()))+32*2**20>MEMORY_LIMIT:
+                # Reserve 128 MiB: 32 MiB capture with bytearray/copy overhead,
+                # <=1 MiB / 16384-node XML decoding, buffers and orchestration headroom.
+                if byte_size((topology,result,buffers))+128*2**20>MEMORY_LIMIT:
                     raise ValueError('observation capture memory bound exceeded')
                 result['snapshots'][name]=observer.snapshot(topology)
             wait_event(b'R',GATE_SECONDS)
