@@ -3520,6 +3520,31 @@ static void append_hermes_tool_calls_text(buf *b, const tool_calls *calls, bool 
     }
 }
 
+static bool parse_hermes_generated_message_ex(const char *text, bool require_thinking_closed, char **content_out,
+                                              char **reasoning_out, tool_calls *calls);
+
+/* Tool memory restores a sampled block for every call id in it.  It is the turn's text only when it holds exactly
+ * the calls the client sent back: names, order and decoded arguments.  Otherwise the sent calls are rendered. */
+static bool hermes_raw_calls_match(const char *raw, const tool_calls *calls) {
+    char *content = NULL, *reasoning = NULL;
+    tool_calls parsed = {0};
+    bool same = raw && raw[0] && parse_hermes_generated_message_ex(raw, false, &content, &reasoning, &parsed) &&
+                parsed.len == calls->len;
+    for (int i = 0; same && i < calls->len; i++) {
+        const char *want = calls->v[i].arguments && calls->v[i].arguments[0] ? calls->v[i].arguments : "{}";
+        const char *got = parsed.v[i].arguments && parsed.v[i].arguments[0] ? parsed.v[i].arguments : "{}";
+        buf w = {0}, g = {0};
+        same = calls->v[i].name && parsed.v[i].name && !strcmp(calls->v[i].name, parsed.v[i].name) &&
+               append_py_json_value(&w, &want, 0) && append_py_json_value(&g, &got, 0) && !strcmp(w.ptr, g.ptr);
+        buf_free(&w);
+        buf_free(&g);
+    }
+    free(content);
+    free(reasoning);
+    tool_calls_free(&parsed);
+    return same;
+}
+
 static void append_hermes_assistant_message(buf *b, const chat_msg *m, bool keep_reasoning) {
     const char *content = m->content ? m->content : "";
     char *split_reasoning = NULL, *split_content = NULL;
@@ -3554,8 +3579,9 @@ static void append_hermes_assistant_message(buf *b, const chat_msg *m, bool keep
     } else {
         buf_puts(b, content);
     }
-    const char *raw = m->calls.len ? m->calls.raw_tool_text : NULL;
-    if (raw && raw[0]) {
+    const char *raw = m->calls.len && hermes_raw_calls_match(m->calls.raw_tool_text, &m->calls) ?
+        m->calls.raw_tool_text : NULL;
+    if (raw) {
         /* the calls as sampled (restored by tool memory when the client sent them back): the
          * KV's bytes.  With no content the template's separator is already written. */
         if (!content[0]) while (*raw == '\n' || *raw == ' ') raw++;
