@@ -333,6 +333,10 @@ typedef struct {
     bool hermes_in_string;
     bool hermes_comma;      /* the last token was a comma: a closing brace now is a trailing comma */
     bool hermes_skip;       /* the value being read belongs to a key we do not keep */
+    /* step 44: a write's or edit's strict-parse error waits for </tool_call>, for one quote repair */
+    bool hermes_deferred;
+    size_t hermes_call_start;   /* the call object's opening brace, in raw */
+    char hermes_deferred_error[160];
     agent_tool_calls calls;
     char error[160];
 } agent_dsml_parser;
@@ -2529,6 +2533,7 @@ enum {
     AGENT_HERMES_ARGS_AFTER,
     AGENT_HERMES_CLOSE,       /* the call object is closed; </tool_call> is next */
     AGENT_HERMES_PROSE,       /* after a call: prose, skipped until the next <tool_call> */
+    AGENT_HERMES_DEFERRED,    /* a write or edit failed the strict parse: wait for </tool_call>, then repair */
 };
 
 #define AGENT_HERMES_MAX_DEPTH 256
@@ -2774,6 +2779,94 @@ static bool agent_hermes_begin_value(agent_dsml_parser *p, const char *cur, bool
     return true;
 }
 
+static void agent_dsml_feed(agent_dsml_parser *p, const char *s, size_t n);
+static void agent_dsml_finish(agent_dsml_parser *p);
+
+/* Match pattern at s: a space skips JSON whitespace, any other byte must be there.  The end, or NULL. */
+static const char *agent_hermes_eat(const char *s, const char *end, const char *pattern) {
+    for (; *pattern; pattern++) {
+        if (*pattern == ' ') s = agent_skip_ascii_space(s, end);
+        else if (s < end && *s == *pattern) s++;
+        else return NULL;
+    }
+    return s;
+}
+
+/* Is the quote at q unescaped (an even run of backslashes before it, back to from)? */
+static bool agent_hermes_bare_quote(const char *from, const char *q) {
+    size_t backslashes = 0;
+    while (q - backslashes > from && q[-1 - (ptrdiff_t)backslashes] == '\\') backslashes++;
+    return *q == '"' && backslashes % 2 == 0;
+}
+
+/* A value that holds a tool key's boundary (", "path": and the like) has folded another member into itself:
+ * that is no bare quote, so the call is not repaired. */
+static bool agent_hermes_folds_member(const char *s, const char *end) {
+    static const char *const keys[] = {"path", "content", "edits", "oldText", "newText"};
+    for (const char *q = s; q < end; q++) {
+        if (!agent_hermes_bare_quote(s, q)) continue;
+        for (size_t k = 0; k < sizeof(keys) / sizeof(keys[0]); k++) {
+            char pattern[32];
+            snprintf(pattern, sizeof(pattern), "\" , \"%s\" :", keys[k]);
+            if (agent_hermes_eat(q, end, pattern)) return true;
+        }
+    }
+    return false;
+}
+
+/* The call body (from its opening brace to </tool_call>) of a write whose content holds bare quotes, with them
+ * escaped; NULL when the body is not exactly {"name": "write", "arguments": {"path": <a valid string>,
+ * "content": "..."}} or the rewrite changes nothing.  The path is not repaired: a wrong path is another file. */
+static char *agent_hermes_repair_quotes(const char *s, size_t n) {
+    const char *end = s + n, *past = NULL;
+    const char *q = agent_hermes_eat(s, end, " { \"name\" : \"write\" , \"arguments\" : { \"path\" : ");
+    if (!q || q >= end || *q != '"' || !agent_hermes_string_end(q, end, &past)) return NULL;
+    char *path = agent_hermes_decode_string(q);
+    if (!path) return NULL;
+    free(path);
+    const char *v = agent_hermes_eat(past, end, " , \"content\" : \"");
+    if (!v) return NULL;
+    /* the tail: " } } and whitespace */
+    const char *v_end = end;
+    for (const char *lit = "}}\""; *lit; lit++) {
+        while (v_end > v && (v_end[-1] == ' ' || v_end[-1] == '\t' || v_end[-1] == '\r' || v_end[-1] == '\n')) v_end--;
+        if (v_end <= v || v_end[-1] != *lit) return NULL;
+        v_end--;
+    }
+    if (agent_hermes_folds_member(v, v_end)) return NULL;
+    char *out = xmalloc(2 * n + 1), *o = out;
+    memcpy(o, s, (size_t)(v - s));
+    o += v - s;
+    for (const char *c = v; c < v_end; c++) {
+        if (agent_hermes_bare_quote(v, c)) *o++ = '\\';
+        *o++ = *c;
+    }
+    const bool changed = (size_t)(o - out) != (size_t)(v_end - s);
+    memcpy(o, v_end, (size_t)(end - v_end));
+    o[end - v_end] = '\0';
+    if (!changed) { free(out); return NULL; }
+    return out;
+}
+
+/* The deferred call has reached </tool_call> at close_at: parse its repair strictly.  True: the call is pushed. */
+static bool agent_hermes_repaired_call(agent_dsml_parser *p, size_t close_at) {
+    char *body = agent_hermes_repair_quotes(p->raw + p->hermes_call_start, close_at - p->hermes_call_start);
+    if (!body) return false;
+    agent_dsml_parser q = {.syntax = AGENT_TOOL_SYNTAX_HERMES, .state = AGENT_DSML_SEARCH, .hermes_deferred = true};
+    agent_dsml_feed(&q, "<tool_call>", strlen("<tool_call>"));
+    agent_dsml_feed(&q, body, strlen(body));
+    agent_dsml_feed(&q, "</tool_call>", strlen("</tool_call>"));
+    agent_dsml_finish(&q);
+    free(body);
+    const bool ok = q.state == AGENT_DSML_DONE && q.calls.len == 1;
+    if (ok) {
+        agent_tool_call_free(&p->current);
+        agent_tool_calls_push(&p->calls, &q.calls.v[0]);
+    }
+    agent_dsml_parser_free(&q);
+    return ok;
+}
+
 /* Streaming parser for the Hermes call object.  Only an argument's value streams through
  * PARAM_VALUE (a string carries the code being written; numbers, literals and nested values are
  * scanned to their end and kept as raw JSON text); everything else structural is parsed once the
@@ -2824,6 +2917,7 @@ static void agent_hermes_tool_parse(agent_dsml_parser *p) {
             return;
         }
         case AGENT_HERMES_OPEN:
+            p->hermes_call_start = p->parse_pos;
             if (*cur != '{') {
                 agent_dsml_set_error(p, "expected a JSON object after <tool_call>");
                 return;
@@ -2946,6 +3040,23 @@ static void agent_hermes_tool_parse(agent_dsml_parser *p) {
         case AGENT_HERMES_ARGS_VALUE:
             if (!agent_hermes_begin_value(p, cur, false)) return;
             break;
+        case AGENT_HERMES_DEFERRED: {
+            /* resume the search where the last one stopped, short of a half-arrived </tool_call> */
+            size_t from = p->hermes_scan > sizeof(close) - 2 ? p->hermes_scan - (sizeof(close) - 2) : 0;
+            if (from < p->parse_pos) from = p->parse_pos;
+            const char *at = agent_memmem(raw + from, p->raw_len - from, close, sizeof(close) - 1);
+            p->hermes_scan = p->raw_len;
+            if (!at) return;
+            if (!agent_hermes_repaired_call(p, (size_t)(at - raw))) {
+                agent_dsml_set_error(p, p->hermes_deferred_error);
+                return;
+            }
+            p->hermes_deferred = false;
+            p->hermes_phase = AGENT_HERMES_CLOSE;
+            p->parse_pos = (size_t)(at - raw) + sizeof(close) - 1;
+            p->glm_after_call = true;
+            break;
+        }
         case AGENT_HERMES_CLOSE:
             if (agent_bytes_starts_with(cur, end, close)) {
                 if (!p->current.name) {
@@ -2967,6 +3078,11 @@ static void agent_hermes_tool_parse(agent_dsml_parser *p) {
 static void agent_dsml_finish(agent_dsml_parser *p) {
     if (!p || p->state == AGENT_DSML_DONE || p->state == AGENT_DSML_ERROR)
         return;
+    /* Hermes: a held error whose </tool_call> never came is the strict parse's */
+    if (p->syntax == AGENT_TOOL_SYNTAX_HERMES && p->hermes_phase == AGENT_HERMES_DEFERRED) {
+        agent_dsml_set_error(p, p->hermes_deferred_error);
+        return;
+    }
     /* Hermes: a call followed by prose (or half an opener) is a finished turn too */
     if (p->syntax == AGENT_TOOL_SYNTAX_HERMES && p->state == AGENT_DSML_STRUCTURAL &&
         (p->hermes_phase == AGENT_HERMES_PROSE || p->glm_after_call) && p->calls.len > 0) {
@@ -2994,6 +3110,17 @@ static void agent_dsml_finish(agent_dsml_parser *p) {
 static void agent_dsml_parse(agent_dsml_parser *p) {
     if (p->syntax == AGENT_TOOL_SYNTAX_HERMES) {
         agent_hermes_tool_parse(p);
+        /* step 44: a write whose arguments fail the strict parse waits for </tool_call>, for one repair */
+        const char *name = p->current.name ? p->current.name : "";
+        if (p->state == AGENT_DSML_ERROR && !p->hermes_deferred && !strcmp(name, "write")) {
+            p->hermes_deferred = true;
+            snprintf(p->hermes_deferred_error, sizeof(p->hermes_deferred_error), "%s", p->error);
+            p->error[0] = '\0';
+            p->state = AGENT_DSML_STRUCTURAL;
+            p->hermes_phase = AGENT_HERMES_DEFERRED;
+            p->hermes_scan = p->parse_pos;
+            agent_hermes_tool_parse(p);
+        }
         return;
     }
     if (p->syntax == AGENT_TOOL_SYNTAX_QWEN) {
@@ -12147,7 +12274,8 @@ static bool agent_stream_wants_greedy_sampling(const agent_stream_renderer *sr) 
     if (sr->parser->state == AGENT_DSML_STRUCTURAL)
         /* Hermes prose after a call is the model talking, not grammar */
         return !(sr->parser->syntax == AGENT_TOOL_SYNTAX_HERMES &&
-                 sr->parser->hermes_phase == AGENT_HERMES_PROSE);
+                 (sr->parser->hermes_phase == AGENT_HERMES_PROSE ||
+                  sr->parser->hermes_phase == AGENT_HERMES_DEFERRED));
     if (sr->parser->state != AGENT_DSML_PARAM_VALUE)
         return false;
 
