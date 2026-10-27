@@ -89017,6 +89017,20 @@ static bool mellum_capture_ready(ds4_mellum_capture *c,char *err,size_t n) {
     mellum_capture_error(c,err,n,"Mellum capture is not ready");
     return false;
 }
+/* Ordinary checkpoint appends use fatal allocation. Reserve before inference so
+ * those appends cannot allocate after a capture frame has already been emitted. */
+static bool mellum_capture_reserve_checkpoint(ds4_session *s,int needed) {
+    token_vec *v=&s->checkpoint;
+    if (needed<=v->cap) return true;
+    int cap=v->cap ? v->cap:64;
+    while (cap<needed) cap=cap>s->ctx_size/2 ? s->ctx_size:cap*2;
+    if (cap>s->ctx_size) cap=s->ctx_size;
+    if ((size_t)cap>SIZE_MAX/sizeof(v->v[0])) return false;
+    int *p=realloc(v->v,(size_t)cap*sizeof(v->v[0]));
+    if (!p) return false;
+    v->v=p;v->cap=cap;
+    return true;
+}
 static int mellum_capture_operation_end(ds4_mellum_capture *c,int status,char *err,size_t n) {
     if (!status && (!c->session->checkpoint_valid ||
         (uint64_t)c->session->checkpoint.len!=c->core.writer.positions)) status=1;
@@ -89045,6 +89059,8 @@ int ds4_mellum_capture_sync(ds4_mellum_capture *c,const ds4_tokens *p,uint32_t s
     if (!mellum_capture_begin_sync(&c->core,(const uint32_t *)s->checkpoint.v,committed,
                                   (const uint32_t *)p->v,(size_t)p->len,seg))
         return mellum_capture_error(c,err,n,"Mellum capture requires an unchanged token prefix");
+    if (!mellum_capture_reserve_checkpoint(s,p->len))
+        return mellum_capture_error(c,err,n,"Mellum capture checkpoint allocation failed");
     int status=ds4_session_sync(s,p,err,n);
     return mellum_capture_operation_end(c,status,err,n);
 }
@@ -89058,6 +89074,8 @@ int ds4_mellum_capture_eval(ds4_mellum_capture *c,int token,uint32_t seg,char *e
         return mellum_capture_error(c,err,n,"Mellum capture token or context is invalid");
     if (!mellum_capture_begin_eval(&c->core,(uint64_t)s->checkpoint.len,seg))
         return mellum_capture_error(c,err,n,"Mellum capture position is not contiguous");
+    if (!mellum_capture_reserve_checkpoint(s,s->checkpoint.len+1))
+        return mellum_capture_error(c,err,n,"Mellum capture checkpoint allocation failed");
     int status=ds4_session_eval(s,token,err,n);
     return mellum_capture_operation_end(c,status,err,n);
 }
