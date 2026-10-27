@@ -394,6 +394,59 @@ def test_measured_mellum_provenance_is_preserved_by_cli():
     assert report["results"][0]["totals"]["demand_bytes"] == 1_473_970_176
 
 
+def test_bound_interpretation_and_phase_counterexample():
+    ids = [0, 1, 2, 1, 2] + [0] * 19
+    items = [header(layers=1, experts=3, top_k=1)]
+    for number, expert in enumerate(ids):
+        items.extend(forward(number, [[[expert]]], phase="prefill" if number < 5 else "decode"))
+    trace = load(items)
+    result = tool().replay(trace, 20, "relaxed-optimal")
+    assert result["totals"]["demand_bytes"] == 40
+    assert result["by_phase"]["prefill"]["demand_bytes"] == 30
+    assert result["by_phase"]["decode"]["demand_bytes"] == 10
+    assert result["decode_distribution"]["demand_bytes"]["p95"] == 10
+    # Causal witness: always pin expert 0, rotate the only other slot.
+    cache, misses = set(), []
+    for expert in ids:
+        miss = expert not in cache
+        misses.append(10 if miss else 0)
+        if miss:
+            if len(cache) == 2:
+                cache.remove(next(item for item in cache if item != 0))
+            cache.add(expert)
+    assert sum(misses) == 50
+    assert misses[5:] == [0] * 19
+    assert sorted(misses[5:])[18] == 0  # nearest-rank p95 for 19 tokens
+    for policy, kind, scope in (
+        ("lru", "causal-policy", "atomic-full-group-residency"),
+        ("relaxed-optimal", "lower-bound", "atomic-full-group-residency-or-fixed-sorted-sequence"),
+    ):
+        assert tool().replay(trace, 20, policy)["interpretation"] == {
+            "kind": kind, "objective": "whole-trace-demand-loads-and-bytes",
+            "schedule_scope": scope, "diagnostics_are_bounds": False,
+            "order_flexible_tiling_covered": False,
+        }
+
+
+def test_sorted_bound_excludes_flexible_group_order():
+    trace = single_layer([[0, 2], [1, 2], [0, 1]])
+    result = tool().replay(trace, 20, "relaxed-optimal")
+    assert result["totals"]["demand_loads"] == 4
+    assert optimal_misses((0, 2, 1, 2, 0, 1), 2) == 4
+    assert optimal_misses((0, 2, 2, 1, 0, 1), 2) == 3
+    assert result["interpretation"]["order_flexible_tiling_covered"] is False
+
+
+def test_prefill_union_exceeds_capacity_even_when_each_row_fits():
+    trace = load([header(layers=1, experts=3),
+                  *forward(0, [[[0, 1], [1, 2]]], phase="prefill")])
+    for policy in ("lru", "relaxed-optimal"):
+        with invalid(2, "group requires 3"):
+            tool().replay(trace, 20, policy)
+        with invalid(2, "unsupported by atomic group residency"):
+            tool().replay(trace, 20, policy)
+
+
 def load_tests(loader, tests, pattern):
     return unittest.TestSuite(
         unittest.FunctionTestCase(value)
