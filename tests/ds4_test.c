@@ -625,6 +625,52 @@ static void test_mellum_rewind_case(ds4_engine *engine, int len, int k) {
     ds4_session_free(s);
 }
 
+/* A rewind deeper than one token resets the session, and the next eval prefills the kept tokens again: the
+ * logits after it are a fresh session's synced to the kept tokens, byte for byte, which are the logits the
+ * session gave before only when the kept tokens were evaluated the same way the first time.  The review's case:
+ * sync 31 (an exact chunk), eval 3, rewind to 32; the replay is one 32-row chunk, which takes the batched and
+ * tiled paths, so the next eval equals the fresh session's and differs from the straight run's. */
+static void test_mellum_rewind_fresh_case(ds4_engine *engine, int len, int k, int to) {
+    float *rewound = malloc(98304u * sizeof(float)), *fresh = malloc(98304u * sizeof(float));
+    float *straight = malloc(98304u * sizeof(float));
+    TEST_ASSERT(rewound && fresh && straight);
+    char err[256] = {0};
+    ds4_tokens prompt = {0}, kept = {0};
+    for (int i = 0; i < len; i++) ds4_tokens_push(&prompt, test_mellum_token(i));
+    for (int i = 0; i < to; i++) ds4_tokens_push(&kept, test_mellum_token(i));
+    ds4_session *s = NULL;
+    TEST_ASSERT(ds4_session_create(&s, engine, 4096) == 0 && s != NULL);
+    if (!s || !rewound || !fresh || !straight) return;
+    TEST_ASSERT(ds4_session_sync(s, &prompt, err, sizeof(err)) == 0);
+    for (int j = 0; j < k; j++) {
+        TEST_ASSERT(ds4_session_eval(s, test_mellum_token(len + j), err, sizeof(err)) == 0);
+        if (len + j == to) TEST_ASSERT(ds4_session_copy_logits(s, straight, 98304) == 98304);
+    }
+    ds4_session_rewind(s, to);
+    TEST_ASSERT(ds4_session_pos(s) == to);
+    TEST_ASSERT(ds4_session_eval(s, test_mellum_token(to), err, sizeof(err)) == 0);
+    TEST_ASSERT(ds4_session_copy_logits(s, rewound, 98304) == 98304);
+    ds4_session_free(s);
+    s = NULL;
+    TEST_ASSERT(ds4_session_create(&s, engine, 4096) == 0 && s != NULL);
+    if (!s) return;
+    TEST_ASSERT(ds4_session_sync(s, &kept, err, sizeof(err)) == 0);
+    TEST_ASSERT(ds4_session_eval(s, test_mellum_token(to), err, sizeof(err)) == 0);
+    TEST_ASSERT(ds4_session_copy_logits(s, fresh, 98304) == 98304);
+    uint64_t d_fresh = 0, d_straight = 0;
+    for (uint32_t i = 0; i < 98304u; i++) {
+        d_fresh += memcmp(&rewound[i], &fresh[i], sizeof(float)) != 0;
+        d_straight += memcmp(&rewound[i], &straight[i], sizeof(float)) != 0;
+    }
+    printf("mellum-rewind: sync %d, eval %d, rewind to %d, eval: %llu of 98304 logit words differ from a fresh sync of "
+           "%d, %llu from the straight run\n", len, k, to, (unsigned long long)d_fresh, to, (unsigned long long)d_straight);
+    TEST_ASSERT(d_fresh == 0);
+    TEST_ASSERT(d_straight > 0);   /* the replay's 32-row chunk is not the straight run's arithmetic */
+    free(rewound); free(fresh); free(straight);
+    ds4_tokens_free(&prompt); ds4_tokens_free(&kept);
+    ds4_session_free(s);
+}
+
 /* The exact-prefill diagnostic (DS4_TEST_MELLUM_MODEL): with DS4_MELLUM_EXACT_PREFILL=1 set when the session is
  * created, a prefill of 1,100 tokens (chunks of 1,024 and 76 rows) runs the exact paths, so its logits equal those
  * of the same tokens decoded one by one, byte for byte.  Without it the 1,024-row chunk takes the batched and tiled
@@ -689,6 +735,7 @@ static void test_mellum_rewind(void) {
     test_mellum_rewind_case(engine, 500, 1);    /* inside the window */
     test_mellum_rewind_case(engine, 1100, 1);   /* past it: the ring has wrapped */
     test_mellum_rewind_case(engine, 1100, 3);   /* deeper than the ring allows: replay */
+    test_mellum_rewind_fresh_case(engine, 31, 3, 32);
     ds4_engine_close(engine);
 }
 
