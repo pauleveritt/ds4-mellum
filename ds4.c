@@ -59488,7 +59488,8 @@ static bool mellum_graph_alloc(ds4_qwen4_gpu_graph *g, uint32_t ctx_cap, uint32_
         }
     }
 #endif
-    g->host_logits = xmalloc((uint64_t)DS4_N_VOCAB * sizeof(float));
+    g->host_logits = malloc((size_t)DS4_N_VOCAB * sizeof(float));
+    ok=ok && g->host_logits!=NULL;
     g->mellum_allocated_bytes = allocated;
     if (!ok) {
         fprintf(stderr, "ds4: Mellum graph allocation failed (ctx %u, chunk %u, %" PRIu64 " bytes taken)\n",
@@ -75597,7 +75598,8 @@ int ds4_session_create(ds4_session **out, ds4_engine *e, int ctx_size) {
 #else
     if (!ds4_backend_uses_graph(e->backend) || !e->metal_ready) return 1;
 
-    ds4_session *s = xcalloc(1, sizeof(*s));
+    ds4_session *s = ds4_model_is_mellum() ? calloc(1,sizeof(*s)):xcalloc(1,sizeof(*s));
+    if (!s) return 1;
     s->engine = e;
     s->ctx_size = ctx_size;
 #ifdef DS4_HAS_DEEPSEEK41_GPU
@@ -75728,8 +75730,14 @@ int ds4_session_create(ds4_session **out, ds4_engine *e, int ctx_size) {
         s->qwen4_graph_ready = true;
         if (!s->qwen4_graph.owns_scratch) e->qwen4_arena_users++;
         s->prefill_cap = (uint32_t)ctx_size;
-        s->logits = xmalloc((size_t)DS4_N_VOCAB * sizeof(s->logits[0]));
-        s->sample_probs = xmalloc((size_t)DS4_N_VOCAB * sizeof(s->sample_probs[0]));
+        if (ds4_model_is_mellum()) {
+            s->logits=malloc((size_t)DS4_N_VOCAB*sizeof(s->logits[0]));
+            s->sample_probs=malloc((size_t)DS4_N_VOCAB*sizeof(s->sample_probs[0]));
+            if (!s->logits || !s->sample_probs) { ds4_session_free(s);return 1; }
+        } else {
+            s->logits=xmalloc((size_t)DS4_N_VOCAB*sizeof(s->logits[0]));
+            s->sample_probs=xmalloc((size_t)DS4_N_VOCAB*sizeof(s->sample_probs[0]));
+        }
         if (!ds4_session_tp_register(s)) {
             ds4_session_free(s);
             return 1;
