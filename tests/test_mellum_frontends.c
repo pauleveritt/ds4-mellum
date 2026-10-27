@@ -437,12 +437,54 @@ static void check_pi_unknown(void) {
     puts("ok   agent: Mellum is offered Pi's four tools only; another name is Pi's \"Tool X not found\"");
 }
 
+/* edit's fuzzy pass (Pi's normalizeForFuzzyMatch without NFKC): trailing whitespace per line, smart quotes, Unicode
+ * dashes and spaces; the lines nobody edited keep their bytes */
+static void check_pi_edit_fuzzy(const char *dir) {
+    char want[PATH_MAX + 160];
+    /* the model types straight quotes and drops trailing spaces; the file keeps its smart quotes elsewhere */
+    char *q = pi_fixture(dir, "q.txt", "say \xe2\x80\x9chi\xe2\x80\x9d   \nkeep \xe2\x80\x98this\xe2\x80\x99 line\nend\n");
+    snprintf(want, sizeof(want), "Successfully replaced 1 block(s) in %s.", q);
+    PI_EXPECT(pi_run("edit", "path", q, "edits", "#[{\"oldText\": \"say \\\"hi\\\"\\n\", \"newText\": \"say \\\"bye\\\"\\n\"}]",
+                     NULL), want);
+    char *back = pi_slurp(q);
+    CHECK(!strcmp(back, "say \"bye\"\nkeep \xe2\x80\x98this\xe2\x80\x99 line\nend\n"));
+    free(back);
+    /* sibling: text that is nowhere, normalized or not, is still not found */
+    PI_EXPECT_PREFIX(pi_run("edit", "path", q, "edits", "#[{\"oldText\": \"say zzz\", \"newText\": \"x\"}]", NULL),
+                     "Could not find the exact text in ");
+    /* an indented blank line is an empty one to the fuzzy pass */
+    char *blank = pi_fixture(dir, "blank.py", "def f():\n    x = 1\n    \n    return x\n");
+    snprintf(want, sizeof(want), "Successfully replaced 1 block(s) in %s.", blank);
+    PI_EXPECT(pi_run("edit", "path", blank, "edits",
+                     "#[{\"oldText\": \"    x = 1\\n\\n    return x\", \"newText\": \"    x = 2\\n\\n    return x\"}]", NULL), want);
+    back = pi_slurp(blank);
+    CHECK(!strcmp(back, "def f():\n    x = 2\n\n    return x\n"));
+    free(back);
+    /* an oldText of only whitespace normalizes to nothing, which Pi finds everywhere: not unique, and no endless loop */
+    PI_EXPECT_PREFIX(pi_run("edit", "path", blank, "edits", "#[{\"oldText\": \"    \", \"newText\": \"\"}]", NULL), "Found ");
+    /* Pi counts occurrences on normalized text: unique exactly, twice once trailing spaces go, so not unique */
+    char *twice = pi_fixture(dir, "twice.py", "x = 1\nx = 1  \n");
+    snprintf(want, sizeof(want), "Found 2 occurrences of the text in %s. The text must be unique. Please provide more "
+             "context to make it unique.", twice);
+    PI_EXPECT(pi_run("edit", "path", twice, "edits", "#[{\"oldText\": \"x = 1\\n\", \"newText\": \"x = 2\\n\"}]", NULL), want);
+    /* a 4-byte character on an edited line keeps its four bytes (U+1F620 is f0 9f 98 a0, and a0 alone is NBSP) */
+    char *emoji = pi_fixture(dir, "emoji.py", "s = \xe2\x80\x9chi\xe2\x80\x9d  # \xf0\x9f\x98\xa0\nend\n");
+    PI_EXPECT_PREFIX(pi_run("edit", "path", emoji, "edits", "#[{\"oldText\": \"s = \\\"hi\\\"\", \"newText\": \"s = \\\"bye\\\"\"}]",
+                            NULL), "Successfully replaced 1 block(s)");
+    back = pi_slurp(emoji);
+    CHECK(!strcmp(back, "s = \"bye\"  # \xf0\x9f\x98\xa0\nend\n"));
+    free(back);
+    free(q); free(blank); free(twice); free(emoji);
+    puts("ok   agent: Pi's edit for Mellum, fuzzy (quotes, dashes, spaces, trailing whitespace; other lines kept)");
+}
+
 static void check_pi_tools(void) {
     char dir[] = "/tmp/ds4-mellum-pi-XXXXXX";
     CHECK(mkdtemp(dir) != NULL);
     check_pi_read(dir);
     check_pi_write(dir);
     check_pi_edit(dir);
+    check_pi_edit_fuzzy(dir);
     check_pi_bash();
     check_pi_unknown();
     char cmd[PATH_MAX + 16];
