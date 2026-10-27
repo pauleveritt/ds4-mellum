@@ -1117,6 +1117,28 @@ static void test_hermes_quote_repair_edit(void) {
                                        err, sizeof(err), &n) == AGENT_DSML_ERROR);
 }
 
+/* Step 44 (pathology 148): a value delimited with backticks, as a JavaScript template string is, is reported, not
+ * repaired, and at once: the error names the argument and says how a JSON string is written, and comes at the
+ * backtick, not at </tool_call>.  Sibling: a backtick inside a JSON string is text. */
+static void test_hermes_backtick_value(void) {
+    const char *call = "<tool_call>\n{\"name\": \"edit\", \"arguments\": {\"path\": \"t.html\", \"edits\": "
+                       "[{\"oldText\": `<html lang=\"en\">`, \"newText\": `<html lang='en'>`}]}}\n</tool_call>";
+    const char *tick = strchr(call, '`');
+    agent_dsml_parser p = hermes_parser();
+    agent_dsml_feed(&p, call, (size_t)(tick - call) + 1);
+    AGENT_TEST_ASSERT(p.state == AGENT_DSML_ERROR);
+    AGENT_TEST_ASSERT(strstr(p.error, "oldText") != NULL && strstr(p.error, "backticks") != NULL);
+    AGENT_TEST_ASSERT(strstr(p.error, "double quotes") != NULL);
+    agent_dsml_parser_free(&p);
+    char err[160];
+    int n = -1;
+    AGENT_TEST_ASSERT(hermes_parse_all("{\"name\": \"write\", \"arguments\": {\"path\": \"a.md\", \"content\": `x`}}\n</tool_call>",
+                                       err, sizeof(err), &n) == AGENT_DSML_ERROR);
+    AGENT_TEST_ASSERT(strstr(err, "content") != NULL && strstr(err, "backticks") != NULL);
+    AGENT_TEST_ASSERT(hermes_parse_all("{\"name\": \"write\", \"arguments\": {\"path\": \"a.md\", \"content\": \"use `x`\"}}\n</tool_call>",
+                                       err, sizeof(err), &n) == AGENT_DSML_DONE && n == 1);
+}
+
 /* greedy while the call's grammar is being written, sampled inside a string */
 static void test_hermes_greedy_boundaries(void) {
     agent_tail_capture tail = {.cap = 4096};
@@ -1478,6 +1500,7 @@ static void test_hermes_tool_syntax(void) {
     test_hermes_errors();
     test_hermes_quote_repair_write();
     test_hermes_quote_repair_edit();
+    test_hermes_backtick_value();
     test_hermes_greedy_boundaries();
     test_hermes_raw_values();
     test_hermes_json_loads();
