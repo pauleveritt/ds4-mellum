@@ -6,7 +6,7 @@
 
 **Architecture:** A standalone standard-library Python tool validates complete JSONL traces before replaying grouped LRU and a relaxed optimal bound. Structured reports distinguish references, unique group demand and decode-token statistics.
 
-**Tech Stack:** Python 3.10+ standard library, unittest function tests, Make.
+**Tech Stack:** Python 3.14+ standard library, unittest function tests, Make.
 
 **Spec:** `docs/superpowers/specs/2026-10-27-mellum-ssd-replay-design.md` (approved in chat).
 
@@ -80,8 +80,8 @@ is updated as completion bookkeeping. Deferred minor: an explicit oversized
 prefill-union test where each individual row fits (e.g. `[0,1]`, `[1,2]` with
 two slots); the current implementation already rejects the union correctly.
 
-Decisions retained: Python 3.10+ stdlib avoids new dependencies; a different
-version requirement would need a compatibility adjustment. The original
+The Python floor was raised to 3.14+ during subsequent plan review; the
+standard-library-only constraint remains. The original
 decision to preserve the Mellum base until upstream integration completed
 has now been fulfilled by the clean rebase onto `59932c9`. Reject oversized groups
 under the approved atomic model (tiling remains future work); cold start means

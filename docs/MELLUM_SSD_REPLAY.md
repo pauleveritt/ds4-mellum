@@ -4,7 +4,7 @@ This CPU-only tool measures cache demand in an existing routing trace. It
 does not load model weights, run inference, benchmark an SSD, or predict
 tokens/second. No real Mellum routing traces have been collected by this work.
 
-Run with Python 3.10+ and no third-party dependencies:
+Run with Python 3.14+ and no third-party dependencies:
 
 ```sh
 python3 tools/mellum_ssd_replay.py trace.jsonl > replay.json

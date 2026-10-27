@@ -6,13 +6,13 @@
 
 **Architecture:** Extend the existing standalone replay tool with additive result interpretation, a version 2 manifest and report identities. Keep both cache algorithms unchanged. Use synthetic traces and the existing stdlib test harness; native capture and streaming follow separate milestones.
 
-**Tech Stack:** Python 3.10+, standard library, JSON Lines, unittest function tests, Make.
+**Tech Stack:** Python 3.14+, standard library, JSON Lines, unittest function tests, Make.
 
 **Spec:** [S1 evidence design](../specs/2026-10-27-mellum-ssd-evidence-design.md), including its manifest table and linked evaluation protocol.
 
 ## Global Constraints
 
-- Python 3.10+, standard library only; preserve standalone `python3 -I` execution.
+- Python 3.14+, standard library only; preserve standalone `python3 -I` execution.
 - Use synthetic fixtures only. No GPU use, model loading, inference, storage benchmarks or inference-code changes in S1.
 - Preserve Q8 bytes and trained routing.
 - Small commits: one concern each, failing behavioral tests committed red separately, at most about 150 lines of product code per implementation commit.

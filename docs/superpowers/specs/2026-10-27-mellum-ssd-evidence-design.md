@@ -11,7 +11,7 @@ routing capture. Keep the existing policies; add precise claim metadata,
 a versioned capture manifest, completeness checks and report identities.
 Freeze the [evaluation protocol](../../MELLUM_SSD_EVALUATION.md).
 
-Python 3.10+, standard library only; preserve standalone `python3 -I`
+Python 3.14+, standard library only; preserve standalone `python3 -I`
 execution. Use synthetic fixtures only. No GPU use, model loading, inference,
 storage benchmarks or inference-code changes in S1. Preserve Q8 bytes and
 trained routing. No implementation of prediction, native recording, tiled
