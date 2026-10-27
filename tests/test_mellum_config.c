@@ -819,6 +819,12 @@ static void check_mellum_chat_tiny(void) {
     ds4_prompt_prefix_append(&e, &got, &history);
     expect_ids("tiny: imported history, reasoning dropped", &got, want.v, want.len);
     turns[1].content = "ok";
+    /* DeepSeek's max-effort preamble is not Mellum's: its template has no effort text, so max thinking
+     * prefixes nothing */
+    got.len = 0;
+    ds4_chat_append_think_prefix(&e, &got, DS4_THINK_MAX);
+    ds4_chat_append_max_effort_prefix(&e, &got);
+    CHECK(got.len == 0);
     /* sibling: Flash Next keeps its own prefix (<think> and a newline when thinking) */
     g_ds4_shape = DS4_SHAPE_QWEN4_EXP;
     want.len = got.len = 0;
@@ -848,6 +854,10 @@ static void check_mellum_chat_tiny(void) {
     got.len = 0;
     ds4_prompt_prefix_append(&e, &got, &history);
     CHECK(count_id(&got, 28) == 3 && got.v[got.len - 1] == 28);
+    /* sibling: Flash Next's max thinking still pushes the preamble it pushed before */
+    got.len = 0;
+    ds4_chat_append_think_prefix(&e, &got, DS4_THINK_MAX);
+    CHECK(got.len > 0);
     ds4_tokens_free(&want); ds4_tokens_free(&got);
     vocab_free(&e.vocab);
     model_close(&m);
