@@ -10106,12 +10106,294 @@ static void agent_tool_view_image(agent_worker *w,
     agent_tool_observation_puts(obs, meta);
 }
 
+/* ============================================================================
+ * Pi's Four Tools, For Mellum
+ * ============================================================================
+ *
+ * Mellum 2.1 was trained on Pi's read, bash, edit and write, with Pi's argument names and Pi's
+ * result texts, so for that model the dispatcher maps those four onto this agent's machinery.
+ * The behaviour and the texts follow Pi (@earendil-works/pi-coding-agent 1.1.0, MIT licensed per
+ * its package.json): dist/core/tools/read.js, write.js, edit.js, edit-diff.js, bash.js and
+ * truncate.js.  Results are plain text; an error is the message Pi's tool would throw, returned the
+ * same way, so the model reads Pi's words in both cases.
+ */
+
+#define PI_MAX_LINES 2000
+#define PI_MAX_BYTES (50 * 1024)
+#define PI_READ_MAX_BYTES (64 * 1024 * 1024)
+
+static void pi_format_size(size_t bytes, char *out, size_t cap) {
+    if (bytes < 1024) snprintf(out, cap, "%zuB", bytes);
+    else if (bytes < 1024 * 1024) snprintf(out, cap, "%.1fKB", (double)bytes / 1024.0);
+    else snprintf(out, cap, "%.1fMB", (double)bytes / (1024.0 * 1024.0));
+}
+
+static const char *pi_errno_code(int e) {
+    switch (e) {
+    case ENOENT: return "ENOENT";
+    case EACCES: return "EACCES";
+    case EISDIR: return "EISDIR";
+    case ENOTDIR: return "ENOTDIR";
+    case EEXIST: return "EEXIST";
+    case EPERM: return "EPERM";
+    case ENOSPC: return "ENOSPC";
+    case EROFS: return "EROFS";
+    case ELOOP: return "ELOOP";
+    case ENAMETOOLONG: return "ENAMETOOLONG";
+    default: return "EIO";
+    }
+}
+
+static const char *pi_errno_text(int e) {
+    switch (e) {
+    case ENOENT: return "no such file or directory";
+    case EACCES: return "permission denied";
+    case EISDIR: return "illegal operation on a directory";
+    case ENOTDIR: return "not a directory";
+    case EEXIST: return "file already exists";
+    case EPERM: return "operation not permitted";
+    case ENOSPC: return "no space left on device";
+    case EROFS: return "read-only file system";
+    default: return strerror(e);
+    }
+}
+
+/* The path as the file system should see it: Pi strips a leading @ and expands ~. */
+static char *pi_resolve_path(const char *path) {
+    if (path[0] == '@') path++;
+    if (path[0] == '~' && (path[1] == '/' || !path[1])) {
+        const char *home = getenv("HOME");
+        if (home && home[0]) {
+            size_t n = strlen(home) + strlen(path);
+            char *out = xmalloc(n + 1);
+            snprintf(out, n + 1, "%s%s", home, path + 1);
+            return out;
+        }
+    }
+    return xstrdup(path);
+}
+
+/* Node's message for a failed system call: "ENOENT: no such file or directory, open '/abs/path'". */
+static char *pi_fs_error(int e, const char *syscall_name, const char *path) {
+    char abs[PATH_MAX + 1] = {0};
+    if (path[0] == '/') {
+        snprintf(abs, sizeof(abs), "%s", path);
+    } else {
+        char cwd[PATH_MAX] = {0};
+        if (!getcwd(cwd, sizeof(cwd))) cwd[0] = '\0';
+        snprintf(abs, sizeof(abs), "%s/%s", cwd, path);
+    }
+    char *out = xmalloc(strlen(abs) + 128);
+    sprintf(out, "%s: %s, %s '%s'", pi_errno_code(e), pi_errno_text(e), syscall_name, abs);
+    return out;
+}
+
+/* Read a whole file (any size up to PI_READ_MAX_BYTES).  errno is set when it returns false. */
+static bool pi_read_all(const char *path, agent_buf *out) {
+    FILE *fp = agent_open_regular_file(path);
+    if (!fp) return false;
+    char tmp[16384];
+    for (;;) {
+        size_t n = fread(tmp, 1, sizeof(tmp), fp);
+        if (n) {
+            if (out->len + n > PI_READ_MAX_BYTES) {
+                fclose(fp);
+                errno = EFBIG;
+                return false;
+            }
+            agent_buf_append(out, tmp, n);
+        }
+        if (n < sizeof(tmp)) {
+            if (ferror(fp)) {
+                int saved = errno;
+                fclose(fp);
+                errno = saved;
+                return false;
+            }
+            break;
+        }
+    }
+    fclose(fp);
+    return true;
+}
+
+/* Parse an optional number argument.  Returns false when it is absent. */
+static bool pi_number_arg(const agent_tool_call *call, const char *name, double *out) {
+    const char *v = agent_tool_arg_value(call, name);
+    if (!v || !v[0]) return false;
+    char *end = NULL;
+    double d = strtod(v, &end);
+    if (end == v || !isfinite(d)) return false;
+    *out = d;
+    return true;
+}
+
+/* ---- truncation (truncate.js) ---- */
+
+typedef struct {
+    bool truncated;
+    bool by_lines;
+    bool first_line_exceeds;
+    size_t total_lines;
+    size_t out_lines;
+    size_t out_bytes;   /* of the head kept: the first out_bytes bytes of the content */
+} pi_truncation;
+
+/* splitLinesForCounting: no lines in "", and a final newline does not start another. */
+static size_t pi_count_lines(const char *s, size_t n) {
+    if (n == 0) return 0;
+    size_t lines = 1;
+    for (size_t i = 0; i < n; i++) if (s[i] == '\n') lines++;
+    if (s[n - 1] == '\n') lines--;
+    return lines;
+}
+
+static pi_truncation pi_truncate_head(const char *s, size_t n) {
+    pi_truncation t = {.by_lines = true};
+    t.total_lines = pi_count_lines(s, n);
+    if (t.total_lines <= PI_MAX_LINES && n <= PI_MAX_BYTES) {
+        t.out_lines = t.total_lines;
+        t.out_bytes = n;
+        return t;
+    }
+    t.truncated = true;
+    const char *nl = memchr(s, '\n', n);
+    size_t first = nl ? (size_t)(nl - s) : n;
+    if (first > PI_MAX_BYTES) {
+        t.by_lines = false;
+        t.first_line_exceeds = true;
+        return t;
+    }
+    size_t pos = 0, bytes = 0, count = 0;
+    bool by_bytes = false;
+    for (size_t i = 0; i < t.total_lines && i < PI_MAX_LINES; i++) {
+        const char *line_end = memchr(s + pos, '\n', n - pos);
+        size_t line_len = line_end ? (size_t)(line_end - (s + pos)) : n - pos;
+        size_t lb = line_len + (i > 0 ? 1 : 0);
+        if (bytes + lb > PI_MAX_BYTES) { by_bytes = true; break; }
+        bytes += lb;
+        count++;
+        pos += line_len + 1;
+        if (pos > n) pos = n;
+    }
+    t.by_lines = !by_bytes || (count >= PI_MAX_LINES && bytes <= PI_MAX_BYTES);
+    t.out_lines = count;
+    t.out_bytes = bytes;
+    return t;
+}
+
+/* Byte offset where line k (0-based) starts; k must not exceed the number of newlines. */
+static size_t pi_line_start(const char *s, size_t n, size_t k) {
+    size_t pos = 0;
+    while (k-- > 0) {
+        const char *nl = memchr(s + pos, '\n', n - pos);
+        pos = nl ? (size_t)(nl - s) + 1 : n;
+    }
+    return pos;
+}
+
+static char *pi_tool_read(const agent_tool_call *call) {
+    const char *path_arg = agent_tool_arg_value(call, "path");
+    if (!path_arg || !path_arg[0]) return xstrdup("read requires a path string.");
+    char *path = pi_resolve_path(path_arg);
+    agent_buf file = {0};
+    if (!pi_read_all(path, &file)) {
+        int e = errno;
+        struct stat st;
+        char *msg;
+        if (stat(path, &st) == 0 && S_ISDIR(st.st_mode)) {
+            msg = xstrdup("EISDIR: illegal operation on a directory, read");
+        } else if (e == EINVAL || e == EFBIG) {
+            msg = xstrdup(e == EFBIG ? "File is too large to read." : "Not a regular file.");
+        } else {
+            msg = pi_fs_error(e, "access", path);
+        }
+        free(path);
+        free(file.ptr);
+        return msg;
+    }
+    free(path);
+    const char *d = file.ptr ? file.ptr : "";
+    const size_t n = file.len;
+
+    size_t total = 1;                                  /* allLines.length: split("\n") */
+    for (size_t i = 0; i < n; i++) if (d[i] == '\n') total++;
+
+    double offset = 0, limit = 0;
+    const bool has_offset = pi_number_arg(call, "offset", &offset) && offset != 0;
+    const bool has_limit = pi_number_arg(call, "limit", &limit);
+    size_t start_line = has_offset && offset > 1 ? (size_t)offset - 1 : 0;
+    if (start_line >= total) {
+        char *msg = xmalloc(128);
+        snprintf(msg, 128, "Offset %s is beyond end of file (%zu lines total)",
+                 agent_tool_arg_value(call, "offset"), total);
+        free(file.ptr);
+        return msg;
+    }
+    const size_t sb = pi_line_start(d, n, start_line);
+    size_t eb = n, user_limited = 0;
+    if (has_limit) {
+        size_t lim = limit > 0 ? (size_t)limit : 0;
+        size_t end_line = start_line + lim < total ? start_line + lim : total;
+        user_limited = end_line - start_line;
+        if (end_line == start_line) eb = sb;
+        else if (end_line == total) eb = n;
+        else eb = pi_line_start(d, n, end_line) - 1;
+    }
+    const char *sel = d + sb;
+    const size_t sel_len = eb - sb;
+    pi_truncation t = pi_truncate_head(sel, sel_len);
+
+    agent_buf out = {0};
+    const size_t start_display = start_line + 1;
+    char size_a[32], size_b[32];
+    if (t.first_line_exceeds) {
+        const char *nl = memchr(sel, '\n', sel_len);
+        size_t first = nl ? (size_t)(nl - sel) : sel_len;
+        pi_format_size(first, size_a, sizeof(size_a));
+        pi_format_size(PI_MAX_BYTES, size_b, sizeof(size_b));
+        char *line = xmalloc(strlen(path_arg) + 256);
+        sprintf(line, "[Line %zu is %s, exceeds %s limit. Use bash: sed -n '%zup' %s | head -c %d]",
+                start_display, size_a, size_b, start_display, path_arg, PI_MAX_BYTES);
+        agent_buf_puts(&out, line);
+        free(line);
+    } else if (t.truncated) {
+        const size_t end_display = start_display + t.out_lines - 1;
+        char note[256];
+        agent_buf_append(&out, sel, t.out_bytes);
+        if (t.by_lines) {
+            snprintf(note, sizeof(note),
+                     "\n\n[Showing lines %zu-%zu of %zu. Use offset=%zu to continue.]",
+                     start_display, end_display, total, end_display + 1);
+        } else {
+            pi_format_size(PI_MAX_BYTES, size_b, sizeof(size_b));
+            snprintf(note, sizeof(note),
+                     "\n\n[Showing lines %zu-%zu of %zu (%s limit). Use offset=%zu to continue.]",
+                     start_display, end_display, total, size_b, end_display + 1);
+        }
+        agent_buf_puts(&out, note);
+    } else if (has_limit && start_line + user_limited < total) {
+        char note[160];
+        snprintf(note, sizeof(note), "\n\n[%zu more lines in file. Use offset=%zu to continue.]",
+                 total - (start_line + user_limited), start_line + user_limited + 1);
+        agent_buf_append(&out, sel, sel_len);
+        agent_buf_puts(&out, note);
+    } else {
+        agent_buf_append(&out, sel, sel_len);
+    }
+    free(file.ptr);
+    return agent_buf_take(&out);
+}
+
 /* Execute one parsed DSML tool call and return the text that will be appended as
  * the tool-role result.  UI visualization already happened while streaming; this
  * function is only about side effects and the model-visible observation. */
 static char *agent_execute_tool_call(agent_worker *w, const agent_tool_call *call) {
     agent_buf result = {0};
     if (!call->name) return xstrdup("Tool error: missing tool name\n");
+    if (agent_tool_syntax_for_engine(w->engine) == AGENT_TOOL_SYNTAX_HERMES) {
+        if (!strcmp(call->name, "read")) return pi_tool_read(call);
+    }
 
     if (!strcmp(call->name, "read")) return agent_tool_read(w, call);
     if (!strcmp(call->name, "more")) return agent_tool_more(w, call);
