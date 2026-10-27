@@ -180,3 +180,8 @@ using these rates as an SSD constraint. S3b still needs the generated Phase 1
 ac-demo schedule, exact rendered/tokenized inputs, appends and representative
 held-out windows. Native streamed inference and physical 8 GB memory/latency
 validation remain S4/S5. Ten tok/s remains only a proposed checkpoint.
+
+Execution commands, native build output, CLI stage logs and the final gate log
+are retained in `/Users/pauleveritt/.codex/visualizations/2026/10/27/01a17e35-bf7c-7df2-9d99-b9bc0e0658f4/mellum-storage-s3a-execution`.
+The [execution ledger](2026-10-27-mellum-storage-evidence-ledger.md) retains all
+task completion checks, rulings and the deferred minor.

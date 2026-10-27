@@ -98,8 +98,12 @@ check found no remaining material question and the user approved the design.
 The [source-freeze plan](docs/superpowers/plans/2026-10-27-mellum-workload-source.md)
 and [storage plan](docs/superpowers/plans/2026-10-27-mellum-storage-evidence.md)
 were approved for inline execution. The [source freeze](docs/superpowers/research/2026-10-27-mellum-workload-source-evidence.md)
-preserves all nine tracked files at the pinned commit. No S3 storage benchmark
-or generated cohort has run. The first proposed task is Phase 1 only;
+preserves all nine tracked files at the pinned commit. The
+[CPU storage evidence](docs/superpowers/research/2026-10-27-mellum-storage-evidence.md)
+now includes checked original ranges, an exact 11.79 GB packed payload and all
+72 bounded native runs. Packed warm reads were 14–30% faster, but both cache
+labels produced 29–78 GB/s; physical SSD traffic remains unverified. No generated
+representative cohort or streamed inference has run. The first proposed task is Phase 1 only;
 later phases require their own requests and prior-phase checkpoints.
 
 Collect the frozen workload matrix on this development laptop. Replay warm,
