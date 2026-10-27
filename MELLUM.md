@@ -12,11 +12,9 @@ are done: a `mellum` GGUF is detected, validated, bound and planned; the
 `mellum2` pre-tokenizer, the stop classes, the chat prefix and the sampling
 defaults match the model's own tokenizer and template; the Metal forward pass
 gives logits byte-identical to the old port's on three prompts in prefill and
-decode, and 64 equal greedy tokens (Checkpoint 2). The forward pass is reachable
-only from the trace driver (`tests/mellum_trace`, while `DS4_MELLUM_TRACE` is
-set): every other forward entry still refuses by name until step 22. Session
-save/load refuses by name, and ds4-server and ds4-agent refuse a Mellum engine
-at startup (no Hermes tool syntax yet).
+decode, and 64 equal greedy tokens (Checkpoint 2). Since step 22 the `ds4` CLI
+runs Mellum chats on Metal. Session save/load refuses by name, and ds4-server
+and ds4-agent refuse a Mellum engine at startup (no Hermes tool syntax yet).
 
 Model-free tests: `make test-mellum`. With `DS4_TEST_MELLUM_MODEL` set,
 `./tests/test_mellum_config` also validates, binds and renders against the real
@@ -77,6 +75,19 @@ Phase 3a (forward pass on Metal, identical to the old engine):
 - `2712e56` MoE, top-8 of 64 routed experts, no shared expert (step 18).
 - `b3f9897` the forward pass behind `DS4_MELLUM_TRACE`, and its trace driver (step 19).
 - `f86c6b4`, this commit: the oracle's token files and comparison script (step 20).
+
+## Smoke runs
+
+Step 22, M5 Max, Q8_0, `--temp 0`, n = 1 each:
+- `./ds4 -m $MODEL -c 4096 --temp 0 -n 400 -p "What is the capital of France? Answer in one sentence."`
+  reasons briefly ("...The capital of France is Paris. So answer...") then answers
+  "The capital of France is Paris." and stops.
+- The same with `--nothink` and "Write a Python function that returns the n-th
+  Fibonacci number.": the prompt ends with the template's empty think block
+  (`--dump-tokens` shows `<think>\n\n</think>\n\n`), yet the model still
+  reasons in plain text before its answer, and 300 tokens ran out before the
+  code. So with thinking off Mellum 2.1 does not answer directly; the CLI's
+  handling of that is step 28.
 
 ## Measured
 

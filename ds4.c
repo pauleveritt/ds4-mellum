@@ -66763,20 +66763,8 @@ static bool ds4_session_greedy_splitkv_replay_exact(
 }
 #endif
 
-/* A Mellum session's forward pass is reachable only from the trace driver
- * (tests/mellum_trace), which sets DS4_MELLUM_TRACE (empty for an untraced
- * run) until the oracle has signed it off.  Elsewhere every entry that would
- * run a forward refuses here, by name. */
-static bool ds4_session_mellum_forward_refuses(const char *what, char *err, size_t errlen) {
-    if (!ds4_model_is_mellum() || getenv("DS4_MELLUM_TRACE")) return false;
-    if (err && errlen) snprintf(err, errlen, "%s refused: the Mellum 2.1 forward pass is not ported yet", what);
-    fprintf(stderr, "ds4: the Mellum 2.1 forward pass is not ported yet (%s refused)\n", what);
-    return true;
-}
-
 int ds4_session_eval_argmax(ds4_session *s, int token, char *err, size_t errlen) {
     if (!s) return -1;
-    if (ds4_session_mellum_forward_refuses("eval", err, errlen)) return -1;
     /* Mellum has no fused top-1 graph: its logits come from the forward, whose row is then argmaxed */
     if (ds4_session_is_cpu(s) || ds4_session_is_glm(s) || ds4_session_is_ds41(s) || ds4_model_is_mellum()) {
         if (ds4_session_eval(s, token, err, errlen) != 0) return -1;
@@ -77740,7 +77728,6 @@ static int ds4_session_sync_lockstep(ds4_session *s, const ds4_tokens *prompt,
  * once its matching prefill completes, surfacing worker-side failures
  * here instead of as a gate timeout mid-decode. */
 int ds4_session_sync(ds4_session *s, const ds4_tokens *prompt, char *err, size_t errlen) {
-    if (ds4_session_mellum_forward_refuses("sync", err, errlen)) return 1;
 #ifndef DS4_NO_GPU
     if (s) s->dspark_rewind_end = 0;
 #endif
@@ -77838,7 +77825,6 @@ int ds4_session_sync_multimodal(
         size_t image_count,
         char *err,
         size_t errlen) {
-    if (ds4_session_mellum_forward_refuses("sync", err, errlen)) return 1;
     if (!s || !prompt || (image_count != 0 && !images)) {
         snprintf(err, errlen, "invalid multimodal prompt");
         return 1;
@@ -80356,7 +80342,6 @@ static int ds4_session_eval_probe_tp(ds4_session *s, int token, bool probe_mtp,
 }
 
 int ds4_session_eval(ds4_session *s, int token, char *err, size_t errlen) {
-    if (ds4_session_mellum_forward_refuses("eval", err, errlen)) return 1;
     bool probe_mtp = true;
 #ifndef DS4_NO_GPU
     if (s && s->engine && s->engine->support_kind == DS4_SUPPORT_DSPARK) {
@@ -82733,7 +82718,6 @@ static bool qwen4_batch_spec_next(const ds4_engine *e) {
 int ds4_sessions_eval_batch_speculative_argmax(ds4_decode_item *items, int count,
                                                int (*accepted)[2], int *n_accepted,
                                                char *err, size_t errlen) {
-    if (ds4_session_mellum_forward_refuses("speculative decode", err, errlen)) return 1;
     if (!items || count <= 0 || !accepted || !n_accepted) {
         if (err && errlen) snprintf(err, errlen, "empty speculative decode batch");
         return 1;
@@ -82921,7 +82905,6 @@ int ds4_sessions_eval_batch_speculative_argmax(ds4_decode_item *items, int count
 
 int ds4_sessions_eval_batch(ds4_decode_item *items, int count,
                             char *err, size_t errlen) {
-    if (ds4_session_mellum_forward_refuses("batch decode", err, errlen)) return 1;
     if (!items || count <= 0) {
         if (err && errlen) snprintf(err, errlen, "empty decode batch");
         return 1;
@@ -83001,7 +82984,6 @@ int ds4_sessions_eval_batch_with_prefill(
         const ds4_tokens *prefill_prompt,
         char *err,
         size_t errlen) {
-    if (ds4_session_mellum_forward_refuses("mixed prefill", err, errlen)) return 1;
     if (!items || count <= 0 || !prefill_session || !prefill_prompt ||
         !prefill_session->engine) {
         if (err && errlen) snprintf(err, errlen, "invalid mixed model batch");
@@ -87412,7 +87394,6 @@ static int ds4_session_eval_speculative_argmax_impl(
         bool ignore_eos, ds4_think_mode think_mode,
         int *accepted, int accepted_cap,
         char *err, size_t errlen) {
-    if (ds4_session_mellum_forward_refuses("speculative decode", err, errlen)) return -1;
     if (!s || max_tokens <= 0 || accepted_cap <= 0) return 0;
     if (!s->checkpoint_valid) {
         payload_set_err(err, errlen, "speculative decode requires a synchronized checkpoint");
@@ -88288,7 +88269,6 @@ int ds4_session_eval_speculative(ds4_session *s, int first_token,
                                  float top_p, float min_p, uint64_t *rng,
                                  int *accepted, int accepted_cap,
                                  char *err, size_t errlen) {
-    if (ds4_session_mellum_forward_refuses("speculative decode", err, errlen)) return -1;
     if (temperature <= 0.0f) {
         return ds4_session_eval_speculative_argmax(
             s, first_token, max_tokens, eos_token,

@@ -15,12 +15,9 @@
  * the last forward) to <prefix>.session.logits.f32, 1 x 98304 f32.  A traced
  * forward ends its command buffer after every layer, so it cannot show a
  * hazard between layers of the one buffer an ordinary run uses; with only
- * DS4_MELLUM_TRACE set (no DS4_MELLUM_TRACE_AT) the driver empties it for the
+ * DS4_MELLUM_TRACE set (no DS4_MELLUM_TRACE_AT) the driver clears it for the
  * engine, the run is untraced, and its session logits file is the one to `cmp`
  * against a traced run's (e.g. both chunks of a two-chunk prefill traced).
- * Until the forward pass is signed off, the engine runs it only while
- * DS4_MELLUM_TRACE is set, which is why the untraced run empties the variable
- * rather than unsetting it.
  *
  *   tests/mellum_trace MODEL.gguf TOKENS_FILE MODE
  *
@@ -180,8 +177,8 @@ int main(int argc, char **argv) {
         return 2;
     }
     if (prefix && !(at && at[0])) {
-        /* an untraced run: the prefix only names the session logits file; the engine sees it empty */
-        setenv("DS4_MELLUM_TRACE", "", 1);
+        /* an untraced run: the prefix only names the session logits file; the engine must not see it */
+        unsetenv("DS4_MELLUM_TRACE");
     }
     if (prefix && at && at[0]) {
         n_pos = parse_positions(at, pos);

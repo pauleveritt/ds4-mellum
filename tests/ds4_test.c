@@ -447,8 +447,8 @@ cleanup:
  * bytes, planned M bytes" at create; N is the sum of the bytes it requested,
  * M the estimate the startup line reports.  They must be equal at every
  * context, with the chunk the host passes clamped to the window, Metal's own
- * tally of live tensors must move by N and come back, and every forward entry
- * must refuse by name until the forward pass is ported. */
+ * tally of live tensors must move by N and come back, and the session must
+ * run: sync, eval and eval_argmax succeed and leave finite logits. */
 typedef struct { FILE *tmp; int saved; } test_stderr_capture;
 
 static test_stderr_capture test_stderr_begin(void) {
@@ -490,6 +490,8 @@ static double test_live_tensor_mib(void) {
     return mib;
 }
 
+int ds4_session_eval_argmax(ds4_session *s, int token, char *err, size_t errlen);   /* ds4.c, not in ds4.h */
+
 static bool test_capture_session_line(ds4_engine *engine, uint32_t ctx, uint64_t *allocated, uint64_t *planned) {
     const double live0 = test_live_tensor_mib();
     test_stderr_capture c = test_stderr_begin();
@@ -503,14 +505,28 @@ static bool test_capture_session_line(ds4_engine *engine, uint32_t ctx, uint64_t
     free(text);
     const double live1 = test_live_tensor_mib();
     TEST_ASSERT(fabs((live1 - live0) - (double)a / 1048576.0) < 0.015);
-    /* the forward entries refuse by name: a sync and an eval */
+    /* the session runs: the first tokens of a chat prompt (<|im_start|>, "user", "\n") */
     {
         ds4_tokens prompt = {0};
-        ds4_tokens_push(&prompt, 27);
+        static const int ids[] = {27, 1397, 233};
+        for (size_t i = 0; i < sizeof(ids) / sizeof(ids[0]); i++) ds4_tokens_push(&prompt, ids[i]);
         char err[256] = {0};
-        TEST_ASSERT(ds4_session_sync(s, &prompt, err, sizeof(err)) != 0 && strstr(err, "Mellum 2.1"));
-        err[0] = '\0';
-        TEST_ASSERT(ds4_session_eval(s, 27, err, sizeof(err)) != 0 && strstr(err, "Mellum 2.1"));
+        float *logits = malloc(98304u * sizeof(float));
+        TEST_ASSERT(logits != NULL);
+        TEST_ASSERT(ds4_session_sync(s, &prompt, err, sizeof(err)) == 0);
+        TEST_ASSERT(logits && ds4_session_copy_logits(s, logits, 98304) == 98304);
+        for (uint32_t i = 0; logits && i < 98304u; i++) TEST_ASSERT(isfinite(logits[i]));
+        const int top = ds4_session_argmax(s);
+        TEST_ASSERT(top >= 0 && top < 98304);
+        TEST_ASSERT(ds4_session_eval(s, top, err, sizeof(err)) == 0);
+        TEST_ASSERT(ds4_session_pos(s) == 4);
+        TEST_ASSERT(logits && ds4_session_copy_logits(s, logits, 98304) == 98304);
+        for (uint32_t i = 0; logits && i < 98304u; i++) TEST_ASSERT(isfinite(logits[i]));
+        const int next = ds4_session_argmax(s);
+        const int via_argmax = ds4_session_eval_argmax(s, next, err, sizeof(err));
+        TEST_ASSERT(via_argmax >= 0 && via_argmax < 98304 && via_argmax == ds4_session_argmax(s));
+        TEST_ASSERT(ds4_session_pos(s) == 5);
+        free(logits);
         ds4_tokens_free(&prompt);
     }
     ds4_session_free(s);
