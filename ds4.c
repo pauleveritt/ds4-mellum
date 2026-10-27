@@ -88924,7 +88924,10 @@ bool ds4_test_session_graph_pos(ds4_session *s, uint32_t *pos) {
 /* Diagnostic capture API is separate from the general session API. */
 int ds4_mellum_capture_create(ds4_mellum_capture **out, ds4_engine *e, int ctx,
         const ds4_mellum_capture_options *opts, char *err, size_t n) {
-    (void)out;(void)e;(void)ctx;(void)opts;(void)err;(void)n;return 1;
+    if (out) *out=NULL;
+    (void)e;(void)ctx;(void)opts;
+    if (err && n) snprintf(err,n,"Mellum capture unsupported on this backend");
+    return 1;
 }
 int ds4_mellum_capture_sync(ds4_mellum_capture *c,const ds4_tokens *p,uint32_t seg,char *err,size_t n) {
     (void)c;(void)p;(void)seg;(void)err;(void)n;return 1;
