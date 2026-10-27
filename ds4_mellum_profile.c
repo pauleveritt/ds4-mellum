@@ -1,5 +1,8 @@
 #include "ds4_mellum_profile.h"
 #include <string.h>
+#include <stdio.h>
+#include <stdarg.h>
+#include <inttypes.h>
 
 static bool identifier(const char *s, size_t max) {
     if (!s || !s[0]) return false;
@@ -121,5 +124,45 @@ bool mellum_profile_scope_exit(mellum_profile_scope *s, mellum_profiles *r, bool
     return true;
 }
 
-bool mellum_profile_describe(const mellum_profile *p,char *d,size_t n) {(void)p;(void)d;(void)n;return false;}
-bool mellum_profiles_emit(mellum_profiles *r,mellum_profile_sink f,void *ctx) {(void)r;(void)f;(void)ctx;return false;}
+static bool describe_append(char *dst, size_t cap, size_t *used, const char *format, ...) {
+    if (*used>=cap) return false;
+    va_list args;
+    va_start(args,format);
+    int n=vsnprintf(dst+*used,cap-*used,format,args);
+    va_end(args);
+    if (n<0 || (size_t)n>=cap-*used) return false;
+    *used+=(size_t)n;
+    return true;
+}
+
+bool mellum_profile_describe(const mellum_profile *p, char *dst, size_t cap) {
+    static const char *const roles[]={"EMBED","PROJECTION","ROUTER","MID","DOWN",
+                                     "REDUCE","ATTENTION","HEAD","OTHER"};
+    if (!dst || !cap) return false;
+    dst[0]=0;
+    if (!mellum_profile_valid(p)) return false;
+    size_t used=0;
+    bool ok=describe_append(dst,cap,&used,"profile-v1;head=%s",p->with_head ? "encoded":"not-encoded");
+    for (unsigned i=0;ok && i<p->count;i++) {
+        const mellum_kernel_descriptor *d=&p->items[i];
+        const mellum_kernel_def *def=&p->catalog->defs[d->function];
+        ok=describe_append(dst,cap,&used,";%s:%s(",roles[d->role],def->name);
+        for (unsigned j=0;ok && j<d->value_count;j++)
+            ok=describe_append(dst,cap,&used,"%s%s=%" PRIu32,j ? ",":"",def->value_names[j],d->values[j]);
+        if (ok) ok=describe_append(dst,cap,&used,")");
+    }
+    if (!ok) dst[0]=0;
+    return ok;
+}
+
+bool mellum_profiles_emit(mellum_profiles *r, mellum_profile_sink sink, void *ctx) {
+    if (!r || r->failed || r->active || !r->count || !sink) return false;
+    char text[MELLUM_PROFILE_TEXT];
+    for (unsigned i=0;i<r->count;i++) {
+        if (!mellum_profile_describe(&r->profiles[i],text,sizeof(text)) || !sink(ctx,i,text,strlen(text))) {
+            r->failed=true;
+            return false;
+        }
+    }
+    return true;
+}
