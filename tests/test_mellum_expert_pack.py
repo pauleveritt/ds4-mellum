@@ -144,16 +144,18 @@ def test_existing_payload_and_escaping_path_refused():
 
 def test_replaced_payload_path_cannot_publish_detached_descriptor():
     api = module()
-    with tiny_public_inputs(api) as (root, path, _):
-        real_verify = api.verify_copy
-        def replace_output(source, destination, original, packed):
-            real_verify(source, destination, original, packed)
-            payload = Path(destination.name)
-            payload.rename(payload.with_name('detached.bin'))
-            payload.write_bytes(b'xxxxxx')
-        with patch.object(api, 'verify_copy', side_effect=replace_output), rejected():
-            api.pack(path, root / 'output')
-        assert not (root / 'output/artifact').exists()
+    for mutation in ('path', 'contents'):
+        with tiny_public_inputs(api) as (root, path, _):
+            real_verify = api.verify_copy
+            def replace_output(source, destination, original, packed):
+                real_verify(source, destination, original, packed)
+                payload = Path(destination.name)
+                if mutation == 'path':
+                    payload.rename(payload.with_name('detached.bin'))
+                payload.write_bytes(b'xxxxxx')
+            with patch.object(api, 'verify_copy', side_effect=replace_output), rejected():
+                api.pack(path, root / 'output')
+            assert not (root / 'output/artifact').exists()
 
 
 def load_tests(loader, tests, pattern):
