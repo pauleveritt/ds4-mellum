@@ -7,7 +7,8 @@
  * (rope_yarn_corr_dims and the ramp blend) in double.  Then attention: the
  * sliding window over a ring, the ring commit, and the full layers' ungated
  * attention on upstream's qwen4 decode kernels.  Then the MoE: top-8 of 64
- * routed experts, no shared expert. */
+ * routed experts, no shared expert.  Last, every op the forward pass runs over
+ * a chunk's rows against the same op one row at a time, in raw bits. */
 
 #include <math.h>
 #include <stdbool.h>
@@ -1818,6 +1819,339 @@ static void test_moe(void) {
     free(a);
 }
 
+/* ======================================================================
+ * Prefill equals decode, op by op.
+ *
+ * The forward pass runs every op over a chunk's rows where decode runs it on one row.  For a chunk to give the same
+ * bits as its decode steps, each op over T rows must equal T one-row calls, in raw bits (memcmp), on the same weights and inputs.  The
+ * attention ops are tested above (test_swa_session, test_full_session: chunks against successive single-row steps)
+ * and the MoE driver's stages in test_moe_rows_equal_singles; this section covers the rest.  Weights are random Q8_0
+ * and f32 in an anonymous arena at the model's real shapes.  Each op is also checked against a double reference on
+ * row 0, so a pair of equal but wrong outputs does not pass.  Controls are the batch-dependent ops upstream also has:
+ * they must differ, or the tests would not see a reroute.
+ * ====================================================================== */
+
+#define T4_E 2304u /* Mellum's hidden width */
+
+/* `MELLUM_T4_BREAK=<op>` (q8, router, rms, rope, eltwise) breaks the op under test in this section, so each
+ * identity test is shown to fail: q8 and router run the rows through the batched upstream path instead of the exact
+ * one, rms changes epsilon, rope shifts pos0 by one, eltwise adds a row to itself.  Unset, nothing changes. */
+static bool t4_break(const char *op) {
+    const char *b = getenv("MELLUM_T4_BREAK");
+    return b != NULL && strcmp(b, op) == 0;
+}
+
+/* Prefill's batched Q8_0 projection and F32 router batch are the controls: they pick a different kernel by row count. */
+static uint64_t g_t4_q8_control_diff;
+static uint64_t g_t4_f32_control_diff;
+
+typedef struct {
+    arena_t arena;
+    uint64_t q, k, v, o, router, norm;
+    double *norm_shadow;
+} t4_arena_t;
+
+static uint64_t t4_q8_bytes(uint64_t in, uint64_t out) { return out * (in / 32u) * 34u; }
+
+static uint64_t t4_take(t4_arena_t *a, uint64_t bytes) {
+    const uint64_t off = (a->arena.used + 255u) & ~255ull;
+    require_ok(off + bytes <= a->arena.size, "t4 arena");
+    a->arena.used = off + bytes;
+    return off;
+}
+
+/* max|d| / max|ref| of one Q8_0 projection row-0 against the double dot of the same bytes */
+static double t4_q8_vs_ref(const t4_arena_t *a, uint64_t off, const float *x, const float *got, uint64_t in, uint64_t out) {
+    double *xd = malloc(in * sizeof(double)), *ref = malloc(out * sizeof(double));
+    require_ok(xd && ref, "malloc");
+    for (uint64_t i = 0; i < in; i++) xd[i] = x[i];
+    for (uint64_t r = 0; r < out; r++) ref[r] = mref_q8_dot(a->arena.base + off + r * (in / 32u) * 34u, xd, (uint32_t)in);
+    const double d = max_rel(got, ref, out);
+    free(xd);
+    free(ref);
+    return d;
+}
+
+/* the one-row reference of every Q8_0 projection: ds4_gpu_matmul_q8_0_tensor with one token, as decode runs it */
+static void t4_q8_single_rows(const t4_arena_t *a, uint64_t off, uint64_t in, uint64_t out, const float *x, uint32_t T, float *dst) {
+    ds4_gpu_tensor *x1 = zeroed(in * 4u), *o1 = zeroed(out * 4u);
+    for (uint32_t t = 0; t < T; t++) {
+        require_ok(ds4_gpu_tensor_write(x1, 0, x + (uint64_t)t * in, in * 4u), "x row upload");
+        require_ok(ds4_gpu_matmul_q8_0_tensor(o1, a->arena.base, a->arena.size, off, in, out, x1, 1), "one-row Q8_0 projection");
+        require_ok(ds4_gpu_tensor_read(o1, 0, dst + (uint64_t)t * out, out * 4u), "row download");
+    }
+    ds4_gpu_tensor_free(x1);
+    ds4_gpu_tensor_free(o1);
+}
+
+#define T4_TOL_Q8 1e-5 /* f32 accumulation over up to 4,096 terms against double on the same bytes */
+
+static void test_q8_projection(const t4_arena_t *a, const char *name, uint64_t off, uint64_t in, uint64_t out, uint32_t T) {
+    float *x = rand_vec((uint64_t)T * in, 1.7f);
+    ds4_gpu_tensor *xt = upload(x, (uint64_t)T * in), *ot = zeroed((uint64_t)T * out * 4u);
+    T4_BEGIN();
+    if (t4_break("q8")) {
+        require_ok(ds4_gpu_matmul_q8_0_tensor(ot, a->arena.base, a->arena.size, off, in, out, xt, T), "batched projection (broken)");
+    } else {
+        require_ok(ds4_gpu_matmul_q8_0_decode_rows_exact_tensor(ot, a->arena.base, a->arena.size, off, in, out, xt, T), "exact rows projection");
+    }
+    T4_END();
+    float *rows = download(ot, (uint64_t)T * out), *one = malloc((uint64_t)T * out * 4u);
+    require_ok(one != NULL, "malloc");
+    t4_q8_single_rows(a, off, in, out, x, T, one);
+    uint64_t first = 0;
+    const uint64_t d = bit_diffs(rows, one, (uint64_t)T * out, &first);
+    CHECK(d == 0, "Q8_0 %s (%llu -> %llu): %u rows through the exact rows kernel differ from %u one-row calls in %llu words, first at row %llu%s",
+          name, (unsigned long long)in, (unsigned long long)out, T, T, (unsigned long long)d,
+          (unsigned long long)(first / out), g_batched ? " [batched]" : "");
+    const double e = t4_q8_vs_ref(a, off, x, one, in, out);
+    CHECK(all_finite(rows, (uint64_t)T * out) && e <= T4_TOL_Q8, "Q8_0 %s one-row output is %.3e from the double reference", name, e);
+    uint64_t cd = 0;
+    {
+        /* the control: the batched path of the ordinary projection, over the same rows */
+        ds4_gpu_tensor *ct = zeroed((uint64_t)T * out * 4u);
+        require_ok(ds4_gpu_matmul_q8_0_tensor(ct, a->arena.base, a->arena.size, off, in, out, xt, T), "batched Q8_0 projection");
+        float *ctl = download(ct, (uint64_t)T * out);
+        cd = bit_diffs(ctl, one, (uint64_t)T * out, NULL);
+        g_t4_q8_control_diff += cd;
+        free(ctl);
+        ds4_gpu_tensor_free(ct);
+    }
+    printf("  q8_0   %-6s %4llu -> %-4llu T=%-3u exact rows vs %u one-row calls%s: %llu words differ; one-row vs double %.2e; "
+           "control (batched ds4_gpu_matmul_q8_0_tensor): %llu words differ\n", name, (unsigned long long)in,
+           (unsigned long long)out, T, T, g_batched ? " [batched]" : "", (unsigned long long)d, e, (unsigned long long)cd);
+    free(x); free(rows); free(one);
+    ds4_gpu_tensor_free(xt); ds4_gpu_tensor_free(ot);
+}
+
+/* The router's logits as the driver computes them: ds4_gpu_qwen4_multi_gemv_tensor, one F32 output of 64 rows.  n_tok
+ * rows in, n_tok rows out. */
+static void t4_router_gemv(const t4_arena_t *a, const float *x, uint32_t n_tok, float *dst) {
+    ds4_gpu_tensor *xt = upload(x, (uint64_t)n_tok * T4_E), *lt = zeroed((uint64_t)n_tok * MREF_NEXP * 4u);
+    ds4_gpu_tensor *outs[1] = { lt };
+    const uint64_t offs[1] = { a->router };
+    const uint32_t types[1] = { 0u }, rows[1] = { MREF_NEXP };
+    T4_BEGIN();
+    require_ok(ds4_gpu_qwen4_multi_gemv_tensor(xt, n_tok, T4_E, 1, outs, a->arena.base, a->arena.size, offs, types, rows), "router gemv");
+    T4_END();
+    require_ok(ds4_gpu_tensor_read(lt, 0, dst, (uint64_t)n_tok * MREF_NEXP * 4u), "router download");
+    ds4_gpu_tensor_free(xt);
+    ds4_gpu_tensor_free(lt);
+}
+
+/* the batched F32 matmul: ds4_gpu_matmul_f32_tensor, which picks its kernel by row count */
+static void t4_router_matmul_f32(const t4_arena_t *a, const float *x, uint32_t n_tok, float *dst) {
+    ds4_gpu_tensor *xt = upload(x, (uint64_t)n_tok * T4_E), *lt = zeroed((uint64_t)n_tok * MREF_NEXP * 4u);
+    require_ok(ds4_gpu_matmul_f32_tensor(lt, a->arena.base, a->arena.size, a->router, T4_E, MREF_NEXP, xt, n_tok), "F32 matmul");
+    require_ok(ds4_gpu_tensor_read(lt, 0, dst, (uint64_t)n_tok * MREF_NEXP * 4u), "router download");
+    ds4_gpu_tensor_free(xt);
+    ds4_gpu_tensor_free(lt);
+}
+
+static void test_router_rows(const t4_arena_t *a, uint32_t T) {
+    float *x = rand_vec((uint64_t)T * T4_E, 1.7f);
+    float *rows = malloc((uint64_t)T * MREF_NEXP * 4u), *one = malloc((uint64_t)T * MREF_NEXP * 4u);
+    require_ok(rows && one, "malloc");
+    if (t4_break("router")) t4_router_matmul_f32(a, x, T, rows);
+    else t4_router_gemv(a, x, T, rows);
+    const bool was_batched = g_batched;
+    g_batched = false; /* the one-row calls are the decode reference: each runs to completion */
+    for (uint32_t t = 0; t < T; t++) t4_router_gemv(a, x + (uint64_t)t * T4_E, 1, one + (uint64_t)t * MREF_NEXP);
+    g_batched = was_batched;
+    uint64_t first = 0;
+    const uint64_t d = bit_diffs(rows, one, (uint64_t)T * MREF_NEXP, &first);
+    CHECK(d == 0, "F32 router (multi-output GEMV): %u rows differ from %u one-row calls in %llu words, first at row %llu%s", T, T,
+          (unsigned long long)d, (unsigned long long)(first / MREF_NEXP), g_batched ? " [batched]" : "");
+    /* sanity against the double dot of the same bytes */
+    double ref[MREF_NEXP], xd[T4_E];
+    const float *rw = (const float *)(a->arena.base + a->router);
+    for (uint32_t i = 0; i < T4_E; i++) xd[i] = x[i];
+    for (uint32_t e = 0; e < MREF_NEXP; e++) {
+        double s = 0.0;
+        for (uint32_t i = 0; i < T4_E; i++) s += (double)rw[(uint64_t)e * T4_E + i] * xd[i];
+        ref[e] = s;
+    }
+    const double e0 = max_rel(one, ref, MREF_NEXP);
+    CHECK(all_finite(rows, (uint64_t)T * MREF_NEXP) && e0 <= 1e-5, "router row 0 is %.3e from the double reference", e0);
+    /* the control: the batched ds4_gpu_matmul_f32_tensor, over the same rows, against the same one-row bits */
+    uint64_t cd = 0;
+    {
+        float *ctl = malloc((uint64_t)T * MREF_NEXP * 4u);
+        require_ok(ctl != NULL, "malloc");
+        t4_router_matmul_f32(a, x, T, ctl);
+        cd = bit_diffs(ctl, one, (uint64_t)T * MREF_NEXP, NULL);
+        g_t4_f32_control_diff += cd;
+        free(ctl);
+    }
+    printf("  router T=%-3u multi-output GEMV rows vs %u one-row calls%s: %llu words differ; row 0 vs double %.2e; "
+           "control (batched ds4_gpu_matmul_f32_tensor vs the one-row bits): %llu words differ\n", T, T, g_batched ? " [batched]" : "",
+           (unsigned long long)d, e0, (unsigned long long)cd);
+    free(x); free(rows); free(one);
+}
+
+/* RMSNorm with a weight: ds4_gpu_rms_norm_weight_rows_tensor over T rows against ds4_gpu_rms_norm_weight_tensor per row */
+static void test_rms_norm_rows(const t4_arena_t *a, uint32_t T) {
+    const float eps = 1e-6f;
+    float *x = rand_vec((uint64_t)T * T4_E, 1.7f);
+    ds4_gpu_tensor *xt = upload(x, (uint64_t)T * T4_E), *ot = zeroed((uint64_t)T * T4_E * 4u);
+    T4_BEGIN();
+    require_ok(ds4_gpu_rms_norm_weight_rows_tensor(ot, xt, a->arena.base, a->arena.size, a->norm, T4_E, T, t4_break("rms") ? 2.0f * eps : eps),
+               "rms norm rows");
+    T4_END();
+    float *rows = download(ot, (uint64_t)T * T4_E), *one = malloc((uint64_t)T * T4_E * 4u);
+    require_ok(one != NULL, "malloc");
+    ds4_gpu_tensor *x1 = zeroed(T4_E * 4u), *o1 = zeroed(T4_E * 4u);
+    for (uint32_t t = 0; t < T; t++) {
+        require_ok(ds4_gpu_tensor_write(x1, 0, x + (uint64_t)t * T4_E, T4_E * 4u), "x row upload");
+        require_ok(ds4_gpu_rms_norm_weight_tensor(o1, x1, a->arena.base, a->arena.size, a->norm, T4_E, eps), "rms norm one row");
+        require_ok(ds4_gpu_tensor_read(o1, 0, one + (uint64_t)t * T4_E, T4_E * 4u), "row download");
+    }
+    uint64_t first = 0;
+    const uint64_t d = bit_diffs(rows, one, (uint64_t)T * T4_E, &first);
+    CHECK(d == 0, "RMSNorm: %u rows differ from %u one-row calls in %llu words, first at row %llu%s", T, T, (unsigned long long)d,
+          (unsigned long long)(first / T4_E), g_batched ? " [batched]" : "");
+    double ss = 0.0, ref[T4_E];
+    for (uint32_t i = 0; i < T4_E; i++) ss += (double)x[i] * x[i];
+    const double inv = 1.0 / sqrt(ss / T4_E + (double)eps);
+    for (uint32_t i = 0; i < T4_E; i++) ref[i] = (double)x[i] * inv * a->norm_shadow[i];
+    const double e0 = max_rel(rows, ref, T4_E);
+    CHECK(all_finite(rows, (uint64_t)T * T4_E) && e0 <= 1e-5, "RMSNorm row 0 is %.3e from the double reference", e0);
+    printf("  norm   T=%-3u weighted RMSNorm rows vs %u one-row calls%s: %llu words differ; row 0 vs double %.2e\n", T, T,
+           g_batched ? " [batched]" : "", (unsigned long long)d, e0);
+    free(x); free(rows); free(one);
+    ds4_gpu_tensor_free(xt); ds4_gpu_tensor_free(ot); ds4_gpu_tensor_free(x1); ds4_gpu_tensor_free(o1);
+}
+
+/* the residual add and the f16 staging copy: elementwise, so independent of rows by construction; tested like the rest */
+static void test_elementwise_rows(uint32_t T) {
+    float *x = rand_vec((uint64_t)T * T4_E, 3.0f), *y = rand_vec((uint64_t)T * T4_E, 3.0f);
+    ds4_gpu_tensor *xt = upload(x, (uint64_t)T * T4_E), *yt = upload(y, (uint64_t)T * T4_E), *ot = zeroed((uint64_t)T * T4_E * 4u);
+    ds4_gpu_tensor *h = zeroed((uint64_t)T * T4_E * 2u);
+    T4_BEGIN();
+    require_ok(ds4_gpu_add_tensor(ot, xt, t4_break("eltwise") ? xt : yt, T * T4_E), "residual add");
+    require_ok(ds4_gpu_tensor_copy_f32_to_f16(h, 0, xt, 0, (uint64_t)T * T4_E), "f16 staging");
+    T4_END();
+    float *rows = download(ot, (uint64_t)T * T4_E);
+    uint16_t *hr = malloc((uint64_t)T * T4_E * 2u), *h1 = malloc((uint64_t)T * T4_E * 2u);
+    require_ok(hr && h1 && ds4_gpu_tensor_read(h, 0, hr, (uint64_t)T * T4_E * 2u), "f16 download");
+    float *one = malloc((uint64_t)T * T4_E * 4u);
+    require_ok(one != NULL, "malloc");
+    ds4_gpu_tensor *x1 = zeroed(T4_E * 4u), *y1 = zeroed(T4_E * 4u), *o1 = zeroed(T4_E * 4u), *hh = zeroed(T4_E * 2u);
+    for (uint32_t t = 0; t < T; t++) {
+        require_ok(ds4_gpu_tensor_write(x1, 0, x + (uint64_t)t * T4_E, T4_E * 4u) && ds4_gpu_tensor_write(y1, 0, y + (uint64_t)t * T4_E, T4_E * 4u), "row upload");
+        require_ok(ds4_gpu_add_tensor(o1, x1, y1, T4_E), "one-row add");
+        require_ok(ds4_gpu_tensor_read(o1, 0, one + (uint64_t)t * T4_E, T4_E * 4u), "row download");
+        require_ok(ds4_gpu_tensor_copy_f32_to_f16(hh, 0, x1, 0, T4_E) && ds4_gpu_tensor_read(hh, 0, h1 + (uint64_t)t * T4_E, T4_E * 2u), "one-row f16");
+    }
+    const uint64_t d = bit_diffs(rows, one, (uint64_t)T * T4_E, NULL);
+    uint64_t dh = 0;
+    for (uint64_t i = 0; i < (uint64_t)T * T4_E; i++) dh += hr[i] != h1[i];
+    CHECK(d == 0 && dh == 0, "residual add / f16 staging: %u rows differ from one-row calls in %llu and %llu words%s", T,
+          (unsigned long long)d, (unsigned long long)dh, g_batched ? " [batched]" : "");
+    printf("  eltwise T=%-3u residual add: %llu words differ; f32 -> f16 staging: %llu words differ%s\n", T, (unsigned long long)d,
+           (unsigned long long)dh, g_batched ? " [batched]" : "");
+    free(x); free(y); free(rows); free(one); free(hr); free(h1);
+    ds4_gpu_tensor_free(xt); ds4_gpu_tensor_free(yt); ds4_gpu_tensor_free(ot); ds4_gpu_tensor_free(h);
+    ds4_gpu_tensor_free(x1); ds4_gpu_tensor_free(y1); ds4_gpu_tensor_free(o1); ds4_gpu_tensor_free(hh);
+}
+
+/* q/k norm + RoPE over T rows from pos0 against T one-row calls at pos0 + r, both layer kinds */
+static void rope_run(fixture_t *f, const float *xq, const float *xk, uint32_t T, uint32_t pos0, int full, float *q_out, float *k_out) {
+    const ds4_gpu_mellum_rope p = model_rope(1.0f);
+    const uint64_t nq = (uint64_t)T * MELLUM_N_HEAD * MELLUM_HEAD_DIM, nk = (uint64_t)T * MELLUM_N_HEAD_KV * MELLUM_HEAD_DIM;
+    ds4_gpu_tensor *tq = upload(xq, nq), *tk = upload(xk, nk);
+    T4_BEGIN();
+    require_ok(ds4_gpu_mellum_qk_norm_rope_tensor(tq, tk, f->arena.base, f->arena.size, f->q_off, f->k_off, T, pos0 + (T > 1u && t4_break("rope") ? 1u : 0u), kind_of(full), &p),
+               "mellum q/k norm and rope");
+    T4_END();
+    require_ok(ds4_gpu_tensor_read(tq, 0, q_out, nq * 4u) && ds4_gpu_tensor_read(tk, 0, k_out, nk * 4u), "rope download");
+    ds4_gpu_tensor_free(tq);
+    ds4_gpu_tensor_free(tk);
+}
+
+static void test_rope_rows(fixture_t *f, uint32_t T, uint32_t pos0, int full) {
+    const uint64_t qw = (uint64_t)MELLUM_N_HEAD * MELLUM_HEAD_DIM, kw = (uint64_t)MELLUM_N_HEAD_KV * MELLUM_HEAD_DIM;
+    float *xq = rand_vec(T * qw, 1.7f), *xk = rand_vec(T * kw, 1.7f);
+    float *rq = malloc(T * qw * 4u), *rk = malloc(T * kw * 4u), *sq = malloc(T * qw * 4u), *sk = malloc(T * kw * 4u);
+    require_ok(rq && rk && sq && sk, "malloc");
+    rope_run(f, xq, xk, T, pos0, full, rq, rk);
+    const bool was = g_batched;
+    g_batched = false; /* the one-row calls are the decode reference: each runs to completion */
+    for (uint32_t t = 0; t < T; t++) rope_run(f, xq + t * qw, xk + t * kw, 1, pos0 + t, full, sq + t * qw, sk + t * kw);
+    g_batched = was;
+    uint64_t fq = 0, fk = 0;
+    const uint64_t dq = bit_diffs(rq, sq, T * qw, &fq), dk = bit_diffs(rk, sk, T * kw, &fk);
+    CHECK(dq == 0 && dk == 0, "q/k norm+RoPE (%s layer, pos0 %u): %u rows differ from one-row calls in %llu (q) and %llu (k) words%s",
+          full ? "full" : "sliding", pos0, T, (unsigned long long)dq, (unsigned long long)dk, g_batched ? " [batched]" : "");
+    CHECK(all_finite(rq, T * qw) && all_finite(rk, T * kw), "q/k norm+RoPE produced a non-finite value");
+    printf("  rope   %-7s T=%-3u pos0=%-5u rows vs one-row calls%s: %llu words differ in q, %llu in k\n", full ? "full" : "sliding", T,
+           pos0, g_batched ? " [batched]" : "", (unsigned long long)dq, (unsigned long long)dk);
+    free(xq); free(xk); free(rq); free(rk); free(sq); free(sk);
+}
+
+static void test_rope_rows_all(fixture_t *f) {
+    printf("Mellum prefill equals decode (rows against one-row calls, raw bits)\n");
+    for (int batched = 0; batched <= 1; batched++) {
+        g_batched = batched != 0;
+        for (int full = 0; full <= 1; full++) {
+            test_rope_rows(f, 7, 0, full);
+            test_rope_rows(f, 64, 1021, full);   /* straddles the window edge */
+            test_rope_rows(f, 33, 8190, full);   /* straddles YaRN's original context */
+        }
+    }
+    g_batched = false;
+}
+
+static void test_prefill_equals_decode(void) {
+    t4_arena_t *a = calloc(1, sizeof(*a));
+    require_ok(a != NULL, "calloc");
+    a->arena.size = (uint64_t)48 << 20;
+    a->arena.base = mmap(NULL, a->arena.size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
+    if (a->arena.base == MAP_FAILED) { perror("mmap"); exit(1); }
+    memset(a->arena.base, 0xFF, a->arena.size);
+    a->q = t4_take(a, t4_q8_bytes(T4_E, 4096u));
+    a->k = t4_take(a, t4_q8_bytes(T4_E, 512u));
+    a->v = t4_take(a, t4_q8_bytes(T4_E, 512u));
+    a->o = t4_take(a, t4_q8_bytes(4096u, T4_E));
+    a->router = t4_take(a, MREF_ROUTER_BYTES);
+    a->norm = t4_take(a, T4_E * 4u);
+    fill_q8(a->arena.base + a->q, (uint64_t)4096u * (T4_E / 32u));
+    fill_q8(a->arena.base + a->k, (uint64_t)512u * (T4_E / 32u));
+    fill_q8(a->arena.base + a->v, (uint64_t)512u * (T4_E / 32u));
+    fill_q8(a->arena.base + a->o, (uint64_t)T4_E * (4096u / 32u));
+    fill_router_random((float *)(a->arena.base + a->router), 0.072f);
+    a->norm_shadow = malloc(T4_E * sizeof(double));
+    require_ok(a->norm_shadow != NULL, "malloc");
+    {
+        float *w = (float *)(a->arena.base + a->norm);
+        for (uint32_t i = 0; i < T4_E; i++) { w[i] = 0.5f + 0.5f * (frand() + 1.0f); a->norm_shadow[i] = w[i]; }
+    }
+    require_ok(ds4_gpu_set_model_map(a->arena.base, a->arena.size), "model map registration");
+    static const uint32_t counts[] = { 7, 33, 64, 130 };
+    for (int batched = 0; batched <= 1; batched++) {
+        g_batched = batched != 0;
+        for (size_t c = 0; c < sizeof(counts) / sizeof(counts[0]); c++) {
+            const uint32_t T = counts[c];
+            test_q8_projection(a, "Q", a->q, T4_E, 4096u, T);
+            test_q8_projection(a, "K", a->k, T4_E, 512u, T);
+            test_q8_projection(a, "V", a->v, T4_E, 512u, T);
+            test_q8_projection(a, "O", a->o, 4096u, T4_E, T);
+            test_router_rows(a, T);
+            test_rms_norm_rows(a, T);
+            test_elementwise_rows(T);
+        }
+    }
+    g_batched = false;
+    CHECK(g_t4_q8_control_diff > 0, "control: the batched ds4_gpu_matmul_q8_0_tensor must differ from one-row calls somewhere (it matched everywhere)");
+    CHECK(g_t4_f32_control_diff > 0, "control: the batched ds4_gpu_matmul_f32_tensor must differ from one-row calls somewhere (it matched everywhere)");
+    printf("  controls: batched Q8_0 projection differs from one-row calls in %llu words, batched F32 router in %llu\n",
+           (unsigned long long)g_t4_q8_control_diff, (unsigned long long)g_t4_f32_control_diff);
+    munmap(a->arena.base, a->arena.size);
+    free(a->norm_shadow);
+    free(a);
+}
+
+
 int main(void) {
     fixture_t f;
     memset(&f, 0, sizeof(f));
@@ -1847,6 +2181,7 @@ int main(void) {
     test_double_scale_control(&f, 1, 8191);
     test_double_scale_control(&f, 0, 1025);
     test_refusals(&f);
+    test_rope_rows_all(&f);
 
     printf("Mellum attention (GQA 32/4, head 128, sliding window 1,024, f16 keys; max|d| / max|ref|)\n");
     static const uint32_t swa_counts[] = { 26, 1000, 1023, 1024, 1025, 1057, 2100 };
@@ -1861,6 +2196,7 @@ int main(void) {
     test_full_refusals();
 
     test_moe();
+    test_prefill_equals_decode();
 
     /* 2,100 and 4,100 keys are past 64 splits of 32 keys: the splits stop growing at their cap
      * (QWEN4_ATTN_MAX_SPLITS), so a key count past 2,048 runs more keys per split than any count below it */
