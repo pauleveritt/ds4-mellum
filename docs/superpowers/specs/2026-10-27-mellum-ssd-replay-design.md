@@ -1,11 +1,16 @@
 # Mellum SSD: CPU-only preparation
 
-Date: 2026-10-27. Status: proposed scope for review; implementation has not started.
+Date: 2026-10-27. Status: approved in chat and implemented on
+`codex/mellum-ssd-replay`; independent code review found no correctness blockers.
 
 Builder check: an independent reviewer read this design and reported
 "nothing important left". Preparation baseline: `env -u DS4_TEST_MELLUM_MODEL
 make -j4 test-mellum` passed in this worktree, including 14 logits-comparison
 tests. These are existing CPU-only tests, not new replay tests or GPU results.
+The completed implementation adds 21 synthetic replay/CLI tests; both the
+dedicated replay target and the full model-free Mellum suite pass. No GPU,
+model or storage experiment was performed. The design below records the
+approved scope; its implementation choices were approved with that scope.
 
 ## Purpose and boundary
 
