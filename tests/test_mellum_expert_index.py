@@ -207,6 +207,22 @@ def test_bounded_json_refuses_duplicates_nonfinite_and_oversize():
         assert api.load_json(path) == {'a': 1}
 
 
+def test_untimed_reader_accounting_counts_bytes_but_not_seeks():
+    api = module('mellum_storage_common')
+    with tempfile.TemporaryDirectory() as directory:
+        path = Path(directory) / 'input'
+        path.write_bytes(b'abcdef')
+        before = api.READ_BYTES
+        with api.opened(path) as (source, _):
+            assert source.read(2) == b'ab'
+            source.seek(4)
+            assert source.read(1) == b'e'
+        assert api.READ_BYTES - before == 3
+        before = api.READ_BYTES
+        assert api.file_identity(path)['sha256'] == hashlib.sha256(b'abcdef').hexdigest()
+        assert api.READ_BYTES - before == 6
+
+
 def load_tests(loader, tests, pattern):
     return unittest.TestSuite(unittest.FunctionTestCase(value) for name, value in globals().items()
                               if name.startswith('test_'))
