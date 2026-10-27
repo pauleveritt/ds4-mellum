@@ -13,6 +13,7 @@ typedef struct { const char *name; bool think; int nids; const int *ids; } fx_pr
 typedef struct { const char *name; int nmsg; const char *text; int nids; const int *ids; } fx_tool_case;
 #include "mellum_chat_ids.inc"
 #include "mellum_tool_text.h"
+#include "../ds4_prompt_prefix.h"
 
 #define CHECK(c) do { if (!(c)) { fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #c); exit(1); } } while (0)
 
@@ -802,6 +803,15 @@ static void check_mellum_chat_tiny(void) {
         CHECK(ds4_chat_append_tool_results(&e, &got, two, 2) == 1);
         expect_ids("tiny: two tool results", &got, want.v, want.len);
     }
+    /* an imported history (a prompt-prefix file): ds4_chat_append_message already closes each
+     * turn, so the assistant turn ends with one <|im_end|>, as the template writes it */
+    ds4_prompt_prefix_turn turns[] = {{DS4_PROMPT_PREFIX_USER, "hi"}, {DS4_PROMPT_PREFIX_ASSISTANT, "ok"}};
+    const ds4_prompt_prefix history = {turns, 2};
+    want.len = got.len = 0;
+    ds4_tokens_push(&want, 27); push_bytes(&want, "user\nhi"); ds4_tokens_push(&want, 28); push_bytes(&want, "\n");
+    ds4_tokens_push(&want, 27); push_bytes(&want, "assistant\nok"); ds4_tokens_push(&want, 28); push_bytes(&want, "\n");
+    ds4_prompt_prefix_append(&e, &got, &history);
+    expect_ids("tiny: imported history", &got, want.v, want.len);
     /* sibling: Flash Next keeps its own prefix (<think> and a newline when thinking) */
     g_ds4_shape = DS4_SHAPE_QWEN4_EXP;
     want.len = got.len = 0;
@@ -826,11 +836,17 @@ static void check_mellum_chat_tiny(void) {
         expect_ids("tiny: Flash Next, two tool results", &got, each.v, each.len);
         ds4_tokens_free(&each);
     }
+    /* sibling: Flash Next's imported assistant turn is unchanged, its EOS still pushed after the
+     * closed turn (MELLUM.md records the double close as a possible upstream issue) */
+    got.len = 0;
+    ds4_prompt_prefix_append(&e, &got, &history);
+    CHECK(count_id(&got, 28) == 3 && got.v[got.len - 1] == 28);
     ds4_tokens_free(&want); ds4_tokens_free(&got);
     vocab_free(&e.vocab);
     model_close(&m);
     unlink(path);
-    printf("ok   chat (tiny vocabulary): prefix arms, no effort turn, tool turn; Flash Next keeps its prefix and tool text\n");
+    printf("ok   chat (tiny vocabulary): prefix arms, no effort turn, tool turn, imported history; Flash Next keeps "
+           "its prefix, tool text and imported history\n");
 }
 
 static void text_cat(char **buf, size_t *len, const char *s) {
@@ -928,6 +944,25 @@ static void check_mellum_chat_model(const char *model_path) {
         ds4_tokens_free(&got);
     }
     check_mellum_tool_renders(&e);
+    for (size_t i = 0; i < N_OF(fx_histories); i++) {
+        /* the CLI's order: a system turn, the prefix file's turns, the live prompt, the generation prompt */
+        const fx_case *fc = &fx_histories[i];
+        ds4_prompt_prefix_turn turns[8];
+        ds4_prompt_prefix history = {turns, 0};
+        ds4_tokens got = {0};
+        int j = 0;
+        if (!strcmp(fc->msgs[0].role, "system")) ds4_chat_append_message(&e, &got, "system", fc->msgs[j++].content);
+        for (; j < fc->nmsg - 1 && history.count < N_OF(turns); j++) {
+            const bool assistant = !strcmp(fc->msgs[j].role, "assistant");
+            turns[history.count++] = (ds4_prompt_prefix_turn){
+                assistant ? DS4_PROMPT_PREFIX_ASSISTANT : DS4_PROMPT_PREFIX_USER, (char *)fc->msgs[j].content};
+        }
+        ds4_prompt_prefix_append(&e, &got, &history);
+        ds4_chat_append_message(&e, &got, "user", fc->msgs[fc->nmsg - 1].content);
+        ds4_chat_append_assistant_prefix(&e, &got, fc->think ? DS4_THINK_HIGH : DS4_THINK_NONE);
+        expect_ids(fc->name, &got, fc->ids, fc->nids);
+        ds4_tokens_free(&got);
+    }
     {   /* the CLI -p path: system and prompt through encode_chat_prompt */
         ds4_tokens got = {0};
         ds4_encode_chat_prompt(&e, "You are a helpful assistant.", "Hello, world!", DS4_THINK_HIGH, &got);
@@ -939,8 +974,8 @@ static void check_mellum_chat_model(const char *model_path) {
     }
     vocab_free(&e.vocab);
     model_close(&m);
-    printf("ok   Mellum (real GGUF): %zu renders, %zu with tools, and 2 prefixes equal 2.1's template ids\n",
-           N_OF(fx_cases), N_OF(fx_tool_cases));
+    printf("ok   Mellum (real GGUF): %zu renders, %zu with tools, %zu imported histories and 2 prefixes equal 2.1's "
+           "template ids\n", N_OF(fx_cases), N_OF(fx_tool_cases), N_OF(fx_histories));
 }
 
 /* The engine's one sampling call: Mellum's tuple (2.1's generation_config.json carries no

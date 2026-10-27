@@ -133,6 +133,16 @@ TOOL_CASES = [
     ("tools: +two tool messages, one user turn, think on", 5),
 ]
 
+# Imported histories: the turns before the last come from a prompt-prefix file (USER: and
+# ASSISTANT: turns, ds4_prompt_prefix_append), the last user turn is the live prompt.
+HISTORIES = [
+    ("history: user, assistant, user, think on", True,
+     [("user", "What is 2 + 2?"), ("assistant", "4"), ("user", "And times 3?")]),
+    ("history: system, two exchanges, user, think on", True,
+     [("system", "You are terse."), ("user", "Name a prime."), ("assistant", "7"),
+      ("user", "Another?"), ("assistant", "11"), ("user", "Their sum?")]),
+]
+
 # the generation prompt alone, as the template's last block writes it
 PREFIXES = [
     ("assistant prefix, think on", True, "<|im_start|>assistant\n"),
@@ -182,6 +192,20 @@ def main(snap):
     for i, (name, think, msgs) in enumerate(CASES):
         p("    {%s, %s, %d, fx_msgs_%d, (int)(sizeof(fx_ids_%d) / sizeof(int)), fx_ids_%d},"
           % (cstr(name), "true" if think else "false", len(msgs), i, i, i))
+    p("};")
+    for k, (name, think, msgs) in enumerate(HISTORIES):
+        messages = [{"role": r, "content": c} for r, c in msgs]
+        kw = {} if think else {"enable_thinking": False}
+        text = tpl.render(messages=messages, add_generation_prompt=True, **kw)
+        p("static const fx_msg fx_history_msgs_%d[] = {" % k)
+        for r, c in msgs:
+            p("    {%s, %s}," % (cstr(r), cstr(c)))
+        p("};")
+        p("static const int fx_history_ids_%d[] = {%s};" % (k, ", ".join(map(str, ids(text)))))
+    p("static const fx_case fx_histories[] = {")
+    for k, (name, think, msgs) in enumerate(HISTORIES):
+        p("    {%s, %s, %d, fx_history_msgs_%d, (int)(sizeof(fx_history_ids_%d) / sizeof(int)), fx_history_ids_%d},"
+          % (cstr(name), "true" if think else "false", len(msgs), k, k, k))
     p("};")
     p("static const fx_prefix fx_prefixes[] = {")
     for j, (name, think, text) in enumerate(PREFIXES):

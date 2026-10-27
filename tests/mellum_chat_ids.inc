@@ -44,6 +44,25 @@ static const fx_case fx_cases[] = {
     {"tool only, think on", true, 1, fx_msgs_4, (int)(sizeof(fx_ids_4) / sizeof(int)), fx_ids_4},
     {"user, assistant, two tool messages, think on", true, 4, fx_msgs_5, (int)(sizeof(fx_ids_5) / sizeof(int)), fx_ids_5},
 };
+static const fx_msg fx_history_msgs_0[] = {
+    {"user", "What is 2 + 2?"},
+    {"assistant", "4"},
+    {"user", "And times 3?"},
+};
+static const int fx_history_ids_0[] = {27, 1397, 233, 2821, 359, 255, 52, 523, 255, 52, 65, 28, 233, 27, 8091, 233, 54, 28, 233, 27, 1397, 233, 2967, 2497, 255, 53, 65, 28, 233, 27, 8091, 233};
+static const fx_msg fx_history_msgs_1[] = {
+    {"system", "You are terse."},
+    {"user", "Name a prime."},
+    {"assistant", "7"},
+    {"user", "Another?"},
+    {"assistant", "11"},
+    {"user", "Their sum?"},
+};
+static const int fx_history_ids_1[] = {27, 5217, 233, 2591, 445, 96600, 48, 28, 233, 27, 1397, 233, 827, 255, 99, 4599, 48, 28, 233, 27, 8091, 233, 57, 28, 233, 27, 1397, 233, 5993, 65, 28, 233, 27, 8091, 233, 51, 51, 28, 233, 27, 1397, 233, 28109, 1572, 65, 28, 233, 27, 8091, 233};
+static const fx_case fx_histories[] = {
+    {"history: user, assistant, user, think on", true, 3, fx_history_msgs_0, (int)(sizeof(fx_history_ids_0) / sizeof(int)), fx_history_ids_0},
+    {"history: system, two exchanges, user, think on", true, 6, fx_history_msgs_1, (int)(sizeof(fx_history_ids_1) / sizeof(int)), fx_history_ids_1},
+};
 static const fx_prefix fx_prefixes[] = {
     {"assistant prefix, think on", true, (int)(sizeof(fx_prefix_ids_0) / sizeof(int)), fx_prefix_ids_0},
     {"assistant prefix, think off", false, (int)(sizeof(fx_prefix_ids_1) / sizeof(int)), fx_prefix_ids_1},
