@@ -1085,6 +1085,10 @@ tests/test_mellum_routes: tests/test_mellum_routes.c ds4_mellum_routes.c ds4_mel
 test-mellum-routes-c: tests/test_mellum_routes
 	./tests/test_mellum_routes
 
+.PHONY: test-mellum-routes
+test-mellum-routes: test-mellum-routes-c
+	python3 -I tests/test_mellum_routes_to_trace.py
+
 .PHONY: test-mellum-ssd-replay
 test-mellum-ssd-replay:
 	python3 -I tests/test_mellum_ssd_replay.py
