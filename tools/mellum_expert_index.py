@@ -84,6 +84,7 @@ def validate_index(value: dict) -> dict:
 
 
 def build_index(model: Path) -> dict:
+    read_start = common.READ_BYTES
     model = model.absolute()
     with common.opened(model) as (source, before):
         directory = gguf.read_directory(source, before['size'])
@@ -97,6 +98,7 @@ def build_index(model: Path) -> dict:
                   directory=dict(data_start=directory.data_start, alignment=directory.alignment, sha256=prefix),
                   tool=common.file_identity(Path(__file__)), source_identity=common.source_identity(common.ROOT),
                   experts=entries)
+    result['untimed_python_read_bytes'] = common.READ_BYTES - read_start
     return validate_index(result)
 
 

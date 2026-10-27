@@ -96,6 +96,7 @@ def validate_packed(value: dict) -> dict:
 
 
 def pack(index_path: Path, container: Path) -> Path:
+    read_start = common.READ_BYTES
     index_file = common.file_identity(index_path)
     index = index_tools.validate_index(common.load_json(index_path))
     index_tools.verify_index_source(index)
@@ -127,6 +128,7 @@ def pack(index_path: Path, container: Path) -> Path:
                         preparation_bytes=index['source']['size'] + size,
                         verification_bytes=3 * size,
                         tool=common.file_identity(Path(__file__)), source_identity=common.source_identity(common.ROOT))
+        manifest['untimed_python_read_bytes'] = common.READ_BYTES - read_start
         common.write_json(stage / 'manifest.json', validate_packed(manifest))
     return common.publication.publish(container, build)
 

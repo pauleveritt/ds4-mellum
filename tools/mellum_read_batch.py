@@ -39,6 +39,7 @@ def check_binding(value: dict, *, full: bool = True) -> None:
 
 
 def prepare_batch(index_path: Path, packed_dir: Path, trace_path: Path, binary: Path, container: Path) -> Path:
+    read_start = common.READ_BYTES
     index = index_tools.validate_index(common.load_json(index_path))
     manifest = pack_tools.validate_packed(common.load_json(packed_dir / 'manifest.json'))
     index_tools.verify_index_source(index)
@@ -77,6 +78,7 @@ def prepare_batch(index_path: Path, packed_dir: Path, trace_path: Path, binary: 
                      diagnostic=dict(approved_trace_sha256=plans.TRACE_SHA256,capacity_bytes=plans.CAPACITY,
                                      effective_slots=489,selection='full cold prefix LRU; first 512 sorted decode misses; repeats retained'),
                      cache_modes=dict(buffered='explicitly prewarmed jobs outside timing',avoid='F_NOCACHE=1 and F_RDAHEAD=0 required on macOS; physical I/O unverified'))
+        value['untimed_python_read_bytes'] = common.READ_BYTES - read_start
         common.write_json(stage/'manifest.json',value)
     return common.publication.publish(container,build)
 
@@ -117,7 +119,7 @@ def verify_batch(batch_dir: Path) -> tuple[dict, dict]:
         logical = common.load_json(batch_dir/definition['jobs'])
         jobs = plans.make_jobs(index if layout == 'original' else packed,ids[name],layout)
         size = batch['inputs']['model' if layout == 'original' else 'payload']['size']
-        if logical != dict(ids=[list(pair) for pair in ids[name]],jobs=jobs) or (batch_dir/definition['wire']).read_bytes() != plans.encode_plan(jobs,size):
+        if logical != dict(ids=[list(pair) for pair in ids[name]],jobs=jobs) or read_wire(batch_dir/definition['wire']) != plans.encode_plan(jobs,size):
             raise ValueError('frozen jobs differ from checked indexes/trace')
         count = sum(sum(span['bytes'] for span in job['ranges']) for job in jobs)
         common.integer(definition['logical_bytes'],count,count)
@@ -209,6 +211,7 @@ def host_metadata(inputs: dict) -> dict:
 
 
 def run_batch(batch_dir: Path, container: Path) -> Path:
+    read_start = common.READ_BYTES
     failure_path = container.with_name(container.name+'.failure')
     if failure_path.exists() or failure_path.is_symlink():
         raise FileExistsError(failure_path)
@@ -268,6 +271,8 @@ def run_batch(batch_dir: Path, container: Path) -> Path:
             common.write_json(stage/'report.json',dict(schema_version=1,kind='storage-read-report',batch=frozen_manifest,
                 frozen=batch,runs=runs,completed_logical_bytes=completed,physical_io_verified=False,host=host,ranges=ranges,
                 prewarm_bytes=sum(batch['plans'][f"{r['plan']}-{r['layout']}"]['logical_bytes'] for r in runs if r['mode']=='buffered'),
+                untimed_python_read_bytes=common.READ_BYTES-read_start,
+                read_accounting='Python input bytes including metadata/source/report reads; excludes Git internals, runtime imports and native reads; logical, not physical I/O',
                 memory=dict(max_worker_buffers=4*max(sum(s['bytes'] for s in j['ranges']) for jobs in jobs_by_key.values() for j in jobs),
                             excluded=['runtime','thread stacks','OS caches']),
                 limits=['open-loop storage jobs; no inference tok/s conversion','cache avoidance requested; physical traffic unverified',
@@ -276,10 +281,16 @@ def run_batch(batch_dir: Path, container: Path) -> Path:
             def retain(failed: Path) -> None:
                 shutil.copytree(stage,failed,dirs_exist_ok=True)
                 common.write_json(failed/'failure.json',dict(schema_version=1,kind='failed-storage-read-batch',
-                                                            complete=False,error=str(exc),batch=str(batch_dir)))
+                                                            complete=False,error=str(exc),batch=str(batch_dir),untimed_python_read_bytes=common.READ_BYTES-read_start))
             try:
                 common.publication.publish(failure_path,retain)
             except OSError as failure:
                 exc.add_note(f'failure evidence publication failed: {failure}')
             raise
     return common.publication.publish(container,build)
+
+
+def read_wire(path: Path) -> bytes:
+    with common.opened(path) as (source, before):
+        common.integer(before['size'],64,64+4096*3*32)
+        return source.read(before['size'])
