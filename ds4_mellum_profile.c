@@ -120,3 +120,6 @@ bool mellum_profile_scope_exit(mellum_profile_scope *s, mellum_profiles *r, bool
     r->profiles[r->count++]=r->current;
     return true;
 }
+
+bool mellum_profile_describe(const mellum_profile *p,char *d,size_t n) {(void)p;(void)d;(void)n;return false;}
+bool mellum_profiles_emit(mellum_profiles *r,mellum_profile_sink f,void *ctx) {(void)r;(void)f;(void)ctx;return false;}

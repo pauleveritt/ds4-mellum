@@ -41,4 +41,7 @@ bool mellum_profiles_init(mellum_profiles*, const mellum_kernel_catalog*);
 bool mellum_profile_scope_enter(mellum_profile_scope*, mellum_profiles*, bool head);
 bool mellum_profile_scope_record(mellum_profile_scope*, mellum_kernel_descriptor);
 bool mellum_profile_scope_exit(mellum_profile_scope*, mellum_profiles*, bool success, uint32_t *id);
+typedef bool (*mellum_profile_sink)(void*, uint32_t id, const char*, size_t length);
+bool mellum_profile_describe(const mellum_profile*, char*, size_t);
+bool mellum_profiles_emit(mellum_profiles*, mellum_profile_sink, void*);
 #endif

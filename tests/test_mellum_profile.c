@@ -137,7 +137,52 @@ static void check_registry(void) {
         CHECK(!mellum_profile_scope_enter(&scope,a,true));free(a);
     }
 }
+typedef struct { unsigned calls, fail_at; char first[MELLUM_PROFILE_TEXT]; } catalog_sink;
+static bool collect_profile(void *ctx,uint32_t id,const char *text,size_t n) {
+    catalog_sink *sink=ctx;
+    CHECK(id==sink->calls && text[n]==0 && strlen(text)==n);
+    if(sink->calls++==0) memcpy(sink->first,text,n+1);
+    return sink->calls!=sink->fail_at;
+}
+static void check_descriptions(void) {
+    mellum_profile p;complete(&p,true,32);
+    char text[MELLUM_PROFILE_TEXT];
+    CHECK(mellum_profile_describe(&p,text,sizeof(text)));
+    CHECK(!strcmp(text,"profile-v1;head=encoded;EMBED:kernel_short(tile=32);PROJECTION:kernel_short(tile=32);ROUTER:kernel_short(tile=32);MID:kernel_short(tile=32);DOWN:kernel_short(tile=32);REDUCE:kernel_short(tile=32);ATTENTION:kernel_short(tile=32);HEAD:kernel_tail(tile=64,type=8)"));
+    complete(&p,false,0);CHECK(mellum_profile_describe(&p,text,sizeof(text)));
+    CHECK(!strncmp(text,"profile-v1;head=not-encoded;",27));
+    struct { char tiny[8],canary[4]; } buffer;
+    memset(&buffer,'X',sizeof(buffer));
+    CHECK(!mellum_profile_describe(&p,buffer.tiny,sizeof(buffer.tiny)));
+    CHECK(buffer.tiny[0]==0 && !memcmp(buffer.canary,"XXXX",4));
+    CHECK(!mellum_profile_describe(&p,NULL,0));
+    CHECK(!mellum_profile_describe(&p,text,0));
+    mellum_profiles *r=calloc(1,sizeof(*r));mellum_profile_scope scope={0};
+    CHECK(r && mellum_profiles_init(r,&catalog));catalog_sink sink={0};
+    CHECK(!mellum_profiles_emit(r,collect_profile,&sink) && sink.calls==0);
+    CHECK(register_profile(r,&scope,true,0,false)==0);
+    CHECK(register_profile(r,&scope,true,0,true)==0);
+    CHECK(register_profile(r,&scope,true,1,false)==1);
+    CHECK(mellum_profiles_emit(r,collect_profile,&sink) && sink.calls==2);
+    sink=(catalog_sink){.fail_at=1};
+    CHECK(!mellum_profiles_emit(r,collect_profile,&sink) && sink.calls==1 && r->failed);
+    CHECK(!mellum_profiles_emit(r,collect_profile,&sink) && sink.calls==1);free(r);
+    /* A valid, bounded descriptor set can still exceed the text output cap. */
+    char name[96],label[32];memset(name,'n',95);name[95]=0;memset(label,'v',31);label[31]=0;
+    char labels[6][32];mellum_kernel_def large={.name=name,.value_count=6};
+    for(unsigned i=0;i<6;i++) {memcpy(labels[i],label,32);labels[i][0]='a'+i;large.value_names[i]=labels[i];}
+    mellum_kernel_catalog huge;CHECK(mellum_kernel_catalog_init(&huge,&large,1));
+    r=calloc(1,sizeof(*r));CHECK(r && mellum_profiles_init(r,&huge));
+    CHECK(mellum_profile_scope_enter(&scope,r,false));
+    for(unsigned i=0;i<64;i++) {
+        mellum_kernel_descriptor d={0,i<7 ? i:MELLUM_ROLE_OTHER,6,{i,UINT32_MAX,UINT32_MAX,UINT32_MAX,UINT32_MAX,UINT32_MAX}};
+        CHECK(mellum_profile_scope_record(&scope,d));
+    }
+    uint32_t id;CHECK(mellum_profile_scope_exit(&scope,r,true,&id));
+    sink=(catalog_sink){0};CHECK(!mellum_profiles_emit(r,collect_profile,&sink));
+    CHECK(r->failed && sink.calls==0);free(r);
+}
 int main(void) {
-    check_catalog();check_profiles();check_refusals();check_registry();
+    check_catalog();check_profiles();check_refusals();check_registry();check_descriptions();
     puts("Mellum profile set checks: PASS");return 0;
 }
