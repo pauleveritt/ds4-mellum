@@ -11796,9 +11796,11 @@ static bool build_live_prompt_suffix(server *s, server_slot *slot,
  * - anthropic-tool-output: /v1/messages has no server-side response object,
  *   but tool_use_id is a precise continuation handle inside a live local
  *   agent loop.
- * - memory-rewind (GLM only): the prompt is a strict truncation of the
+ * - memory-rewind (GLM): the prompt is a strict truncation of the
  *   checkpoint; the live KV is rewound and the final prompt token
- *   reevaluated.
+ *   reevaluated.  (Mellum, last: the prompt keeps the prefix where the last
+ *   sync ended and goes past it, as the next user turn after a thinking
+ *   answer does; the session restores itself there, rewind frontier.)
  * - memory-token: the checkpoint is an exact token prefix of the prompt.
  * - thinking-visible: after a tool-less thinking answer the next prompt
  *   omits the hidden reasoning by design; the remembered visible transcript
@@ -11965,6 +11967,14 @@ static slot_reuse slot_probe_reuse_locked(server *s, server_slot *slot,
         pr.kind = REUSE_MEMORY_TEXT;
         pr.reuse_tokens = live_pos;
         pr.suffix_off = slot->live_text_len;
+        return pr;
+    }
+
+    const int frontier = ds4_session_rewind_frontier(slot->session);
+    if (frontier > 0 && frontier < live_pos && common >= frontier &&
+        req->prompt.len > frontier && token_image_prefix) {
+        pr.kind = REUSE_MEMORY_REWIND;
+        pr.reuse_tokens = frontier;
         return pr;
     }
 
@@ -13860,18 +13870,24 @@ static void generate_job_inner(server *s, server_slot *slot, job *j) {
                                               j->req.images,
                                               j->req.image_count));
         pthread_mutex_unlock(&s->inference_mu);
+        const char *model = ds4_engine_is_mellum(s->engine) ? "Mellum" : "GLM";
         if (rewind_valid) {
             live_materialized = true;
             cache_source = "memory-rewind";
             cache_diag.rewind_to = reuse.reuse_tokens;
-            server_log(DS4_LOG_KVCACHE,
-                       "ds4-server: rewound GLM live prefix from %d to %d; final prompt token will be reevaluated",
-                       old_pos, reuse.reuse_tokens);
+            if (ds4_engine_is_mellum(s->engine))
+                server_log(DS4_LOG_KVCACHE,
+                           "ds4-server: rewound Mellum live prefix from %d to %d, where its last sync ended",
+                           old_pos, reuse.reuse_tokens);
+            else
+                server_log(DS4_LOG_KVCACHE,
+                           "ds4-server: rewound GLM live prefix from %d to %d; final prompt token will be reevaluated",
+                           old_pos, reuse.reuse_tokens);
         } else {
             cached = 0;
             server_log(DS4_LOG_KVCACHE,
-                       "ds4-server: GLM live prefix rewind from %d to %d requires rebuild",
-                       old_pos, reuse.reuse_tokens);
+                       "ds4-server: %s live prefix rewind from %d to %d requires rebuild",
+                       model, old_pos, reuse.reuse_tokens);
         }
         break;
     }
