@@ -34,9 +34,11 @@ each: a short chat prompt prefills at 440-450 t/s and generates at 132.6-133.1
 t/s; a 3,235-token prompt prefills at 1,842-1,871 t/s and then generates at
 116.2-117.8 t/s. The trace driver's 2,200-token prefill: about 2,000 t/s. Since E1 (routed Q8_0
 experts on the Metal 4 tensor tiles), about 2,880 t/s at 2,200 tokens and 2,060 at 6,000. The M4
-Max was not measured. Session save/load refuses by name, and ds4-server
-refuses a Mellum engine at startup (no Hermes tool syntax there yet). Since
-step 34, ds4-agent runs Mellum with the Hermes syntax and Pi's four tools.
+Max was not measured. Session save/load refuses by name. Since step 34,
+ds4-agent runs Mellum with the Hermes syntax and Pi's four tools. Since phase
+6 (steps 41-43), ds4-server serves Mellum as `mellum-2.1`, with the Hermes
+syntax and one session: `--batched-session` above 1 and `--kv-disk-dir` are
+refused at startup by name.
 
 Model-free tests: `make test-mellum`. With `DS4_TEST_MELLUM_MODEL` set,
 `./tests/test_mellum_config` also validates, binds and renders against the real
@@ -87,6 +89,14 @@ and `chat_template.jinja` are byte-identical to the Hugging Face snapshot
   - `ds4_gpu_tensor_tiles_available` is new, for tests.
   - Other weight types and other models' Q8_0 experts are unchanged, and a model-free kernel test checks
     that Q8_0 experts without Mellum's level give the same bytes with and without `DS4_QWEN4_MOE_MM_NAX=2`.
+- ds4-server (phase 6). The Hermes renderer, parser, suffixes and live tail are Mellum-only
+  branches, chosen by `SERVER_MODEL_SYNTAX_HERMES`. Four places are shared code:
+  - The OpenAI, Responses and Anthropic streams now call one helper, `stream_skip_think_open`,
+    to skip a leading `<think>`. That behaviour is unchanged for other models; only Mellum's
+    newline after the tag is new.
+  - `server_engine_refusal` refuses no model now.
+  - `server_session_option_refusal` is new, and refuses only Mellum's options.
+  - `send_models` names Mellum before the qwen4 check.
 - `ds4_prompt_prefix_append` (`ds4_prompt_prefix.h`, review fix R4): for Mellum
   it no longer pushes EOS after an imported assistant turn, because
   `ds4_chat_append_message` has already closed the turn with `<|im_end|>\n`.
@@ -206,6 +216,25 @@ Phase 5 (tool calls in ds4-agent):
 - Step 40: `379aa54` (red), `cfc9eab` a Pi read shows only the range it asked
   for (found on the live screen).
 
+Phase 6, ds4-server (steps 41-43), a red test before each fix:
+
+- `55df178`, `8960fc6` the Hermes syntax selected for Mellum, ahead of the
+  qwen4 check.
+- `f69bf7a`, `7f6fbc5` Mellum chats rendered with its own template (with R5's
+  server half); `31b19d6` the renders tokenize to the template's ids.
+- `ce2cc56`, `3f09160` Hermes output parsed into reasoning, content and
+  calls.
+- `0cc8574`, `3e06a17`, `5f233d4` a finished turn remembered as the next
+  request renders it.
+- `16901b0`, `2d81330` the live tool tail and the malformed-call error turn.
+- `1c262ce`, `85629bc` reasoning and content streamed as they come.
+- `14ab0f4`, `f5aed20` batched sessions and disk KV refused by name.
+- `bb5bbf5`, `beed2c7` the server serves Mellum. The model-id check
+  landed with the fix, because a failed edit kept it out of the red commit.
+- From the live check: `7ee0e8f`, `8accdcc` a turn renders its sampled call
+  text, which fixed a KV cache miss; `521e72a`, `462574c` `/v1/models` lists
+  `mellum-2.1`.
+
 Review fixes and experiment E1 (after step 33, before step 34; the outside
 review of `5aa742c`):
 
@@ -317,6 +346,17 @@ fixed in `379aa54` (red) and `cfc9eab`.
   nothing and reports how many lines remain; Pi's own arithmetic would count from before the
   start.
 
+- ds4-server with Mellum: a request's earlier reasoning follows the template (R5): dropped before
+  the latest real user message, kept within the current tool cycle. Two things still differ from
+  what the template alone would give:
+  - A turn whose calls the server sampled renders those calls as sampled (`raw_tool_text`, kept
+    by tool memory). The client's arguments come back minified, as the server returns them for
+    every model, and rendering those would leave the KV cache's bytes.
+  - A streamed answer's content begins with the template's blank lines after `</think>`; the
+    non-streamed answer trims them.
+  The server does not yet treat Mellum's id-0 or protocol-token stops as errors the way the agent
+  does (steps 33 and 37).
+
 ## Measured
 
 | what | command | result | n |
@@ -342,6 +382,8 @@ fixed in `379aa54` (red) and `cfc9eab`.
 | E1 landed (tensor-tile experts on by default) vs `DS4_MELLUM_MOE_NAX=0`, 2d0756d, 2,200 tokens | `abba.sh` (session scratchpad; copy in `misc/e1-q8-tensor-tiles/`): A/B/B/A, arm A `DS4_MELLUM_MOE_NAX=0`, arm B default, 6 runs per process, first dropped, 45 s between processes, AC, Automatic, no thermal or performance warning before or after any process | second round: A median 2,045 t/s (1,897-2,057), B 2,881 (2,814-2,893), **+41%**. A first round gave A 1,628 and B 2,742 (+68%), but its first A process ran at 1,253-1,423 against 1,832-1,994 for the same arm at the round's end, so that round is not used. Each arm's two processes gave byte-identical logits in both rounds | 10 per arm, x2 |
 | the same, 6,000 tokens (`mellum_heldout_long`) | the same, 4 runs per process, first dropped | A median 1,596 t/s (1,389-1,719), B 2,057 (1,828-2,220), **+29%** | 6 per arm |
 | oracle, fast paths, exact switch at 2d0756d | `tests/mellum_oracle_compare.sh ORACLE_DIR $MODEL 64`, `make test-mellum-fastpath`, `./ds4_test --mellum-exact-prefill`, `--mellum-moe` | oracle PASS under the near-tie rule (1,100 and 2,200 tokens: top-1 64/65 each, the one change at a near-tie, mean KL 1.6e-3 and 1.3e-3; exact prefill, decode and 64 greedy tokens byte-equal); fast paths 45/45; `DS4_MELLUM_EXACT_PREFILL=1` 0 of 98,304 words from decode; `--mellum-moe` OK, the default 64-row MoE differs from `DS4_MELLUM_MOE_NAX=0` in 147,181 of 147,456 words, both within 4.3e-5 of the staged reference | 1 |
+| ds4-server renders vs the template (steps 41-42) | `./ds4_test --server`; `DS4_TEST_MELLUM_MODEL=... ./ds4_test --mellum-server-ids` | 11 requests (`tests/gen_mellum_server_cases.py`): text and ids equal 2.1's template. Parse, round trip, remembered text, live tail, error turn and stream checks pass | 1 |
+| ds4-server live (step 43), 462574c | `ds4-server -m $MODEL -c 16384 --port 8099`, then `curl /v1/chat/completions`: a system message, "How many lines does hello.py have? Use the bash tool.", one `bash` tool, seed 1, `max_tokens` 1024 | 1st request: one `bash` call, `{"command":"wc -l hello.py"}`, with `reasoning_content` split out, `finish_reason` "tool_calls", 274 tokens, 2.4 s. 2nd request (the turn sent back, plus the tool result "6 hello.py"): "The file hello.py has 6 lines.", "stop", 1.2 s, `cached_tokens` 480 of 499: the live KV was reused. Before `8accdcc` the same 2nd request missed the cache (token mismatch at 469). Streamed (seed 2, "List the files here"): 107 reasoning chunks, the first "Ok", then one `bash` `ls` call in `tool_calls`, "tool_calls", `[DONE]`. `/v1/models` lists `mellum-2.1` | 1 each |
 | exact-prefill switch | `DS4_TEST_MELLUM_MODEL=... ./ds4_test --mellum-exact-prefill` | 1,100-token prefill vs decode: 0 of 98,304 logit words differ with the switch, 98,303 without | 1 |
 | batched + tiled prefill vs the old engine / exact decode, 64 positions | `tests/mellum_oracle_compare.sh ORACLE_DIR $MODEL 64` (after step 27; rule: top-1 everywhere, max\|d\| <= 10, mean KL <= 0.01) | 1,100: max\|d logit\| 2.008, mean KL 2.1e-3, top-1 65/65; 2,200: 8.471, 1.7e-3, 65/65; short prompt and every decode byte-equal; 64/64 greedy equal; PASS | 1 |
 | tiled prefill vs the exact path / the old engine, logits at 64 positions | `tests/mellum_oracle_compare.sh ORACLE_DIR $MODEL 64` (after step 25) | 1,100 tokens: max\|d logit\| 0.649, top-1 65/65; 2,200: 0.874, top-1 65/65; short prompt and every decode still byte-equal; 64 of 64 greedy tokens equal; PASS | 1 |
