@@ -10385,6 +10385,63 @@ static char *pi_tool_read(const agent_tool_call *call) {
     return agent_buf_take(&out);
 }
 
+/* ---- write ---- */
+
+/* mkdir -p for the directory part of path; false (errno set) on failure. */
+static bool pi_mkdir_parents(const char *path) {
+    char *dir = xstrdup(path);
+    char *slash = strrchr(dir, '/');
+    if (!slash) { free(dir); return true; }
+    if (slash == dir) { free(dir); return true; }
+    *slash = '\0';
+    for (char *q = dir + 1; ; q++) {
+        if (*q == '/' || *q == '\0') {
+            char saved = *q;
+            *q = '\0';
+            if (mkdir(dir, 0777) != 0 && errno != EEXIST) {
+                int e = errno;
+                free(dir);
+                errno = e;
+                return false;
+            }
+            *q = saved;
+            if (!saved) break;
+        }
+    }
+    free(dir);
+    return true;
+}
+
+static char *pi_tool_write(const agent_tool_call *call) {
+    const char *path_arg = agent_tool_arg_value(call, "path");
+    const char *content = agent_tool_arg_value(call, "content");
+    if (!path_arg || !path_arg[0]) return xstrdup("write requires a path string.");
+    if (!content) return xstrdup("write requires a content string.");
+    char *path = pi_resolve_path(path_arg);
+    if (!pi_mkdir_parents(path)) {
+        char *msg = pi_fs_error(errno, "mkdir", path);
+        free(path);
+        return msg;
+    }
+    const size_t len = strlen(content);
+    char err[256];
+    if (agent_replace_file(path, content, len, NULL, 0, err, sizeof(err)) != 0) {
+        free(path);
+        return xstrdup(err);
+    }
+    free(path);
+    /* the training-era text (Pi 0.84.4; 1.1.0 says "Successfully wrote to P"), whose count is
+     * content.length: UTF-16 units, so a code point above U+FFFF counts two */
+    size_t units = 0;
+    for (size_t i = 0; i < len; i++) {
+        const unsigned char c = (unsigned char)content[i];
+        if ((c & 0xc0) != 0x80) units += c >= 0xf0 ? 2 : 1;
+    }
+    char *msg = xmalloc(strlen(path_arg) + 64);
+    sprintf(msg, "Successfully wrote %zu bytes to %s", units, path_arg);
+    return msg;
+}
+
 /* Execute one parsed DSML tool call and return the text that will be appended as
  * the tool-role result.  UI visualization already happened while streaming; this
  * function is only about side effects and the model-visible observation. */
@@ -10393,6 +10450,7 @@ static char *agent_execute_tool_call(agent_worker *w, const agent_tool_call *cal
     if (!call->name) return xstrdup("Tool error: missing tool name\n");
     if (agent_tool_syntax_for_engine(w->engine) == AGENT_TOOL_SYNTAX_HERMES) {
         if (!strcmp(call->name, "read")) return pi_tool_read(call);
+        if (!strcmp(call->name, "write")) return pi_tool_write(call);
     }
 
     if (!strcmp(call->name, "read")) return agent_tool_read(w, call);
