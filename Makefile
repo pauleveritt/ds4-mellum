@@ -915,6 +915,11 @@ tests/mellum_trace: tests/mellum_trace.o $(CORE_OBJS)
 test-mellum-trace: tests/mellum_trace
 	./tests/test_mellum_trace.sh
 
+# The ds4 CLI with Mellum (DS4_TEST_MELLUM_MODEL).
+.PHONY: test-mellum-cli
+test-mellum-cli: ds4
+	./tests/test_mellum_cli.sh
+
 endif
 
 tests/test_qwen4_vision.o: tests/test_qwen4_vision.c ds4.h
