@@ -86,8 +86,9 @@ def observe(argv: list[str],topology: dict) -> dict:
             while selector.get_map():pump(deadline)
             child.wait(timeout=max(.001,deadline-time.monotonic()))
             if buffers['event'] or child.returncode:raise ValueError('native child failed after observation')
-    except (OSError,ValueError,subprocess.TimeoutExpired) as exc:
+    except BaseException as exc:
         failure=exc
+        result.update(error_type=type(exc).__name__,error=str(exc) or type(exc).__name__)
         if isinstance(exc,observer.CommandFailure):result['failed_command']=exc.evidence
     finally:
         if child is not None:
@@ -97,5 +98,5 @@ def observe(argv: list[str],topology: dict) -> dict:
         for fd in (cr,cw,er,ew):
             if fd>=0:os.close(fd)
         result.update(stdout=bytes(buffers['stdout']),stderr=bytes(buffers['stderr']))
-    if failure is not None:raise ObservationFailure(str(failure),result) from failure
+    if failure is not None:raise ObservationFailure(result['error'],result) from failure
     return result

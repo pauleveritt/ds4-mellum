@@ -144,7 +144,8 @@ def run(manifest_dir: Path,container: Path) -> Path:
                             'hot-file diagnostic; no SSD bandwidth, layout comparison or inference speed claim'])
                 common.write_json(stage/'report.json',serial(progress))
         except BaseException as exc:
-            progress.update(schema_version=1,kind='failed-device-observation',complete=False,error=str(exc),
+            error_type=exc.evidence.get('error_type',type(exc).__name__) if isinstance(exc,process.ObservationFailure) else type(exc).__name__
+            progress.update(schema_version=1,kind='failed-device-observation',complete=False,error=str(exc) or error_type,error_type=error_type,
                 unstarted_cells=[i for i in range(4) if i not in progress['started_cells']],
                 failed_cell_progress='unknown; reserved maxima retained',
                 timed_reserved_max=value.get('timed_logical_bytes') if 'value' in locals() else None,
