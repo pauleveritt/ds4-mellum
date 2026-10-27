@@ -203,6 +203,8 @@ Phase 5 (tool calls in ds4-agent):
   again after its loop, so an abnormal end exits 1 with the line.
 - Step 39: `c441f17` (red), `dc66028` a compaction summary that stops on id 0
   or a protocol id fails the compaction.
+- Step 40: `379aa54` (red), `cfc9eab` a Pi read shows only the range it asked
+  for (found on the live screen).
 
 Review fixes and experiment E1 (after step 33, before step 34; the outside
 review of `5aa742c`):
@@ -252,6 +254,28 @@ Step 22, M5 Max, Q8_0, `--temp 0`, n = 1 each:
   reasons in plain text before its answer, and 300 tokens ran out before the
   code. So with thinking off Mellum 2.1 does not answer directly; the CLI's
   handling of that is step 28.
+
+Step 40, the live agent screen, at cfc9eab. Setup: M5 Max, Q8_0, Mellum's default sampling (temperature 1.0,
+top-p 1.0). Each run used a fresh scratch directory holding only `hello.py` (a `greet` function; it prints
+"Hello, Mellum!"), and ran `ds4-agent -m $MODEL --non-interactive --seed N -c 16384 --trace FILE -p PROMPT`
+from that directory, with the Metal sources named through their `DS4_METAL_*_SOURCE` variables. One
+process at a time. Wall time is the whole process, model load included.
+
+| prompt | seed | calls, in order | how it ended | wall | exit |
+|---|---|---|---|---|---|
+| "Read hello.py and say what it prints." | 1 | `read {path}`; `bash python hello.py` (127: no `python` here); `bash python3 hello.py` | correct ("Hello, Mellum!"), clean stop | 9.8 s | 0 |
+| the same | 2 | `read {path}`; `bash python3 hello.py` | correct, clean stop | 2.9 s | 0 |
+| the same | 3 | `read {path}`; `bash python hello.py` (127) | correct from the code, clean stop | 3.0 s | 0 |
+| "Change hello.py so it prints Hello, World! instead, then run it to check." | 1 | `read`; `edit` with single-quoted strings, refused by the parser as `json.loads` would refuse it, with the Hermes syntax reminder; `edit {path, edits[{oldText, newText}]}`, "Successfully replaced 1 block(s)"; `bash python hello.py` (127); `bash which python3 \|\| which python`; `bash python3 hello.py` ("Hello, World!") | file edited correctly, clean stop | 28.8 s | 0 |
+
+Every tool round stopped on the call's closing `</tool_call>` (id 30), and every final answer on a stop
+token with no abnormal end traced. Since step 37 any stop other than EOS is traced and reported, and
+exits 1. The trace records the tokens but not the sampled stop token itself. The first run's 9.8 s against
+about 3 s for the next two is probably Metal compiling its shaders once; the edit's 28.8 s is mostly 954
+tokens of reasoning before its first, malformed, call. Each run printed "failed to save system prompt KV:
+Mellum 2.1 session save and load are not supported yet": the save is refused by name, and the run goes on.
+The screen found one display bug, a Pi read shown with the agent's own default range ("hello.py 1:240"),
+fixed in `379aa54` (red) and `cfc9eab`.
 
 ## Known divergences from training
 
