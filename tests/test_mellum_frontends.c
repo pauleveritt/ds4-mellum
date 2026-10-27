@@ -279,10 +279,50 @@ static void check_anthropic_system_first(void) {
     free(tools);
     puts("ok   server: an Anthropic system prompt renders first for Mellum, with and without tools");
 }
+
+/* P6-R3: Anthropic tool results are tool responses, grouped in one user turn, inside the tool cycle (so the
+ * turn's reasoning is kept), not a user turn holding the internal <tool_result> wrapper */
+static void check_anthropic_tool_results(void) {
+    char *p = mellum_request_prompt(2, "{\"model\":\"mellum-2.1\",\"max_tokens\":10,\"messages\":["
+        "{\"role\":\"user\",\"content\":\"Count both.\"},"
+        "{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"Two counts.\",\"signature\":\"x\"},"
+        "{\"type\":\"tool_use\",\"id\":\"t1\",\"name\":\"bash\",\"input\":{\"command\":\"wc -l a\"}},"
+        "{\"type\":\"tool_use\",\"id\":\"t2\",\"name\":\"bash\",\"input\":{\"command\":\"wc -l b\"}}]},"
+        "{\"role\":\"user\",\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"t1\",\"content\":\"3 a\"},"
+        "{\"type\":\"tool_result\",\"tool_use_id\":\"t2\",\"content\":\"4 b\"}]}]}");
+    CHECK(p != NULL);
+    CHECK(strstr(p, "<tool_result>") == NULL);
+    CHECK(strstr(p, "<|im_start|>user\n<tool_response>\n3 a\n</tool_response>\n<tool_response>\n4 b\n</tool_response>"
+                    "<|im_end|>\n<|im_start|>assistant\n") != NULL);
+    CHECK(strstr(p, "<|im_start|>assistant\n<think>\nTwo counts.\n</think>\n\n<tool_call>") != NULL);
+    free(p);
+    {   /* the live tail after the tool-call turn, for a result message shaped as the Anthropic parser shapes it */
+        chat_msgs msgs = {0};
+        chat_msgs_push(&msgs, (chat_msg){.role = xstrdup("user"), .content = xstrdup("Count.")});
+        chat_msg a = {.role = xstrdup("assistant"), .content = xstrdup("")};
+        tool_calls_push(&a.calls, (tool_call){.id = xstrdup("t1"), .name = xstrdup("bash"),
+                                              .arguments = xstrdup("{\"command\":\"wc -l a\"}")});
+        chat_msgs_push(&msgs, a);
+        chat_msg u = {.role = xstrdup("user"), .content = xstrdup("<tool_result>3 a</tool_result>")};
+        chat_msg_add_tool_call_id(&u, "t1");
+        u.tool_results = xmalloc(sizeof(u.tool_results[0]));
+        u.tool_results[0] = (tool_result_span){.begin = 0, .end = strlen(u.content), .id = xstrdup("t1"),
+                                               .content = xstrdup("3 a")};
+        u.tool_results_len = 1;
+        chat_msgs_push(&msgs, u);
+        char *tail = render_live_tool_tail_for_syntax(SERVER_MODEL_SYNTAX_HERMES, &msgs, 2, NULL, DS4_THINK_HIGH);
+        CHECK(tail && !strcmp(tail, "<|im_end|>\n<|im_start|>user\n<tool_response>\n3 a\n</tool_response><|im_end|>\n"
+                                    "<|im_start|>assistant\n"));
+        free(tail);
+        chat_msgs_free(&msgs);
+    }
+    puts("ok   server: Anthropic tool results render as Mellum tool responses, within the tool cycle");
+}
 #else
 static void check_reuse_effective_prompt(void) {}
 static void check_developer_is_system(void) {}
 static void check_anthropic_system_first(void) {}
+static void check_anthropic_tool_results(void) {}
 #endif
 
 #if defined(MELLUM_FRONTEND_AGENT)
@@ -709,5 +749,6 @@ int main(void) {
     check_reuse_effective_prompt();
     check_developer_is_system();
     check_anthropic_system_first();
+    check_anthropic_tool_results();
     return 0;
 }
