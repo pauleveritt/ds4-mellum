@@ -1,9 +1,19 @@
 /* Public unsupported CPU API: no model or GPU is created. */
+#include <stdlib.h>
+static void *checkpoint_test_realloc(void *, size_t);
+#define realloc checkpoint_test_realloc
 #include "../ds4.c"
+#undef realloc
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #define CHECK(c) do { if (!(c)) { fprintf(stderr,"FAIL %s:%d: %s\n",__FILE__,__LINE__,#c);exit(1); } } while (0)
+static bool fail_realloc;
+static unsigned failed_realloc_calls;
+static void *checkpoint_test_realloc(void *p,size_t n) {
+    if (fail_realloc) { failed_realloc_calls++;return NULL; }
+    return realloc(p,n);
+}
 static size_t bytes;
 static size_t spool(void *ctx,const void *p,size_t n) { (void)ctx;(void)p;bytes+=n;return n; }
 static ds4_mellum_capture *fixture(void) {
@@ -12,7 +22,7 @@ static ds4_mellum_capture *fixture(void) {
     CHECK(mellum_capture_state_init(&c->core,2,spool,NULL,mellum_observer_catalog()));return c;
 }
 static void release_fixture(ds4_mellum_capture *c) {
-    free(c->session->logits);free(c->session);c->session=NULL;
+    free(c->session->checkpoint.v);free(c->session->logits);free(c->session);c->session=NULL;
     size_t before=bytes;ds4_mellum_capture_free(c);CHECK(bytes==before);
 }
 static void invalid_operations(void) {
@@ -49,7 +59,7 @@ static void cancellation_and_noop(void) {
     ds4_engine engine={.backend=DS4_BACKEND_CPU};
     ds4_mellum_capture *c=fixture();c->session->engine=&engine;
     unsigned calls=0;ds4_session_set_cancel(c->session,cancelled,&calls);
-    int token=10;ds4_tokens prompt={.v=&token,.len=1};char err[128];size_t before=bytes;
+    int token=10;ds4_tokens prompt={.v=&token,.len=1,.cap=1};char err[128];size_t before=bytes;
     CHECK(ds4_mellum_capture_sync(c,&prompt,0,err,sizeof(err))==DS4_SESSION_SYNC_INTERRUPTED);
     CHECK(calls==1 && c->core.state==MELLUM_CAPTURE_FAILED && bytes==before);release_fixture(c);
     c=fixture();c->session->engine=&engine;
@@ -60,8 +70,31 @@ static void cancellation_and_noop(void) {
     CHECK(bytes==before && mellum_capture_has_logits(&c->core));
     token=11;int old=10;c->session->checkpoint.v=&old;
     CHECK(ds4_mellum_capture_sync(c,&prompt,0,err,sizeof(err))!=0);
-    CHECK(c->core.state==MELLUM_CAPTURE_FAILED && bytes==before);release_fixture(c);
+    CHECK(c->core.state==MELLUM_CAPTURE_FAILED && bytes==before);
+    c->session->checkpoint.v=NULL;release_fixture(c);
     CHECK(sizeof(ds4_mellum_capture)+2*917504u+MELLUM_PROFILE_TEXT<=2200000u);
+}
+static void checkpoint_allocation_failure(void) {
+    unsigned failures=0;
+    for (unsigned eval=0;eval<2;eval++) {
+        ds4_engine engine={.backend=eval ? DS4_BACKEND_METAL:DS4_BACKEND_CPU};
+        ds4_mellum_capture *c=fixture();c->session->engine=&engine;
+        unsigned cancelled_calls=0;ds4_session_set_cancel(c->session,cancelled,&cancelled_calls);
+        int token=10;ds4_tokens prompt={.v=&token,.len=1};char err[128];size_t before=bytes;
+        fail_realloc=true;failed_realloc_calls=0;
+        int rc=eval ? ds4_mellum_capture_eval(c,token,0,err,sizeof(err)):
+                      ds4_mellum_capture_sync(c,&prompt,0,err,sizeof(err));
+        fail_realloc=false;
+        if (rc!=1 || failed_realloc_calls!=1 || cancelled_calls || !strstr(err,"checkpoint allocation")) {
+            fprintf(stderr,"%s failed to reject checkpoint OOM before inference (rc=%d, realloc=%u, cancel=%u)\n",
+                    eval ? "eval":"sync",rc,failed_realloc_calls,cancelled_calls);failures++;
+        }
+        CHECK(!c->session->checkpoint.v && !c->session->checkpoint.cap);
+        CHECK(c->core.state==MELLUM_CAPTURE_FAILED && bytes==before);
+        CHECK(ds4_mellum_capture_finish(c,NULL,NULL,NULL,0)!=0 && bytes==before);
+        release_fixture(c);
+    }
+    CHECK(!failures);
 }
 int main(void) {
     ds4_mellum_capture_options opts={.spool_sink=spool};
@@ -80,6 +113,6 @@ int main(void) {
     CHECK(ds4_mellum_capture_copy_logits(NULL,NULL,0)==0);
     CHECK(ds4_mellum_capture_finish(NULL,NULL,NULL,NULL,0)!=0);
     ds4_mellum_capture_free(NULL);CHECK(!bytes);
-    invalid_operations();cancellation_and_noop();
+    invalid_operations();cancellation_and_noop();checkpoint_allocation_failure();
     puts("Mellum capture API boundary checks: PASS");return 0;
 }
