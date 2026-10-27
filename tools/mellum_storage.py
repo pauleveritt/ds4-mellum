@@ -23,6 +23,12 @@ def main() -> None:
     pack = commands.add_parser('pack')
     pack.add_argument('--index', type=Path, required=True)
     pack.add_argument('--output', type=Path, required=True)
+    prepare = commands.add_parser('prepare')
+    for name in ('index', 'packed', 'trace', 'binary', 'output'):
+        prepare.add_argument(f'--{name}', type=Path, required=True)
+    run = commands.add_parser('run')
+    run.add_argument('--batch', type=Path, required=True)
+    run.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
     if args.command == 'index':
         value = index_tools.build_index(args.model)
@@ -30,6 +36,10 @@ def main() -> None:
         print(result)
     elif args.command == 'pack':
         print(identity.sibling('mellum_expert_pack').pack(args.index, args.output))
+    elif args.command == 'prepare':
+        print(identity.sibling('mellum_read_batch').prepare_batch(args.index, args.packed, args.trace, args.binary, args.output))
+    elif args.command == 'run':
+        print(identity.sibling('mellum_read_batch').run_batch(args.batch, args.output))
 
 
 if __name__ == '__main__':
