@@ -65,6 +65,25 @@ def test_aborted_controller_fixture_cannot_be_published() -> None:
         assert not output.exists()
 
 
+def test_reference_comparison_preserves_routes_and_labels_but_ignores_profile_ids() -> None:
+    compare = runpy.run_path(str(ROOT / "tests/mellum_routes_compare.py"))["compare_spools"]
+    with tempfile.TemporaryDirectory() as directory:
+        reference, owned = Path(directory) / "reference", Path(directory) / "owned"
+        reference.write_bytes(HELPERS["spool"](HELPERS["frame"](execution=11)))
+        data = HELPERS["spool"](HELPERS["frame"](execution=99))
+        owned.write_bytes(data)
+        assert compare(reference, owned), "profile ID differences must not erase an otherwise equal route comparison"
+        for offset, value in ((48, 1), (60, 99)):
+            changed = bytearray(data)
+            struct.pack_into("<I", changed, offset, value)
+            owned.write_bytes(changed)
+            assert not compare(reference, owned), "phase/token mismatch accepted"
+        changed = bytearray(data)
+        changed[64:68], changed[68:72] = changed[68:72], changed[64:68]
+        owned.write_bytes(changed)
+        assert not compare(reference, owned), "ordered expert mismatch accepted"
+
+
 def load_tests(loader, tests, pattern):
     return unittest.TestSuite(unittest.FunctionTestCase(value) for name, value in sorted(globals().items())
                               if name.startswith("test_") and callable(value))
