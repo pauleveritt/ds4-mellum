@@ -16,6 +16,7 @@ publication = identity.sibling('mellum_artifact')
 ROOT = Path(__file__).resolve().parents[1]
 STAT_KEYS = ('dev', 'ino', 'size', 'mtime_ns', 'ctime_ns')
 READ_BYTES = 0
+READ_LIMIT = None
 
 
 def canonical(value: object) -> bytes:
@@ -35,6 +36,7 @@ def load_json(path: Path) -> dict:
         if not math.isfinite(result):
             raise ValueError('nonfinite JSON number')
         return result
+    allow_read(8 * 1024**2 + 1)
     with path.open('rb') as source:
         raw = source.read(8 * 1024**2 + 1)
     account(len(raw))
@@ -104,6 +106,24 @@ def digest(value: object) -> str:
     return value
 
 
+@contextmanager
+def read_budget(limit: int):
+    """Opt-in absolute read ceiling; nested budgets cannot enlarge the allowance."""
+    global READ_LIMIT
+    integer(limit)
+    before=READ_LIMIT
+    READ_LIMIT=min(READ_BYTES+limit,before) if before is not None else READ_BYTES+limit
+    try:
+        yield
+    finally:
+        READ_LIMIT=before
+
+
+def allow_read(size: int) -> None:
+    if READ_LIMIT is not None and (size<0 or READ_BYTES+size>READ_LIMIT):
+        raise ValueError('Python logical-read budget exhausted before read')
+
+
 def account(count: int) -> None:
     global READ_BYTES
     READ_BYTES += count
@@ -115,6 +135,7 @@ class ReadCounter:
         self.source = source
 
     def read(self, n: int = -1) -> bytes:
+        allow_read(n)
         block = self.source.read(n)
         account(len(block))
         return block
@@ -140,6 +161,8 @@ class ReadCounter:
 
 
 def read(source: BinaryIO, size: int) -> bytes:
+    if not isinstance(source, ReadCounter):
+        allow_read(size)
     block = source.read(size)
     if not isinstance(source, ReadCounter):
         account(len(block))
@@ -153,6 +176,8 @@ def file_identity(path: Path) -> dict:
 
 
 def source_identity(root: Path) -> dict:
+    if READ_LIMIT is not None:
+        return identity.source_identity(root, file_hasher=file_identity)
     result = identity.source_identity(root)
     account(sum(value['size'] for value in result['files'].values()))
     return result

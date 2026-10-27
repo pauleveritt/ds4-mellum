@@ -38,7 +38,7 @@ def file_identity(path: Path) -> dict:
     return dict(sha256=digest.hexdigest(), **before)
 
 
-def source_identity(root: Path) -> dict:
+def source_identity(root: Path, *, file_hasher=None) -> dict:
     def git(*args: str) -> bytes:
         env = {name: value for name, value in os.environ.items() if not name.startswith('GIT_')}
         return subprocess.run(['git', '-C', str(root), *args], check=True, capture_output=True, env=env).stdout
@@ -55,7 +55,7 @@ def source_identity(root: Path) -> dict:
             raise ValueError(f'symlink source input: {relative}')
         if not path.is_file():
             raise ValueError(f'missing source input: {relative}')
-        files[str(relative)] = file_identity(path)
+        files[str(relative)] = (file_hasher or file_identity)(path)
     if not files:
         raise ValueError('no source inputs')
     revision = git('rev-parse', 'HEAD').decode().strip()

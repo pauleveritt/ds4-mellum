@@ -51,7 +51,7 @@ def definitions(prior: Path) -> tuple[dict,dict,dict]:
     return inputs,jobs,dict(index=index,packed=packed)
 
 
-def prepare(prior_batch: Path,binary: Path,container: Path) -> Path:
+def _prepare(prior_batch: Path,binary: Path,container: Path) -> Path:
     start=common.READ_BYTES
     inputs,jobs,_=definitions(prior_batch)
     inputs['binary']=batches.binding(binary)
@@ -74,11 +74,12 @@ def prepare(prior_batch: Path,binary: Path,container: Path) -> Path:
             untimed_python_read_bytes=common.READ_BYTES-start)
         if value['timed_logical_bytes']>CAPS['timed'] or value['prewarm_bytes']>CAPS['prewarm']:
             raise ValueError('observation read cap exceeded')
+        value['forecast']=forecast(value)
         common.write_json(stage/'manifest.json',value)
     return common.publication.publish(container,build)
 
 
-def verify(manifest_dir: Path, *, payloads: bool) -> tuple[dict,dict]:
+def _verify(manifest_dir: Path, *, payloads: bool) -> tuple[dict,dict]:
     value=common.load_json(manifest_dir/'manifest.json')
     if (value['schema_version']!=1 or value['kind']!='device-observation-batch' or value['split']!='tuning'
             or value['runs']!=runs() or value['caps']!=CAPS or value['physical_io_verified'] is not False):
@@ -102,5 +103,35 @@ def verify(manifest_dir: Path, *, payloads: bool) -> tuple[dict,dict]:
         count=sum(s['bytes'] for j in items for s in j['ranges']);total+=2*count;prewarm+=count
     common.integer(value['timed_logical_bytes'],total,total);common.integer(value['prewarm_bytes'],prewarm,prewarm)
     if total>CAPS['timed'] or prewarm>CAPS['prewarm']:raise ValueError('read cap exceeded')
+    if forecast(value)!=value['forecast']:raise ValueError('frozen read forecast differs')
     if payloads:pack_tools.verify_packed(artifacts['index'],artifacts['packed'],Path(inputs['packed_manifest']['path']).parent)
     return value,jobs
+
+
+def forecast(manifest: dict) -> dict:
+    m=common.integer(manifest['inputs']['model']['size'],1)
+    p=common.integer(manifest['inputs']['payload']['size'],1)
+    base=2*(m+3*p)
+    directory=2*64*2**20  # Per pass: directory scan <=32 MiB + prefix hash <=32 MiB.
+    metadata=8*2**30  # All preparation, repeated checks, tools, source, plans and reports.
+    upper=base+directory+metadata
+    if upper>CAPS['python']:raise ValueError('forecast exceeds cumulative Python-read cap')
+    return dict(payload_base_bytes=base,directory_upper_bytes=directory,metadata_upper_bytes=metadata,
+                total_python_upper_bytes=upper,cap=CAPS['python'])
+
+
+def reserve(manifest_dir: Path,manifest_binding: dict) -> None:
+    batches.check_binding(manifest_binding)
+    common.write_json(manifest_dir.parent/'execution-reservation.json',dict(
+        batch=manifest_binding,timed_bytes_reserved=common.load_json(manifest_dir/'manifest.json')['timed_logical_bytes'],
+        retry_permitted=False))
+
+
+def prepare(prior_batch: Path,binary: Path,container: Path) -> Path:
+    with common.read_budget(CAPS['python']):
+        return _prepare(prior_batch,binary,container)
+
+
+def verify(manifest_dir: Path, *, payloads: bool) -> tuple[dict,dict]:
+    with common.read_budget(CAPS['python']):
+        return _verify(manifest_dir,payloads=payloads)
