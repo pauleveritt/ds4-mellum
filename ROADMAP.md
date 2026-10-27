@@ -41,14 +41,16 @@ separate red-test/fix pair resolves it, followed by the full CPU gate.
 See the [S1 design](docs/superpowers/specs/2026-10-27-mellum-ssd-evidence-design.md)
 and [implementation plan](docs/superpowers/plans/2026-10-27-mellum-ssd-evidence.md).
 
-### S2 — Native router recorder: preparation designed, implementation not started
+### S2 — Native router recorder: CPU helpers implemented, GPU gates open
 
 **S2a, CPU only:** native binary spool/layout helpers and bounded exporter to
 v2 traces, tested with fabricated selections. Includes completeness, write-error
 handling, exact-byte/token identities and atomic no-overwrite publication.
 The [capture design](docs/superpowers/specs/2026-10-27-mellum-route-capture-design.md)
 and [implementation plan](docs/superpowers/plans/2026-10-27-mellum-route-capture.md)
-are prepared for review. No S2a implementation exists yet.
+are implemented, with native checks and 12 Python export tests passing.
+See [usage](docs/MELLUM_ROUTE_CAPTURE.md). Final independent branch review
+remains before closing S2a.
 
 **S2b, GPU required:** attach the recorder to the actual session graph and
 validate the live behavior below. S2 remains open until these gates pass.

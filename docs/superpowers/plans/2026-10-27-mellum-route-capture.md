@@ -1,6 +1,6 @@
 # Mellum Router Capture Preparation Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans for the reviewed native execution approach, or superpowers:subagent-driven-development if the user selects it. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans for the reviewed native execution approach, or superpowers:subagent-driven-development if the user selects it. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Build a CPU-testable native spool writer and bounded exporter that produces complete v2 Mellum routing traces from synthetic selections.
 
@@ -59,10 +59,10 @@ pairs before editing; record the split in the execution ledger.
 `layer_offset`, `copy_bytes`; and the exact `mellum_routes_layout(cap, rows,
 layer, out)` signature from the spec.
 
-- [ ] Write C tests: `(cap=1024, rows=1024, layer=27)` returns bytes 917504, offset 884736, copy 32768, and offset+copy equals total. At rows=1 copy is 32 with the same total/offset. Cap=2, rows=1, layer=1 gives bytes 1792, offset 64, copy 32. Reject cap 0/1025/UINT32_MAX, rows 0/cap+1, layer 28/UINT32_MAX and null output.
-- [ ] Compile/run via `cc -std=c99 -Wall -Wextra -I. tests/test_mellum_routes.c -o /tmp/mellum-routes-layout-test`; expect the absent native interface to prevent compilation. Commit only tests: `test: define bounded Mellum router capture layout`.
-- [ ] Implement checked layout, constants and include guard; no allocations or GPU calls. Add `tests/test_mellum_routes` build rule linking only test and `ds4_mellum_routes.c` with `$(CC) $(QUALITY_CFLAGS) -I.`, plus `test-mellum-routes-c` to run it. Ignore the binary; do not alter default executable link inputs.
-- [ ] Run `make test-mellum-routes-c`; require all layout cases pass. Run `git diff --check`; commit: `feat: calculate bounded Mellum route capture offsets`.
+- [x] Write C tests: `(cap=1024, rows=1024, layer=27)` returns bytes 917504, offset 884736, copy 32768, and offset+copy equals total. At rows=1 copy is 32 with the same total/offset. Cap=2, rows=1, layer=1 gives bytes 1792, offset 64, copy 32. Reject cap 0/1025/UINT32_MAX, rows 0/cap+1, layer 28/UINT32_MAX and null output.
+- [x] Compile/run via `cc -std=c99 -Wall -Wextra -I. tests/test_mellum_routes.c -o /tmp/mellum-routes-layout-test`; expect the absent native interface to prevent compilation. Commit only tests: `test: define bounded Mellum router capture layout`.
+- [x] Implement checked layout, constants and include guard; no allocations or GPU calls. Add `tests/test_mellum_routes` build rule linking only test and `ds4_mellum_routes.c` with `$(CC) $(QUALITY_CFLAGS) -I.`, plus `test-mellum-routes-c` to run it. Ignore the binary; do not alter default executable link inputs.
+- [x] Run `make test-mellum-routes-c`; require all layout cases pass. Run `git diff --check`; commit: `feat: calculate bounded Mellum route capture offsets`.
 
 ### Task 2: Header and validated forward framing
 
@@ -73,11 +73,11 @@ layer, out)` signature from the spec.
 only an active initialized writer may emit. Counters advance only after full
 frame write success. Finish is added in Task 3.
 
-- [ ] Add a bounded in-memory sink in tests and a 2-row-cap padded ID fixture. Set active rows to ordered IDs 7,6,5,4,3,2,1,0 at every layer and padding to UINT32_MAX. Begin cap=2 and emit forward 0 at position 42, rows=1, phase=2, segment=7, execution=11, token 1234. Assert literal 24-byte header; 36-byte prefix fields; token bytes D2 04 00 00; all 28 ordered rows; total bytes before footer 960. No padding emitted.
-- [ ] Add failure cases: null sink/writer/buffers, undersized input lengths, wrong phase, zero/oversized rows, decode rows=2, forward gap, position gap/overlap, u64 next-position overflow, duplicate/out-of-range IDs. Assert invalid forward adds no bytes and no later frame succeeds. Accept consecutive one-row prefill and decode frames with changed labels, nonzero start and larger input buffer lengths.
-- [ ] Run `make test-mellum-routes-c`; expect missing writer declarations/symbols. Commit tests: `test: specify ordered native route spool frames`.
-- [ ] Implement begin/header and validate-then-emit forward. Encode integer scalars explicitly little-endian; serialize active rows from cap-strided input. Check all frame fields and IDs before its prefix. Enforce sticky failure and arithmetic guards. No inference integration.
-- [ ] Run `make test-mellum-routes-c` and `git diff --check`; commit: `feat: write validated native Mellum routing frames`.
+- [x] Add a bounded in-memory sink in tests and a 2-row-cap padded ID fixture. Set active rows to ordered IDs 7,6,5,4,3,2,1,0 at every layer and padding to UINT32_MAX. Begin cap=2 and emit forward 0 at position 42, rows=1, phase=2, segment=7, execution=11, token 1234. Assert literal 24-byte header; 36-byte prefix fields; token bytes D2 04 00 00; all 28 ordered rows; total bytes before footer 960. No padding emitted.
+- [x] Add failure cases: null sink/writer/buffers, undersized input lengths, wrong phase, zero/oversized rows, decode rows=2, forward gap, position gap/overlap, u64 next-position overflow, duplicate/out-of-range IDs. Assert invalid forward adds no bytes and no later frame succeeds. Accept consecutive one-row prefill and decode frames with changed labels, nonzero start and larger input buffer lengths.
+- [x] Run `make test-mellum-routes-c`; expect missing writer declarations/symbols. Commit tests: `test: specify ordered native route spool frames`.
+- [x] Implement begin/header and validate-then-emit forward. Encode integer scalars explicitly little-endian; serialize active rows from cap-strided input. Check all frame fields and IDs before its prefix. Enforce sticky failure and arithmetic guards. No inference integration.
+- [x] Run `make test-mellum-routes-c` and `git diff --check`; commit: `feat: write validated native Mellum routing frames`.
 
 ### Task 3: Complete-or-failed native spool lifecycle
 
@@ -89,11 +89,11 @@ all further frame/finish calls without callbacks. Extend C test executable with
 fixture mode, not an inference harness. It emits the Task 2 valid one-forward
 fixture, calls finish and checks flush/close errors.
 
-- [ ] Test literal footer `END1` with forward_count=1, position_count=1, making total spool size 980. Two consecutive frames yield counts 2/2. Empty finish fails. Frame after finish and double finish leave bytes unchanged.
-- [ ] Use a capacity-limited sink that returns a short count while writing header, frame or footer. Assert terminal failure, no later writes/footer, and no successful frame count for a short frame. Do not assert only mock call counts; inspect the real emitted bytes and final writer result.
-- [ ] Run `make test-mellum-routes-c`; expect missing finish behavior. Commit tests: `test: require complete-or-failed native route spools`.
-- [ ] Implement footer/state guards and fixture emission. Begin requires a fresh caller-owned writer; do not add implicit reset/recovery. Add the fixture mode's file handling to test utilities only.
-- [ ] Run `make test-mellum-routes-c`; emit a temporary fixture and assert its size is 980 bytes. Run `git diff --check`; commit: `feat: finalize route spools and make write failures terminal`.
+- [x] Test literal footer `END1` with forward_count=1, position_count=1, making total spool size 980. Two consecutive frames yield counts 2/2. Empty finish fails. Frame after finish and double finish leave bytes unchanged.
+- [x] Use a capacity-limited sink that returns a short count while writing header, frame or footer. Assert terminal failure, no later writes/footer, and no successful frame count for a short frame. Do not assert only mock call counts; inspect the real emitted bytes and final writer result.
+- [x] Run `make test-mellum-routes-c`; expect missing finish behavior. Commit tests: `test: require complete-or-failed native route spools`.
+- [x] Implement footer/state guards and fixture emission. Begin requires a fresh caller-owned writer; do not add implicit reset/recovery. Add the fixture mode's file handling to test utilities only.
+- [x] Run `make test-mellum-routes-c`; emit a temporary fixture and assert its size is 980 bytes. Run `git diff --check`; commit: `feat: finalize route spools and make write failures terminal`.
 
 ### Task 4: Bounded Python spool reader
 
@@ -108,11 +108,11 @@ contains cap_tokens, forwards, positions, first_position, last_position,
 spool_sha256 and token_stream_sha256. No catalogs/counters keyed by arbitrary
 input IDs accumulate in this reader.
 
-- [ ] Add stdlib Python tests with independently `struct.pack`-encoded valid one/two-frame spools. Assert explicit positions/phases/slot order, token digest over LE token bytes once per position, spool digest over exact full bytes, and summary rejection before footer. Test prefill rows=1 is retained as prefill.
-- [ ] Test every truncated prefix of the 980-byte fixture, absent footer after a complete frame, count mismatch, trailing bytes, bad magic/tag/geometry, cap 1025, invalid phase, rows=0/1025/UINT32_MAX, decode rows=2, forward/position gaps, overflowing next-position, duplicate/out-of-range experts. Errors must include byte offset and reason. Use a test stream that refuses reads larger than the maximum valid payload; corrupt lengths must fail before such a read.
-- [ ] Run `python3 -I tests/test_mellum_routes_to_trace.py`; expect missing reader module/interface. Commit tests: `test: define bounded native route spool decoding`.
-- [ ] Implement checked incremental reads/digests, payload validation, ordering, footer/count/EOF validation. Read only the validated bounded payload; do not load the file or all frames at once. Add `test-mellum-routes` depending on the C binary/C test target and running the Python test script.
-- [ ] Run `make test-mellum-routes` and `git diff --check`; commit: `feat: decode and validate native Mellum route spools`.
+- [x] Add stdlib Python tests with independently `struct.pack`-encoded valid one/two-frame spools. Assert explicit positions/phases/slot order, token digest over LE token bytes once per position, spool digest over exact full bytes, and summary rejection before footer. Test prefill rows=1 is retained as prefill.
+- [x] Test every truncated prefix of the 980-byte fixture, absent footer after a complete frame, count mismatch, trailing bytes, bad magic/tag/geometry, cap 1025, invalid phase, rows=0/1025/UINT32_MAX, decode rows=2, forward/position gaps, overflowing next-position, duplicate/out-of-range experts. Errors must include byte offset and reason. Use a test stream that refuses reads larger than the maximum valid payload; corrupt lengths must fail before such a read.
+- [x] Run `python3 -I tests/test_mellum_routes_to_trace.py`; expect missing reader module/interface. Commit tests: `test: define bounded native route spool decoding`.
+- [x] Implement checked incremental reads/digests, payload validation, ordering, footer/count/EOF validation. Read only the validated bounded payload; do not load the file or all frames at once. Add `test-mellum-routes` depending on the C binary/C test target and running the Python test script.
+- [x] Run `make test-mellum-routes` and `git diff --check`; commit: `feat: decode and validate native Mellum route spools`.
 
 ### Task 5: Complete v2 evidence metadata
 
@@ -125,12 +125,12 @@ profile_counts: dict[int,int]) -> dict`. Return a new completed header,
 without mutating caller input. Import S1 validation by absolute sibling file
 location; no sys.path edits or dependency installation.
 
-- [ ] Test metadata >1 MiB, invalid UTF-8, duplicate keys, exponent overflow, missing/non-object catalogs, noncanonical/out-of-u32 keys and blank labels/profile descriptions. A file exactly at the cap with valid JSON padding is accepted. Accept Unicode and nested finite header extensions.
-- [ ] Given summary cap=2, one forward/position at 42, known token/spool digests, and used profile 11 with count 1, assert derived geometry 28/64/8/6580224, complete=true, exact extent, token digest and `effective_kernel='native-profile-catalog'`. Assert route_capture includes cap=2, spool digest, only profile '11' and count 1. Preserve all other fields/extensions and input immutability.
-- [ ] Table-drive each supplied computed field matching (accept) or conflicting (reject), including nested route_capture, geometry and token digest. Reject missing S1 fields, non-v2 templates, identity/numerical-mode mismatches. Check both synthetic and declared-measured header validation; all fixtures remain fabricated.
-- [ ] Run `make test-mellum-routes`; expect missing metadata behavior. Commit tests: `test: bind native route spools to complete v2 evidence`.
-- [ ] Implement bounded strict metadata loading, catalogs and computed-field conflict handling; complete and validate with S1 `parse_header`. Include only used profiles and counts; the export loop must reject unknown IDs before adding counters. Do not infer actual hardware paths from requested settings.
-- [ ] Run `make test-mellum-routes` and `git diff --check`; commit: `feat: derive complete routing evidence from native spools`.
+- [x] Test metadata >1 MiB, invalid UTF-8, duplicate keys, exponent overflow, missing/non-object catalogs, noncanonical/out-of-u32 keys and blank labels/profile descriptions. A file exactly at the cap with valid JSON padding is accepted. Accept Unicode and nested finite header extensions.
+- [x] Given summary cap=2, one forward/position at 42, known token/spool digests, and used profile 11 with count 1, assert derived geometry 28/64/8/6580224, complete=true, exact extent, token digest and `effective_kernel='native-profile-catalog'`. Assert route_capture includes cap=2, spool digest, only profile '11' and count 1. Preserve all other fields/extensions and input immutability.
+- [x] Table-drive each supplied computed field matching (accept) or conflicting (reject), including nested route_capture, geometry and token digest. Reject missing S1 fields, non-v2 templates, identity/numerical-mode mismatches. Check both synthetic and declared-measured header validation; all fixtures remain fabricated.
+- [x] Run `make test-mellum-routes`; expect missing metadata behavior. Commit tests: `test: bind native route spools to complete v2 evidence`.
+- [x] Implement bounded strict metadata loading, catalogs and computed-field conflict handling; complete and validate with S1 `parse_header`. Include only used profiles and counts; the export loop must reject unknown IDs before adding counters. Do not infer actual hardware paths from requested settings.
+- [x] Run `make test-mellum-routes` and `git diff --check`; commit: `feat: derive complete routing evidence from native spools`.
 
 ### Task 6: Stream and atomically publish the trace
 
@@ -141,13 +141,13 @@ Path) -> None` and `main()` with the CLI in the spec. Retain exact source
 spool; no input files are modified. Errors return nonzero through concise CLI
 stderr, no traceback or stdout artifact.
 
-- [ ] Test exporter success with multiple prefills/decode/segments, nonzero start, Unicode U+2028/U+2029/U+0085 and extensions. Feed output to S1 `load_trace`/`run_sweep`: routes, phase and provenance preserved; no invented cache seeding. Use a tiny-row-cap but full Mellum-geometry fixture.
-- [ ] Test context overflow, chunk mismatch, unknown segment/execution IDs, late corruption/footer failure, missing files, output-open/publication failure and existing output (regular file or symlink): no new output, no changed existing bytes, no leftover exporter temporary files. Use real filesystem failures where practical; a narrow failure injection at the publication boundary is acceptable to exercise the race without depending on timing.
-- [ ] Test existing-name race: create the output immediately before the actual os.link call; require EEXIST, preserve raced-in bytes and clean temporary files. Test enough consecutive frames through a stream that denies seek/unbounded reads; assert no need to reread the spool. Do not use timing/RSS thresholds as unit tests.
-- [ ] Add the C-to-Python round trip: run C fixture mode from Task 3, compare its 980 bytes to the independent Python fixture, export with matching synthetic metadata, replay output and assert exact ordered selected rows and cold demand 224 experts = 1,473,970,176 bytes. Invoke CLI via `python3 -I` from another working directory to prove sibling loading.
-- [ ] Run `make test-mellum-routes`; expect missing export/CLI behavior. Commit tests: `test: require atomic native routing export and replay round trips`.
-- [ ] Implement one-pass reader to private body JSONL, checking every frame's catalog/context/chunk before counter growth; finalize metadata only after valid footer/EOF. Prefix the completed header into a second sibling temporary file with bounded copy. Close/flush, publish with no-overwrite os.link and clean both private files in finally blocks. Keep valid stdout empty.
-- [ ] Run `make test-mellum-routes` and `git diff --check`; commit: `feat: publish complete native routing traces without overwriting evidence`.
+- [x] Test exporter success with multiple prefills/decode/segments, nonzero start, Unicode U+2028/U+2029/U+0085 and extensions. Feed output to S1 `load_trace`/`run_sweep`: routes, phase and provenance preserved; no invented cache seeding. Use a tiny-row-cap but full Mellum-geometry fixture.
+- [x] Test context overflow, chunk mismatch, unknown segment/execution IDs, late corruption/footer failure, missing files, output-open/publication failure and existing output (regular file or symlink): no new output, no changed existing bytes, no leftover exporter temporary files. Use real filesystem failures where practical; a narrow failure injection at the publication boundary is acceptable to exercise the race without depending on timing.
+- [x] Test existing-name race: create the output immediately before the actual os.link call; require EEXIST, preserve raced-in bytes and clean temporary files. Test enough consecutive frames through a stream that denies seek/unbounded reads; assert no need to reread the spool. Do not use timing/RSS thresholds as unit tests.
+- [x] Add the C-to-Python round trip: run C fixture mode from Task 3, compare its 980 bytes to the independent Python fixture, export with matching synthetic metadata, replay output and assert exact ordered selected rows and cold demand 224 experts = 1,473,970,176 bytes. Invoke CLI via `python3 -I` from another working directory to prove sibling loading.
+- [x] Run `make test-mellum-routes`; expect missing export/CLI behavior. Commit tests: `test: require atomic native routing export and replay round trips`.
+- [x] Implement one-pass reader to private body JSONL, checking every frame's catalog/context/chunk before counter growth; finalize metadata only after valid footer/EOF. Prefix the completed header into a second sibling temporary file with bounded copy. Close/flush, publish with no-overwrite os.link and clean both private files in finally blocks. Keep valid stdout empty.
+- [x] Run `make test-mellum-routes` and `git diff --check`; commit: `feat: publish complete native routing traces without overwriting evidence`.
 
 ### Task 7: Document and verify CPU preparation
 
@@ -155,9 +155,9 @@ stderr, no traceback or stdout artifact.
 
 **Interfaces:** User documentation for the shipped helpers/exporter; S2b remains unimplemented.
 
-- [ ] Add `test-mellum-routes` to model-free `test-mellum`. Document a fully synthetic fixture/metadata/export/replay recipe, binary version, metadata ownership, file publication guarantees, diagnostic memory formula and S2b's remaining source/parity gates. Do not imply a native recorder is attached or an actual kernel path has been measured.
-- [ ] Run `make test-mellum-routes`, `make test-mellum-ssd-replay`, then `env -u DS4_TEST_MELLUM_MODEL make -j4 test-mellum`; require all pass and record actual test counts/commands. No Metal/default make target or model environment variables.
-- [ ] Check changed local Markdown links, `git diff --check`, source diff and per-commit product-line counts. Confirm no inference/default link changes, GPU calls or new dependencies. Mark only S2a complete after gates; S2b/S2 remain open.
+- [x] Add `test-mellum-routes` to model-free `test-mellum`. Document a fully synthetic fixture/metadata/export/replay recipe, binary version, metadata ownership, file publication guarantees, diagnostic memory formula and S2b's remaining source/parity gates. Do not imply a native recorder is attached or an actual kernel path has been measured.
+- [x] Run `make test-mellum-routes`, `make test-mellum-ssd-replay`, then `env -u DS4_TEST_MELLUM_MODEL make -j4 test-mellum`; require all pass and record actual test counts/commands. No Metal/default make target or model environment variables.
+- [x] Check changed local Markdown links, `git diff --check`, source diff and per-commit product-line counts. Confirm no inference/default link changes, GPU calls or new dependencies. Mark only S2a complete after gates; S2b/S2 remain open.
 - [ ] Commit docs/gate: `docs: record CPU route capture preparation and remaining GPU gates`. Execute one independent whole-branch review, with one red/green fix pass for Important/Critical findings per executing-plans; record findings and disposition before handoff. Keep the branch/worktree.
 
 ## Plan self-review
@@ -173,8 +173,29 @@ attachment is hidden in a CPU preparation task.
 
 ## Execution record
 
-Not started. Written for review; recommend native execution because the small
-C/Python interfaces are sequentially dependent. Design builder check found no
-material unanswered questions. S2b gets its own detailed plan when GPU access
-allows observation of actual paths and parity. No inference/GPU/storage
-experiment was performed while preparing this plan.
+Implemented natively following user approval. Python 3.14.7; C99 compatibility
+also compiled/ran explicitly with `cc -std=c99 -Wall -Wextra`. No deviations or
+rulings in Tasks 1–7. The design builder check found no material unknowns.
+
+| Task | Separate red commit | Implementation commit |
+| --- | --- | --- |
+| 1: layout | `39cdb23` | `96582ba` |
+| 2: frames | `4985a1d` | `04e7814` |
+| 3: footer/failure | `bf7f957` | `fa429fe` |
+| 4: reader | `2799a20` | `694a658` |
+| 5: metadata | `b6d7de7` | `fea52dc` |
+| 6: publication/CLI | `59b407d` | `5911ebc` |
+
+Every red run failed on the missing interface/behavior. Green runs execute all
+owning tests, with Python counts 3 -> 7 -> 12. Native tests cover layout,
+framing and finish/short writes (every byte boundary of the golden spool).
+Implementation commits add 36, 77, 10, 122, 78 and 67 product lines respectively;
+no inference/default executable link changes or added dependencies.
+
+Gate: `make test-mellum-routes` passes native checks and 12 Python tests;
+`make test-mellum-ssd-replay` passes 33; and
+`env -u DS4_TEST_MELLUM_MODEL make -j4 test-mellum` exits zero, including those
+checks and 14 logits-comparison tests. The documented synthetic example exports
+and replays successfully. Local Markdown links and whitespace are checked.
+No model, GPU initialization, inference, Metal build or storage benchmark ran.
+The final independent whole-branch review follows this commit. S2b remains open.

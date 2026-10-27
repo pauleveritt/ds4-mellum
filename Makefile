@@ -1096,7 +1096,7 @@ test-mellum-ssd-replay:
 
 .PHONY: test-mellum
 test-mellum: tests/test_mellum_config tests/test_mellum_tokenizer tests/test_mellum_frontends_cli \
-		tests/test_mellum_frontends_agent tests/test_mellum_frontends_server test-mellum-ssd-replay
+		tests/test_mellum_frontends_agent tests/test_mellum_frontends_server test-mellum-ssd-replay test-mellum-routes
 	./tests/test_mellum_config
 	./tests/test_mellum_tokenizer
 	./tests/test_mellum_frontends_cli

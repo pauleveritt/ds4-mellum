@@ -1,6 +1,6 @@
 # Mellum router capture preparation
 
-Date: 2026-10-27. Status: proposed; no recorder implementation yet.
+Date: 2026-10-27. Status: CPU helpers implemented and verified; final branch review pending.
 S2 of the [roadmap](../../../ROADMAP.md), following the completed
 [S1 evidence contract](2026-10-27-mellum-ssd-evidence-design.md).
 
@@ -30,8 +30,7 @@ One concern per commit, failing tests committed red separately, at most about
 My implementation choices: a small native binary spool, a separate Python
 exporter, one bounded forward at a time, and publish a v2 JSONL artifact only
 after complete validation. This avoids JSON/provenance policy in GPU scheduling
-and avoids buffering a whole session in RAM. These are proposed engineering
-choices, not requirements the user originally specified.
+and avoids buffering a whole session in RAM. These engineering choices were reviewed before implementation.
 
 ## Source findings that constrain S2b
 
@@ -205,8 +204,8 @@ spool/body/final artifacts grow on disk. Streaming export is not an SSD benchmar
 ## Builder check
 
 A fresh independent C/Python builder read this design and reported “nothing
-important left” on 2026-10-27. The companion implementation plan is written
-for human review; no S2a product code has been created.
+important left” on 2026-10-27. The user approved the companion plan; its CPU
+implementation passes the gate and awaits final independent branch review.
 
 ## Acceptance and deferred evidence
 
