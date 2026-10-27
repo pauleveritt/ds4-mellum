@@ -16612,6 +16612,41 @@ static void test_slot_probe_and_routing_scores(void) {
     ds4_tokens_free(&txt.req.prompt);
 }
 
+/* The rewind frontier (Mellum): after a thinking answer the next user turn renders the answer without the reasoning
+ * the KV holds, so the prompt leaves the live tokens inside the answer.  When the session can restore where its last
+ * sync ended (ds4_session_rewind_frontier) and the prompt keeps that prefix and goes past it, the probe rewinds there.
+ * Siblings: no frontier, a prompt leaving the live tokens below it, and one that stops at it reuse nothing. */
+static void test_slot_probe_rewind_frontier(void) {
+    server s = {0};
+    server_slot slot = {0};
+    s.slots = &slot;
+    s.slot_count = 1;
+    int live[49];
+    for (int i = 0; i < 49; i++) live[i] = i + 1;   /* a 24-token prompt, then the reasoning and the answer */
+    slot.session = ds4_session_new_test_checkpoint(live, 49);
+    job next = {0}, early = {0}, same = {0};
+    for (int i = 0; i < 24; i++) {
+        ds4_tokens_push(&next.req.prompt, i + 1);
+        ds4_tokens_push(&same.req.prompt, i + 1);
+        if (i < 20) ds4_tokens_push(&early.req.prompt, i + 1);
+    }
+    for (int i = 0; i < 30; i++) {
+        ds4_tokens_push(&next.req.prompt, 500 + i);   /* the answer without its reasoning, then a new user turn */
+        ds4_tokens_push(&early.req.prompt, 700 + i);
+    }
+    TEST_ASSERT(slot_probe_reuse_locked(&s, &slot, &next.req).kind == REUSE_NONE);
+    ds4_session_set_test_rewind_frontier(slot.session, 24);
+    slot_reuse pr = slot_probe_reuse_locked(&s, &slot, &next.req);
+    TEST_ASSERT(pr.kind == REUSE_MEMORY_REWIND);
+    TEST_ASSERT(pr.reuse_tokens == 24);
+    TEST_ASSERT(slot_probe_reuse_locked(&s, &slot, &early.req).kind == REUSE_NONE);
+    TEST_ASSERT(slot_probe_reuse_locked(&s, &slot, &same.req).kind == REUSE_NONE);
+    ds4_session_free_test_checkpoint(slot.session);
+    ds4_tokens_free(&next.req.prompt);
+    ds4_tokens_free(&early.req.prompt);
+    ds4_tokens_free(&same.req.prompt);
+}
+
 /* Staleness tiers: a resident checkpoint idle past SLOT_STALE_AFTER_SEC is
  * most likely a finished conversation, so it becomes the preferred eviction
  * victim regardless of its size - while staying fully reusable if its own
@@ -23268,6 +23303,7 @@ static void ds4_server_unit_tests_run(void) {
     test_batched_live_continuation_slot_binding();
     test_live_continuation_contract();
     test_slot_probe_and_routing_scores();
+    test_slot_probe_rewind_frontier();
     test_slot_probe_live_state_tiers();
     test_slot_probe_vision_tiers();
     test_slot_routing_staleness_tiers();
