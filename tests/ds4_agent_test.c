@@ -1182,6 +1182,40 @@ static void test_hermes_json_loads(void) {
                                        err, sizeof(err), &n) == AGENT_DSML_ERROR);
 }
 
+/* prose around calls, as training tolerated it: it neither ends the turn early nor drops a call */
+static void test_hermes_prose_around_calls(void) {
+    char err[160];
+    int n;
+    const char *call1 = "{\"name\": \"read\", \"arguments\": {\"path\": \"a.py\"}}\n</tool_call>";
+
+    /* prose after a call: the parser is not DONE until the model stops, the call is kept, and the
+     * prose is sampled, not greedy */
+    agent_dsml_parser p = hermes_parser();
+    char text[512];
+    snprintf(text, sizeof(text), "<tool_call>\n%s\nNow I wait for the result.", call1);
+    for (size_t i = 0; text[i]; i++) {
+        agent_dsml_feed(&p, text + i, 1);
+        AGENT_TEST_ASSERT(p.state != AGENT_DSML_DONE && p.state != AGENT_DSML_ERROR);
+    }
+    AGENT_TEST_ASSERT(p.calls.len == 1);
+    AGENT_TEST_ASSERT(!agent_stream_wants_greedy_sampling(&(agent_stream_renderer){.parser = &p, .dsml_active = true}));
+    agent_dsml_finish(&p);
+    AGENT_TEST_ASSERT(p.state == AGENT_DSML_DONE && p.calls.len == 1);
+    agent_dsml_parser_free(&p);
+
+    /* prose between two calls does not drop the second */
+    char two[512];
+    snprintf(two, sizeof(two), "%s\nand then, a second look\n<tool_call>\n%s", call1,
+             "{\"name\": \"bash\", \"arguments\": {\"command\": \"ls\"}}\n</tool_call>");
+    AGENT_TEST_ASSERT(hermes_parse_all(two, err, sizeof(err), &n) == AGENT_DSML_DONE && n == 2);
+    /* a half-written opener inside the prose is only prose */
+    AGENT_TEST_ASSERT(hermes_parse_all("{\"name\": \"read\", \"arguments\": {}}\n</tool_call>\nsee <tool_ca",
+                                       err, sizeof(err), &n) == AGENT_DSML_DONE && n == 1);
+    /* sibling: whitespace alone after a call is the end of the turn */
+    AGENT_TEST_ASSERT(hermes_parse_all("{\"name\": \"read\", \"arguments\": {}}\n</tool_call>\n\n",
+                                       err, sizeof(err), &n) == AGENT_DSML_DONE && n == 1);
+}
+
 static void test_hermes_tool_syntax(void) {
     test_hermes_syntax_basics();
     test_hermes_split_points();
@@ -1191,6 +1225,7 @@ static void test_hermes_tool_syntax(void) {
     test_hermes_greedy_boundaries();
     test_hermes_raw_values();
     test_hermes_json_loads();
+    test_hermes_prose_around_calls();
 }
 
 static void test_v41_tool_syntax(void) {
