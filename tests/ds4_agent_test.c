@@ -887,8 +887,183 @@ static void test_hermes_syntax_basics(void) {
     AGENT_TEST_ASSERT(agent_syntax_is_xml_tool_call(AGENT_TOOL_SYNTAX_HERMES));
 }
 
+static const char hermes_read_call[] =
+    "<tool_call>\n{\"name\": \"read\", \"arguments\": {\"path\": \"hello.py\"}}\n</tool_call>";
+
+static agent_dsml_parser hermes_parser(void) {
+    return (agent_dsml_parser){.syntax = AGENT_TOOL_SYNTAX_HERMES, .state = AGENT_DSML_SEARCH};
+}
+
+/* "<tool_call>\n" + body, fed whole and finished: the state, the error and the call count */
+static agent_dsml_state hermes_parse_all(const char *body, char *err, size_t err_len, int *ncalls) {
+    char text[1024];
+    snprintf(text, sizeof(text), "<tool_call>\n%s", body);
+    agent_dsml_parser p = hermes_parser();
+    agent_dsml_feed(&p, text, strlen(text));
+    agent_dsml_finish(&p);
+    agent_dsml_state state = p.state;
+    if (err) snprintf(err, err_len, "%s", p.error);
+    if (ncalls) *ncalls = p.calls.len;
+    agent_dsml_parser_free(&p);
+    return state;
+}
+
+/* every split point of a reasoning-then-call turn ends DONE with the one call, and the call's
+ * text is not printed as prose */
+static void test_hermes_split_points(void) {
+    const int failures_before = agent_test_failures;
+    char text[512];
+    snprintf(text, sizeof(text), "<think>\nThe user wants hello.py.\n</think>\n\n%s", hermes_read_call);
+    for (size_t split = 0; split <= strlen(text); split++) {
+        char *first = xstrndup(text, split);
+        const char *chunks[] = {first, text + split};
+        agent_dsml_parser p;
+        char *out = agent_test_stream_capture(AGENT_TOOL_SYNTAX_HERMES, chunks, 2, &p, NULL);
+        AGENT_TEST_ASSERT(p.state == AGENT_DSML_DONE);
+        AGENT_TEST_ASSERT(p.calls.len == 1);
+        if (p.calls.len == 1) {
+            const agent_tool_call *c = &p.calls.v[0];
+            AGENT_TEST_ASSERT(!strcmp(c->name, "read"));
+            AGENT_TEST_ASSERT(c->argc == 1 && !strcmp(c->args[0].name, "path") && c->args[0].is_string);
+            AGENT_TEST_ASSERT(!strcmp(agent_tool_arg_value(c, "path"), "hello.py"));
+        }
+        AGENT_TEST_ASSERT(strstr(out, "<tool_call>") == NULL);
+        free(first);
+        free(out);
+        agent_dsml_parser_free(&p);
+        if (agent_test_failures != failures_before) return;
+    }
+}
+
+/* JSON string escapes decode, one byte at a time or whole; two adjacent calls are two */
+static void test_hermes_strings_and_two_calls(void) {
+    const char *text =
+        "<tool_call>\n{\"name\": \"write\", \"arguments\": {\"path\": \"a.py\", "
+        "\"content\": \"q=\\\"x\\\"\\nline2\\t\\\\ \\ud83d\\ude00 \\u00e9 caf\xc3\xa9\"}}\n</tool_call>\n"
+        "<tool_call>\n{\"name\": \"bash\", \"arguments\": {\"command\": \"ls\"}}\n</tool_call>";
+    const size_t text_len = strlen(text);
+    for (size_t step = 1; step <= text_len; step += text_len - 1) {   /* a byte at a time, then whole */
+        agent_dsml_parser p = hermes_parser();
+        for (size_t i = 0; i < text_len; i += step)
+            agent_dsml_feed(&p, text + i, text_len - i < step ? text_len - i : step);
+        agent_dsml_finish(&p);
+        AGENT_TEST_ASSERT(p.state == AGENT_DSML_DONE);
+        AGENT_TEST_ASSERT(p.calls.len == 2);
+        if (p.calls.len == 2) {
+            AGENT_TEST_ASSERT(!strcmp(agent_tool_arg_value(&p.calls.v[0], "content"),
+                "q=\"x\"\nline2\t\\ \xf0\x9f\x98\x80 \xc3\xa9 caf\xc3\xa9"));
+            AGENT_TEST_ASSERT(p.calls.v[0].args[1].is_string);
+            AGENT_TEST_ASSERT(!strcmp(p.calls.v[1].name, "bash"));
+            AGENT_TEST_ASSERT(!strcmp(agent_tool_arg_value(&p.calls.v[1], "command"), "ls"));
+        }
+        agent_dsml_parser_free(&p);
+    }
+}
+
+/* a literal </tool_call>, </think> or "} inside a string does not close anything */
+static void test_hermes_markers_inside_strings(void) {
+    const char *text =
+        "<tool_call>\n{\"name\": \"write\", \"arguments\": {\"path\": \"p\", "
+        "\"content\": \"</tool_call> </think> <think> \\\"} }} </tool_call>\"}}\n</tool_call>";
+    agent_dsml_parser p = hermes_parser();
+    for (size_t i = 0; text[i]; i++) {
+        agent_dsml_feed(&p, text + i, 1);
+        AGENT_TEST_ASSERT(p.state != AGENT_DSML_ERROR && p.calls.len == 0);
+        if (p.state == AGENT_DSML_ERROR || p.calls.len) break;
+    }
+    agent_dsml_finish(&p);
+    AGENT_TEST_ASSERT(p.state == AGENT_DSML_DONE && p.calls.len == 1);
+    if (p.calls.len == 1)
+        AGENT_TEST_ASSERT(!strcmp(agent_tool_arg_value(&p.calls.v[0], "content"),
+                                  "</tool_call> </think> <think> \"} }} </tool_call>"));
+    agent_dsml_parser_free(&p);
+
+    /* through the stream renderer too: a </think> inside the string is not a think close */
+    const char *chunks[] = {"<think>x</think><tool_call>\n{\"name\": \"write\", \"arguments\": {\"path\": \"p\", \"content\": \"</th",
+                            "ink> end\"}}\n</tool_call>"};
+    char *out = agent_test_stream_capture(AGENT_TOOL_SYNTAX_HERMES, chunks, 2, &p, NULL);
+    AGENT_TEST_ASSERT(p.state == AGENT_DSML_DONE && p.calls.len == 1);
+    if (p.calls.len == 1)
+        AGENT_TEST_ASSERT(!strcmp(agent_tool_arg_value(&p.calls.v[0], "content"), "</think> end"));
+    free(out);
+    agent_dsml_parser_free(&p);
+}
+
+/* malformed calls are errors, each beside a sibling that parses */
+static void test_hermes_errors(void) {
+    char err[160];
+    int n = -1;
+    AGENT_TEST_ASSERT(hermes_parse_all("{\"name\": \"read\", \"arguments\": {\"path\": \"x\"}}\n</tool_call>",
+                                       err, sizeof(err), &n) == AGENT_DSML_DONE && n == 1);
+    AGENT_TEST_ASSERT(hermes_parse_all("{\"arguments\": {\"path\": \"x\"}}\n</tool_call>",
+                                       err, sizeof(err), &n) == AGENT_DSML_ERROR);
+    AGENT_TEST_ASSERT(strstr(err, "name") != NULL);
+    AGENT_TEST_ASSERT(hermes_parse_all("{\"name\": \"\", \"arguments\": {}}\n</tool_call>",
+                                       err, sizeof(err), &n) == AGENT_DSML_ERROR);
+    AGENT_TEST_ASSERT(hermes_parse_all("{\"name\": 5, \"arguments\": {}}\n</tool_call>",
+                                       err, sizeof(err), &n) == AGENT_DSML_ERROR);
+    /* an empty arguments object is a call with no arguments */
+    AGENT_TEST_ASSERT(hermes_parse_all("{\"name\": \"list\", \"arguments\": {}}\n</tool_call>",
+                                       err, sizeof(err), &n) == AGENT_DSML_DONE && n == 1);
+    AGENT_TEST_ASSERT(hermes_parse_all("{\"name\": \"read\", \"arguments\": \"path=x\"}\n</tool_call>",
+                                       err, sizeof(err), &n) == AGENT_DSML_ERROR);
+    AGENT_TEST_ASSERT(strstr(err, "arguments") != NULL);
+    AGENT_TEST_ASSERT(hermes_parse_all("{\"name\": \"read\", \"arguments\": [1]}\n</tool_call>",
+                                       err, sizeof(err), &n) == AGENT_DSML_ERROR);
+    AGENT_TEST_ASSERT(hermes_parse_all("{\"name\": \"read\", \"arguments\": {\"path\": \"x\"}} junk</tool_call>",
+                                       err, sizeof(err), &n) == AGENT_DSML_ERROR);
+    AGENT_TEST_ASSERT(hermes_parse_all("{\"name\": \"read\", \"arguments\": {\"path\": \"x\"} junk}\n</tool_call>",
+                                       err, sizeof(err), &n) == AGENT_DSML_ERROR);
+    AGENT_TEST_ASSERT(hermes_parse_all("{\"name\": \"read\", \"arguments\": {\"path\": \"a\\qb\"}}\n</tool_call>",
+                                       err, sizeof(err), &n) == AGENT_DSML_ERROR);
+    /* an unterminated string at the end of input is neither done nor a call */
+    agent_dsml_parser p = hermes_parser();
+    const char *cut = "<tool_call>\n{\"name\": \"write\", \"arguments\": {\"path\": \"x\", \"content\": \"abc";
+    agent_dsml_feed(&p, cut, strlen(cut));
+    agent_dsml_finish(&p);
+    AGENT_TEST_ASSERT(p.state == AGENT_DSML_PARAM_VALUE && p.calls.len == 0);
+    agent_dsml_parser_free(&p);
+}
+
+/* greedy while the call's grammar is being written, sampled inside a string */
+static void test_hermes_greedy_boundaries(void) {
+    agent_tail_capture tail = {.cap = 4096};
+    agent_token_renderer renderer = {.format_thinking = true, .last_output_newline = true, .capture = &tail};
+    agent_dsml_parser p = hermes_parser();
+    agent_stream_renderer stream = {.renderer = &renderer, .parser = &p, .syntax = AGENT_TOOL_SYNTAX_HERMES};
+    #define FEED(s) agent_stream_text(&stream, (s), strlen(s), false)
+    FEED("<tool_call>\n{\"name\": \"wri");
+    AGENT_TEST_ASSERT(agent_stream_wants_greedy_sampling(&stream));     /* the tool name */
+    FEED("te\", \"arguments\": {\"path\": ");
+    AGENT_TEST_ASSERT(p.state == AGENT_DSML_STRUCTURAL);
+    AGENT_TEST_ASSERT(agent_stream_wants_greedy_sampling(&stream));     /* before a value */
+    FEED("\"a.");
+    AGENT_TEST_ASSERT(p.state == AGENT_DSML_PARAM_VALUE);
+    AGENT_TEST_ASSERT(!agent_stream_wants_greedy_sampling(&stream));    /* inside a string */
+    FEED("py\", \"con");
+    AGENT_TEST_ASSERT(agent_stream_wants_greedy_sampling(&stream));     /* the next key */
+    FEED("tent\": \"x = [1, \\\"");
+    AGENT_TEST_ASSERT(p.state == AGENT_DSML_PARAM_VALUE);
+    AGENT_TEST_ASSERT(!agent_stream_wants_greedy_sampling(&stream));    /* an escaped quote stays inside */
+    FEED("}\"}");
+    AGENT_TEST_ASSERT(agent_stream_wants_greedy_sampling(&stream));     /* the object's close */
+    FEED("}\n</tool_call>");
+    #undef FEED
+    agent_stream_text(&stream, NULL, 0, true);
+    renderer_finish(&renderer);
+    AGENT_TEST_ASSERT(p.state == AGENT_DSML_DONE && p.calls.len == 1);
+    AGENT_TEST_ASSERT(!agent_stream_wants_greedy_sampling(&stream));    /* done: sampling is back */
+    free(agent_tail_capture_take(&tail, NULL));
+    agent_dsml_parser_free(&p);
+}
+
 static void test_hermes_tool_syntax(void) {
     test_hermes_syntax_basics();
+    test_hermes_split_points();
+    test_hermes_strings_and_two_calls();
+    test_hermes_markers_inside_strings();
+    test_hermes_errors();
+    test_hermes_greedy_boundaries();
 }
 
 static void test_v41_tool_syntax(void) {
