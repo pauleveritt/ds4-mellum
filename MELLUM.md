@@ -70,6 +70,14 @@ and `chat_template.jinja` are byte-identical to the Hugging Face snapshot
   `<tool_response>` as plain text (fork commit `14212a9` changed that for
   every qwen4 model; this branch does not), and a tiny-vocabulary test checks
   that it is unchanged.
+- `ds4_prompt_prefix_append` (`ds4_prompt_prefix.h`, review fix R4): for Mellum
+  it no longer pushes EOS after an imported assistant turn, because
+  `ds4_chat_append_message` has already closed the turn with `<|im_end|>\n`.
+  Other models are unchanged. **Possible upstream issue:** Flash Next takes the same path and
+  probably renders `answer<|im_end|>\n<|im_end|><|im_start|>user` too; a
+  tiny-vocabulary sibling test pins its current render (three `<|im_end|>`
+  for a user and an assistant turn). It was not checked against Flash Next's
+  template: there is no Flash Next GGUF or template on this machine.
 
 ## Commits
 
