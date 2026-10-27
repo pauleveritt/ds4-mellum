@@ -58,6 +58,12 @@ and `chat_template.jinja` are byte-identical to the Hugging Face snapshot
   without partials: 60 cases) gave identical bytes before and after, and
   `make test-qwen4-kernels` passes. Flash Next's decode speed was not
   re-measured: there is no Flash Next GGUF on this machine.
+- `ds4_chat_append_tool_results` (step 30) is new public API for every model;
+  for models other than Mellum it appends one tool message per result, exactly
+  as `ds4_chat_append_message` did. Flash Next's tool messages still write
+  `<tool_response>` as plain text (fork commit `14212a9` changed that for
+  every qwen4 model; this branch does not), and a tiny-vocabulary test checks
+  that it is unchanged.
 
 ## Commits
 
@@ -117,6 +123,15 @@ Exact-prefill diagnostic (after Checkpoint 3, asked for with keeping step 27):
 - `5aa742c` (red), `4bdb7b5` `DS4_MELLUM_EXACT_PREFILL=1` keeps long prefills exact.
 - `9e77c2d` the oracle checks every prefill both ways; the next commit records the run.
 
+Phase 5 (tool calls in ds4-agent):
+- `4c5ef02` (red), `98a5bc6` a tool message's `<tool_response>` wrapper is
+  tokens 31 and 32 (step 30; the idea of fork commit `14212a9`, here Mellum's
+  alone).
+- `a821dd7` (red), `cdc5b10` the same on the multimodal path ds4-agent uses
+  for text-only observations.
+- `7514d1f` `ds4_chat_append_tool_results`, which takes the count.
+- `11684de` (red), `ba1c0e0` one turn's tool results are one user turn.
+
 From step 28 on, commits follow smaller rules: one concern each, the failing
 test committed red on its own, at most about 150 lines of product code.
 
@@ -149,7 +164,7 @@ Step 22, M5 Max, Q8_0, `--temp 0`, n = 1 each:
 | what | command | result | n |
 |---|---|---|---|
 | tokenizer ids vs the model's own tokenizer, 30 strings | `DS4_TEST_MELLUM_MODEL=... ./tests/test_mellum_tokenizer` | 30/30 equal | 1 |
-| chat renders vs the model's own template, 3 conversations + 2 prefixes | `DS4_TEST_MELLUM_MODEL=... ./tests/test_mellum_config` | all equal | 1 |
+| chat renders vs the model's own template, 6 conversations (3 with tool messages) + 2 prefixes | `DS4_TEST_MELLUM_MODEL=... ./tests/test_mellum_config` | all equal | 1 |
 | forward pass vs the old port (`refs/old/mellum21-stage1`), session logits | `tests/mellum_oracle_compare.sh ORACLE_DIR $MODEL 64` | byte-equal (`cmp`) on 29, 1,100 and 2,200 templated tokens, prefill and decode; prefill equals decode in this engine on all three; 64 of 64 greedy tokens equal, with equal logits at each step | 1 |
 | prefill speed, exact experts vs tiled (step 25), 2,200 templated tokens, one chunk of 1,024 at a time | `MELLUM_TRACE_REPEAT=6 tests/mellum_trace $MODEL tests/mellum_oracle_2200.tokens prefill` (prototype switch, then the committed code) | runs 3-6 (steady clocks; run 1 is ~20% faster, then the GPU settles): exact 349-364 t/s, tiled 813-886 t/s, two alternated sessions each | 4 per arm, x2 |
 | tiled-experts crossover, one chunk | the same with 9- to 256-token prompts, runs 3-8 of 8 | 9 rows: exact 0.031 s, tiled 0.044 s; 16: 0.046 vs 0.051; 32: 0.081 vs 0.067; 48: 0.114 vs 0.080; 72: 0.164 vs 0.102; 256: 0.61 vs 0.29. Threshold: 32 rows | 6 per point |
