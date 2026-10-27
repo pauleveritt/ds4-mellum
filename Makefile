@@ -1709,3 +1709,18 @@ test-mellum-device-observation: test-mellum-read-gate tools/mellum_read_bench
 	python3 -I tests/test_mellum_observe_process.py
 	python3 -I tests/test_mellum_observe_batch.py
 test-mellum-storage: test-mellum-device-observation
+
+MELLUM_STAGE_SOURCES = tools/mellum_stage_bench.c tools/mellum_stage_io.c tools/mellum_read_plan.c tools/mellum_read_io.c
+tools/mellum_stage_bench: $(MELLUM_STAGE_SOURCES) tools/mellum_stage.h tools/mellum_read.h
+	$(CC) $(MELLUM_READ_CFLAGS) $(MELLUM_STAGE_SOURCES) -o $@
+tests/test_mellum_stage: tests/test_mellum_stage.c tools/mellum_stage_io.c tools/mellum_stage.h tools/mellum_read_io.c
+	$(CC) $(MELLUM_READ_CFLAGS) tests/test_mellum_stage.c tools/mellum_stage_io.c tools/mellum_read_io.c -o $@
+tests/mellum_stage_fault: $(MELLUM_STAGE_SOURCES) tests/mellum_stage_faults.h tests/mellum_stage_faults.c
+	$(CC) $(MELLUM_READ_CFLAGS) -include tests/mellum_stage_faults.h $(MELLUM_STAGE_SOURCES) tests/mellum_stage_faults.c -o $@
+.PHONY: test-mellum-stage clean-mellum-stage
+test-mellum-stage: tests/test_mellum_stage tools/mellum_stage_bench tests/mellum_stage_fault
+	./tests/test_mellum_stage
+	python3 -I tests/test_mellum_stage.py
+clean-mellum-stage:
+	rm -f tests/test_mellum_stage tests/mellum_stage_fault tools/mellum_stage_bench
+clean: clean-mellum-stage

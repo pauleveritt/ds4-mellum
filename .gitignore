@@ -141,3 +141,6 @@ __pycache__/
 /tests/mellum_read_bench_fault
 
 /tests/test_mellum_read_gate
+/tools/mellum_stage_bench
+/tests/test_mellum_stage
+/tests/mellum_stage_fault
