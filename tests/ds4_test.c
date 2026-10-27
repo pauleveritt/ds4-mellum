@@ -8130,6 +8130,46 @@ static void test_mellum_server_continuations(void) {
         printf("mellum-server: a live tool tail continues the KV to the full render; a malformed call gets a Hermes error turn\n");
 }
 
+/* A streamed Mellum answer with tools: the reasoning starts after the model's own "<think>\n", the content is sent as it
+ * comes (Mellum has one think block, so nothing waits for a second), and the call arrives as tool_calls at the end */
+static void test_mellum_server_stream(void) {
+    const int failures_before = test_failures;
+    int sv[2];
+    TEST_ASSERT(socketpair(AF_UNIX, SOCK_STREAM, 0, sv) == 0);
+    request r;
+    request_init(&r, REQ_CHAT, 128);
+    r.api = API_OPENAI;
+    r.stream = true;
+    r.think_mode = DS4_THINK_HIGH;
+    r.has_tools = true;
+    r.model_syntax = SERVER_MODEL_SYNTAX_HERMES;
+    TEST_ASSERT(sse_chunk(sv[0], &r, "chatcmpl_test", NULL, NULL));
+    openai_stream st;
+    openai_stream_start(&r, &st);
+    const char *raw1 = "<think>\nneed a tool\n</think>\n\nChecking";
+    TEST_ASSERT(openai_sse_stream_update(sv[0], NULL, &r, "chatcmpl_test", &st, raw1, strlen(raw1), false));
+    TEST_ASSERT(st.sent_content);                       /* not held back */
+    const char *raw = "<think>\nneed a tool\n</think>\n\nChecking.\n<tool_call>\n{\"name\": \"bash\", \"arguments\": {\"command\": \"ls\"}}\n</tool_call>";
+    char *content = NULL, *reasoning = NULL;
+    tool_calls calls = {0};
+    TEST_ASSERT(parse_generated_message_ex_for_syntax(SERVER_MODEL_SYNTAX_HERMES, raw, true, &content, &reasoning, &calls));
+    TEST_ASSERT(openai_sse_stream_update(sv[0], NULL, &r, "chatcmpl_test", &st, raw, strlen(raw), false));
+    TEST_ASSERT(openai_sse_finish_live(sv[0], NULL, &r, "chatcmpl_test", &st, raw, strlen(raw), &calls, "tool_calls", 10, 8));
+    shutdown(sv[0], SHUT_WR);
+    char *out = read_socket_text(sv[1]);
+    TEST_ASSERT(out && strstr(out, "\"reasoning_content\":\"need a tool") != NULL);
+    TEST_ASSERT(out && strstr(out, "\"reasoning_content\":\"\\n") == NULL);
+    TEST_ASSERT(out && strstr(out, "\"tool_calls\"") != NULL && strstr(out, "\\\"command\\\": \\\"ls\\\"") != NULL);
+    TEST_ASSERT(out && strstr(out, "<tool_call>") == NULL);
+    free(out);
+    free(content); free(reasoning); tool_calls_free(&calls);
+    close(sv[0]);
+    close(sv[1]);
+    request_free(&r);
+    if (test_failures == failures_before)
+        printf("mellum-server: a streamed answer sends reasoning, content as it comes, and the call as tool_calls\n");
+}
+
 /* With the real vocabulary (DS4_TEST_MELLUM_MODEL): each rendered case, tokenized as the server tokenizes a prompt
  * (ds4_tokenize_rendered_chat), gives the template's ids. */
 static void test_mellum_server_ids(void) {
@@ -8177,6 +8217,7 @@ static void test_server_unit_group(void) {
     test_mellum_server_parse();
     test_mellum_server_visible_text();
     test_mellum_server_continuations();
+    test_mellum_server_stream();
 }
 
 typedef void (*test_fn)(void);
