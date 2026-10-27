@@ -265,9 +265,24 @@ static void check_developer_is_system(void) {
     free(resp);
     puts("ok   server: a Mellum developer message renders as the system turn (Chat and Responses)");
 }
+
+/* P6-R4: Anthropic's top-level system is the conversation's initial system message */
+static void check_anthropic_system_first(void) {
+    char *plain = mellum_request_prompt(2, "{\"model\":\"mellum-2.1\",\"max_tokens\":10,\"system\":\"S\","
+                                           "\"messages\":[{\"role\":\"user\",\"content\":\"Q\"}]}");
+    CHECK(plain && !strcmp(plain, "<|im_start|>system\nS<|im_end|>\n<|im_start|>user\nQ<|im_end|>\n<|im_start|>assistant\n"));
+    char *tools = mellum_request_prompt(2, "{\"model\":\"mellum-2.1\",\"max_tokens\":10,\"system\":\"S\","
+        "\"tools\":[{\"name\":\"bash\",\"description\":\"Run.\",\"input_schema\":{\"type\":\"object\",\"properties\":{}}}],"
+        "\"messages\":[{\"role\":\"user\",\"content\":\"Q\"}]}");
+    CHECK(tools && !strncmp(tools, "<|im_start|>system\nS\n\n# Tools\n", 30) && strstr(tools, "<|im_start|>system\nS<|im_end|>") == NULL);
+    free(plain);
+    free(tools);
+    puts("ok   server: an Anthropic system prompt renders first for Mellum, with and without tools");
+}
 #else
 static void check_reuse_effective_prompt(void) {}
 static void check_developer_is_system(void) {}
+static void check_anthropic_system_first(void) {}
 #endif
 
 #if defined(MELLUM_FRONTEND_AGENT)
@@ -693,5 +708,6 @@ int main(void) {
     check_pi_tools();
     check_reuse_effective_prompt();
     check_developer_is_system();
+    check_anthropic_system_first();
     return 0;
 }
