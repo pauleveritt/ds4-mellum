@@ -1011,10 +1011,16 @@ static const char *server_engine_refusal(ds4_engine *engine) {
     return NULL;
 }
 
-/* A session option the loaded model cannot serve, or NULL (step 43; a stub until its fix). */
+/* A session option the loaded model cannot serve, or NULL.  Mellum serves one session: the
+ * engine refuses its session save and load (the disk KV cache's payload), and its graph never
+ * batches with other sessions. */
 static const char *server_session_option_refusal(ds4_engine *engine, int batched_sessions,
                                                  const char *kv_disk_dir) {
-    (void)engine; (void)batched_sessions; (void)kv_disk_dir;
+    if (!ds4_engine_is_mellum(engine)) return NULL;
+    if (batched_sessions > 1)
+        return "Mellum 2.1 serves one session: --batched-session above 1 is not supported";
+    if (kv_disk_dir && kv_disk_dir[0])
+        return "Mellum 2.1 has no session save and load yet: --kv-disk-dir is not supported";
     return NULL;
 }
 
@@ -16122,6 +16128,7 @@ int main(int argc, char **argv) {
         return 1;
     }
     const char *refusal = server_engine_refusal(engine);
+    if (!refusal) refusal = server_session_option_refusal(engine, cfg.batched_sessions, cfg.kv_disk_dir);
     if (refusal) {
         fprintf(stderr, "ds4-server: %s\n", refusal);
         ds4_engine_close(engine);
