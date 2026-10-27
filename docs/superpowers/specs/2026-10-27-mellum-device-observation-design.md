@@ -2,7 +2,8 @@
 
 Date: 2026-10-27. Status: approved by the user’s “proceed” after `9110b9c`; independent builder
 check complete. The [implementation plan](../plans/2026-10-27-mellum-device-observation.md)
-awaits user review; implementation and execution have not started.
+was approved by the user’s next “proceed”; implementation is underway.
+Real diagnostic execution follows full model-free checks and final review.
 Baseline: `5f59171`, branch `codex/mellum-ssd-replay`, existing worktree.
 [Research](../research/2026-10-27-mellum-device-observation.md) supplies primary
 sources; [S3a evidence](../research/2026-10-27-mellum-storage-evidence.md)

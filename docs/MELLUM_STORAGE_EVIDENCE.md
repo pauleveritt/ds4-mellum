@@ -80,7 +80,7 @@ ac-demo routing data is used. The trace must match the approved SHA-256.
 Each plan expands into either three original ranges or one contiguous range.
 The native plan has a 64-byte little-endian `MLREAD01` header and 32-byte range
 records; both Python and C validate bounds and complete-job accounting. The C99
-executable links only its four storage source files with pthreads, without engine
+executable links only its five storage/gate source files with pthreads, without engine
 or GPU objects. It uses pread loops, a ready-worker gate and one reusable buffer
 per worker. Samples include every job's enqueue/start/completion timestamps.
 
@@ -114,3 +114,59 @@ recipe and the actual executor build log, without claiming signed attestation.
 This experiment reports storage jobs, not streamed tokens or inference tok/s.
 S3 remains open for generated ac-demo collection, window/locality analysis and
 physical-storage/8 GB validation.
+
+## Device-observed follow-up
+
+The [approved follow-up](superpowers/specs/2026-10-27-mellum-device-observation-design.md)
+uses a distinct uniform-only manifest and reservation. It does not rerun or
+modify the spent S3a batch. No model copy or GPU is needed.
+
+```sh
+python3 -I tools/mellum_storage.py observe-prepare \
+  --prior-batch /absolute/prior-batch/artifact \
+  --binary /absolute/checkout/tools/mellum_read_bench \
+  --output /absolute/new-observation-container
+python3 -I tools/mellum_storage.py observe-run \
+  --batch /absolute/new-observation-container/artifact \
+  --output /absolute/new-observation-run
+```
+
+Prepare reads only metadata, current source/binary and uniform plans. It freezes
+four one-worker cases in order: original buffered/avoid, then packed buffered/avoid.
+Run independently verifies actual model/packed bytes before and after all cells,
+using exactly two full packed-verifier passes. It discovers a unique APFS
+physical store, whole disk and IOBlockStorageDriver by topology, then retains
+raw read/write/operation/error/retry counters. Unsupported or ambiguous mapping,
+active inference, changed identities and consumed-wire substitution are refusals.
+
+The optional native R/G/D/L pipe gates pause after prewarm/buffer preparation and
+after timed worker join. Python collects one-second idle controls on both sides
+and counters enclosing the active work, holding snapshots/output in memory until
+controls finish. Snapshot start/end uncertainty is retained. Metadata commands
+have 5-second/32 MiB bounds, native gates 30 seconds, and active work 120 seconds.
+No hashing, prewarm or experiment report writes occur inside these windows.
+
+The new reservation permits 13,476,298,752 timed logical bytes (16 GiB cap),
+6,738,149,376 native prewarm bytes (8 GiB cap) and at most 128 GiB cumulative
+Python preparation/verification reads. The forecast includes two M+3P payload
+verification passes, 128 MiB directory/prefix allowance and 8 GiB metadata/source
+allowance; actual budgeted reads are refused before exceeding their ceiling.
+Git internals, runtime imports and metadata subprocess internals are excluded
+from Python logical file-read accounting. Command outputs and native reads are
+retained separately. Failed children can have unknown actual native progress;
+reports retain reserved maxima and never label that progress zero.
+
+Each cell retains native samples, raw stdout/stderr, six timestamped counter
+snapshots (raw command bytes encoded as base64), events and identities. A second
+execution is refused, including after failure. Partial evidence is published only
+under a separate `.failure/artifact`; missing/unstarted cells are explicit.
+
+Interpret D as raw device-read bytes, L as completed logical bytes, and B as the
+larger adjacent idle rate times the conservative outer observation span. B>1% L
+or D>125% L flags inconclusive background; otherwise D≤5% L is little traffic,
+90% L≤D≤125% L is consistent volume, and other cases are mixed/inconclusive.
+Counter/identity/interval failures invalidate observation. These bins provide no
+statistical attribution guarantee: an unrelated burst can escape both controls.
+Neither consistent volume nor successful cache flags establish file-specific
+service, SSD bandwidth, NAND reads, expert miss stall or inference tok/s.
+`physical_io_verified=false` remains set. All outcomes end this four-run budget.
