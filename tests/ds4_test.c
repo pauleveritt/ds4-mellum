@@ -8008,6 +8008,69 @@ static void test_mellum_server_parse(void) {
         printf("mellum-server: Hermes output parsed into reasoning, content and calls, and rendered back byte for byte\n");
 }
 
+/* The text the server remembers for a finished Mellum turn is the text the next request renders for it: after a
+ * tool-call turn the tool cycle keeps the reasoning; after a final answer a new user message drops it. */
+static char *mellum_render(const char *const *roles, const char *const *contents, const char *reasoning,
+                           const tool_calls *calls, int n, bool think) {
+    chat_msgs msgs = {0};
+    for (int i = 0; i < n; i++) {
+        chat_msg m = {.role = xstrdup(roles[i]), .content = xstrdup(contents[i])};
+        if (!strcmp(roles[i], "assistant")) {
+            if (reasoning) m.reasoning = xstrdup(reasoning);
+            if (calls) {
+                for (int k = 0; k < calls->len; k++)
+                    tool_calls_push(&m.calls, (tool_call){.id = xstrdup("c1"), .name = xstrdup(calls->v[k].name),
+                                                         .arguments = xstrdup(calls->v[k].arguments)});
+            }
+        }
+        chat_msgs_push(&msgs, m);
+    }
+    char *text = render_chat_prompt_text_for_syntax(SERVER_MODEL_SYNTAX_HERMES, &msgs, NULL, NULL,
+                                                    think ? DS4_THINK_HIGH : DS4_THINK_NONE);
+    chat_msgs_free(&msgs);
+    return text;
+}
+
+static bool starts_with(const char *s, const char *prefix) {
+    return s && prefix && !strncmp(s, prefix, strlen(prefix));
+}
+
+static void test_mellum_server_visible_text(void) {
+    const int failures_before = test_failures;
+    for (int think = 0; think <= 1; think++) {
+        const char *q[] = {"user"}, *qc[] = {"Q"};
+        char *prompt = mellum_render(q, qc, NULL, NULL, 1, think);
+        request r = {0};
+        r.kind = REQ_CHAT;
+        r.model_syntax = SERVER_MODEL_SYNTAX_HERMES;
+        r.think_mode = think ? DS4_THINK_HIGH : DS4_THINK_NONE;
+        r.prompt_text = prompt;
+        tool_calls calls = {0};
+        tool_calls_push(&calls, (tool_call){.id = xstrdup("c1"), .name = xstrdup("bash"),
+                                            .arguments = xstrdup("{\"command\": \"ls\"}")});
+        /* a tool-call turn: the next request carries it and the tool's result */
+        const char *reasoning = think ? "Use bash." : NULL;
+        char *suffix = build_tool_checkpoint_suffix(&r, "", reasoning, &calls);
+        const char *n1[] = {"user", "assistant", "tool"}, *n1c[] = {"Q", "", "a.txt"};
+        char *next = mellum_render(n1, n1c, reasoning, &calls, 3, think);
+        buf want = {0};
+        buf_puts(&want, prompt);
+        buf_puts(&want, suffix ? suffix : "<none>");
+        TEST_ASSERT(starts_with(next, want.ptr));
+        free(suffix); free(next); buf_free(&want);
+        /* a final answer: the next request adds a user message, and the turn's reasoning is dropped */
+        char *visible = think ? build_thinking_visible_text(&r, "The answer.") : NULL;
+        const char *n2[] = {"user", "assistant", "user"}, *n2c[] = {"Q", "The answer.", "Q2"};
+        next = mellum_render(n2, n2c, reasoning, NULL, 3, think);
+        if (think) TEST_ASSERT(visible && starts_with(next, visible));
+        free(visible); free(next);
+        tool_calls_free(&calls);
+        free(prompt);
+    }
+    if (test_failures == failures_before)
+        printf("mellum-server: a finished turn's remembered text is the next request's render of it\n");
+}
+
 /* With the real vocabulary (DS4_TEST_MELLUM_MODEL): each rendered case, tokenized as the server tokenizes a prompt
  * (ds4_tokenize_rendered_chat), gives the template's ids. */
 static void test_mellum_server_ids(void) {
@@ -8053,6 +8116,7 @@ static void test_server_unit_group(void) {
     ds4_server_unit_tests_run();
     test_mellum_server_render();
     test_mellum_server_parse();
+    test_mellum_server_visible_text();
 }
 
 typedef void (*test_fn)(void);
