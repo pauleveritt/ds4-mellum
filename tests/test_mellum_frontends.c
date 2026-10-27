@@ -210,9 +210,105 @@ static void check_tool_observation(void) {
     ds4_tokens_free(&got); ds4_tokens_free(&want);
     puts("ok   agent: a Mellum round's results are one user turn, a raw <tool_response> block per call");
 }
+
+/* ---- Pi's four tools, for Mellum: Pi's argument names and result texts (Pi 1.1.0, dist/core/tools) ---- */
+
+static agent_worker *pi_worker(void) {
+    static ds4_engine e;
+    static agent_worker w;
+    static bool ready;
+    if (!ready) {
+        tiny_vocab(&e);
+        memset(&w, 0, sizeof(w));
+        w.engine = &e;
+        pthread_mutex_init(&w.mu, NULL);
+        ready = true;
+    }
+    g_ds4_shape = DS4_SHAPE_MELLUM;
+    return &w;
+}
+
+/* run one call: name, then name/value pairs (a value starting with '#' is a raw JSON value, '#' dropped) */
+static char *pi_run(const char *name, ...) {
+    agent_tool_call c = {.name = xstrdup(name)};
+    va_list ap;
+    va_start(ap, name);
+    for (const char *k; (k = va_arg(ap, const char *)) != NULL;) {
+        const char *v = va_arg(ap, const char *);
+        agent_tool_call_add_arg_owned(&c, k, xstrdup(v[0] == '#' ? v + 1 : v), v[0] != '#');
+    }
+    va_end(ap);
+    char *r = agent_execute_tool_call(pi_worker(), &c);
+    agent_tool_call_free(&c);
+    return r;
+}
+
+static char *pi_fixture(const char *dir, const char *name, const char *data) {
+    char *path = xmalloc(strlen(dir) + strlen(name) + 2);
+    sprintf(path, "%s/%s", dir, name);
+    FILE *fp = fopen(path, "wb");
+    CHECK(fp != NULL);
+    fwrite(data, 1, strlen(data), fp);
+    fclose(fp);
+    return path;
+}
+
+#define PI_EXPECT(got, want) do { char *g_ = (got); CHECK(!strcmp(g_, (want))); free(g_); } while (0)
+#define PI_EXPECT_PREFIX(got, want) do { char *g_ = (got); CHECK(strstr(g_, (want)) == g_); free(g_); } while (0)
+
+static void check_pi_read(const char *dir) {
+    char *five = pi_fixture(dir, "five.txt", "l1\nl2\nl3\nl4\nl5\n");
+    /* the file's text as it is: no line numbers, no header */
+    PI_EXPECT(pi_run("read", "path", five, NULL), "l1\nl2\nl3\nl4\nl5\n");
+    PI_EXPECT(pi_run("read", "path", five, "offset", "#3", NULL), "l3\nl4\nl5\n");
+    /* Pi counts lines with split("\n"): the empty line after the final newline is one */
+    PI_EXPECT(pi_run("read", "path", five, "limit", "#2", NULL), "l1\nl2\n\n[4 more lines in file. Use offset=3 to continue.]");
+    PI_EXPECT(pi_run("read", "path", five, "offset", "#2", "limit", "#2", NULL),
+              "l2\nl3\n\n[3 more lines in file. Use offset=4 to continue.]");
+    PI_EXPECT(pi_run("read", "path", five, "offset", "#99", NULL), "Offset 99 is beyond end of file (6 lines total)");
+    char *missing = xmalloc(strlen(dir) + 16);
+    sprintf(missing, "%s/nope.txt", dir);
+    PI_EXPECT_PREFIX(pi_run("read", "path", missing, NULL), "ENOENT: no such file or directory, access '");
+    PI_EXPECT(pi_run("read", NULL), "read requires a path string.");
+    /* 2,500 lines: the head is cut at 2,000 with the continuation footer */
+    agent_buf big = {0};
+    for (int i = 1; i <= 2500; i++) { char l[32]; snprintf(l, sizeof(l), "line %d\n", i); agent_buf_puts(&big, l); }
+    char *bigpath = pi_fixture(dir, "big.txt", big.ptr);
+    char *r = pi_run("read", "path", bigpath, NULL);
+    CHECK(strstr(r, "line 2000\n\n[Showing lines 1-2000 of 2501. Use offset=2001 to continue.]") && !strstr(r, "line 2001"));
+    free(r);
+    r = pi_run("read", "path", bigpath, "offset", "#2001", NULL);
+    CHECK(strstr(r, "line 2001\n") == r && strstr(r, "line 2500\n") && !strstr(r, "[Showing") && !strstr(r, "more lines"));
+    free(r);
+    /* 100 lines of 600 bytes: cut by the 50KB limit */
+    agent_buf wide = {0};
+    for (int i = 0; i < 100; i++) { char l[700]; memset(l, 'a', 600); strcpy(l + 600, "\n"); agent_buf_puts(&wide, l); }
+    char *widepath = pi_fixture(dir, "wide.txt", wide.ptr);
+    r = pi_run("read", "path", widepath, NULL);
+    CHECK(strstr(r, "\n\n[Showing lines 1-85 of 101 (50.0KB limit). Use offset=86 to continue.]") != NULL);
+    free(r);
+    /* a first line over the limit: Pi points the model at bash */
+    char *huge = xmalloc(60000);
+    memset(huge, 'b', 59999);
+    huge[59999] = '\0';
+    char *hugepath = pi_fixture(dir, "huge.txt", huge);
+    PI_EXPECT_PREFIX(pi_run("read", "path", hugepath, NULL), "[Line 1 is 58.6KB, exceeds 50.0KB limit. Use bash: sed -n '1p' ");
+    free(five); free(missing); free(bigpath); free(widepath); free(hugepath); free(huge); free(big.ptr); free(wide.ptr);
+    puts("ok   agent: Pi's read for Mellum (raw text, offset and limit, Pi's footers and errors)");
+}
+
+static void check_pi_tools(void) {
+    char dir[] = "/tmp/ds4-mellum-pi-XXXXXX";
+    CHECK(mkdtemp(dir) != NULL);
+    check_pi_read(dir);
+    char cmd[PATH_MAX + 16];
+    snprintf(cmd, sizeof(cmd), "rm -rf %s", dir);
+    CHECK(system(cmd) == 0);
+}
 #else
 static void check_resume_prefix(void) {}
 static void check_tool_observation(void) {}
+static void check_pi_tools(void) {}
 #endif
 
 #if defined(MELLUM_FRONTEND_CLI)
@@ -261,5 +357,6 @@ int main(void) {
     check_sampling_defaults();
     check_resume_prefix();
     check_tool_observation();
+    check_pi_tools();
     return 0;
 }
