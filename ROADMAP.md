@@ -6,7 +6,7 @@ numbered checkpoints. This roadmap tracks the separate SSD investigation.
 ## Current baseline
 
 - Mellum Checkpoint 3.6: `59932c9`, rebased onto upstream `ee7e840`, with E1.
-- CPU replay preparation: implemented on `codex/mellum-ssd-replay`; 21
+- CPU replay preparation: implemented on `codex/mellum-ssd-replay`; 33
   synthetic replay tests and the model-free Mellum suite pass.
 - No Mellum SSD inference, real routing capture or storage benchmark has been
   performed by this investigation. Physical 8 GB feasibility is unresolved.
@@ -23,7 +23,7 @@ byte-demand statistics and synthetic tests. See the [completed plan](docs/superp
 Completion establishes accounting under the declared model. The later review
 identified interpretation and capture-provenance gaps, addressed by S1.
 
-### S1 — Qualify replay evidence and prepare captures: implemented, review pending
+### S1 — Qualify replay evidence and prepare captures: complete, CPU only
 
 - Restrict the lower-bound claim to whole-trace total loads/bytes under the
   atomic residency model or the specified fixed access order.
@@ -34,8 +34,9 @@ identified interpretation and capture-provenance gaps, addressed by S1.
 - Freeze a collection/evaluation protocol before tuning policies or capturing
   the evidence used for a decision.
 
-CPU gate: 32 synthetic replay tests and the model-free Mellum suite pass.
-Final independent branch review remains before marking S1 complete.
+Exit met: 33 synthetic replay tests and the model-free Mellum suite pass.
+Independent whole-branch review found one Unicode JSONL parsing issue; a
+separate red-test/fix pair resolves it, followed by the full CPU gate.
 See the [S1 design](docs/superpowers/specs/2026-10-27-mellum-ssd-evidence-design.md)
 and [implementation plan](docs/superpowers/plans/2026-10-27-mellum-ssd-evidence.md).
 

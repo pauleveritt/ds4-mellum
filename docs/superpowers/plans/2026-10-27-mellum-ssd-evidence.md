@@ -115,7 +115,7 @@ syntax-validated declarations, never reconstructed hashes.
 - [x] Add `test_cli_hashes_exact_bytes_and_preserves_manifest`: write equivalent UTF-8 JSONL fixtures with LF and CRLF bytes using `write_bytes`, run the existing isolated CLI, assert different expected exact-byte hashes but identical parsed trace headers and policy results. Assert full manifest/extensions and source identity survive the CLI path; v1 header shape remains unchanged. Do not hash text-mode normalized reads in the test.
 - [x] Add `test_cli_invalid_utf8_emits_no_report`: write invalid UTF-8 bytes, assert nonzero exit, empty stdout, nonempty stderr and no traceback. Retain the existing no-partial-output checks for a later failing sweep capacity.
 - [x] Run the CPU script; expect absent evidence/keyword failures. Commit: `test: require exact trace and replay identities in SSD reports`.
-- [x] Implement report identity using `hashlib` and `platform`. In `main`, read bytes once, hash that snapshot, decode UTF-8 and pass `splitlines(keepends=True)` to `load_trace`; pass the digest into `run_sweep`. Update CLI help to versions 1/2. Keep report serialization after all capacities succeed. Do not reread the input or infer a digest from the parsed dataclasses.
+- [x] Implement report identity using `hashlib` and `platform`. In `main`, read bytes once, hash that snapshot, decode UTF-8 and pass `io.StringIO(decoded, newline=None)` to `load_trace` (corrected by final review below); pass the digest into `run_sweep`. Update CLI help to versions 1/2. Keep report serialization after all capacities succeed. Do not reread the input or infer a digest from the parsed dataclasses.
 - [x] Run the CPU script and `git diff --check`. Commit: `feat: identify exact routing inputs and replay source in reports`.
 
 ### Task 5: Document the shipped contract and record the gate
@@ -164,4 +164,15 @@ Verification: `make test-mellum-ssd-replay` passes 32 tests;
 32 replay tests and 14 logits-comparison tests. Both documented synthetic
 examples replay successfully; changed local Markdown links and whitespace
 are checked. No model, GPU, storage or native streaming experiment occurred.
-Final independent whole-branch review follows this documentation commit.
+Independent whole-branch review (`59932c9..1593748`) found one Important
+issue: `str.splitlines()` splits U+2028/U+2029/U+0085 inside valid JSON strings.
+No Critical/Minor findings or declined judgments. Corrected the plan's Task 4
+mechanism to `io.StringIO(decoded, newline=None)`, preserving the same byte
+snapshot/hash and JSONL record boundaries. Compatibility risk is record
+splitting; existing LF/CRLF and new v1/v2 Unicode regressions cover it.
+
+Separate red commit `5cbbcfa` reproduces the CLI failure; fix `1288b0e` passes
+all 33 replay tests. The final `env -u DS4_TEST_MELLUM_MODEL make -j4 test-mellum`
+gate exits zero, including 33 replay and 14 logits-comparison tests. The single
+review fix pass is complete with no unresolved findings. S1 is complete;
+branch/worktree retained for S2. Nothing pushed or merged.

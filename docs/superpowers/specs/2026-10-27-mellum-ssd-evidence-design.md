@@ -1,6 +1,6 @@
 # Mellum SSD evidence qualification
 
-Date: 2026-10-27. Status: implemented; CPU gates pass, final branch review pending.
+Date: 2026-10-27. Status: implemented and verified; review finding fixed with a red/green regression.
 Implements S1 of the [roadmap](../../../ROADMAP.md), building on the
 [completed replay design](2026-10-27-mellum-ssd-replay-design.md).
 
@@ -136,7 +136,8 @@ not implement the recorder or an in-progress trace format.
 Add report `evidence` with `trace_sha256`, `replay_source_sha256`,
 `python_version` and `provenance_status`. Hash exact input file bytes before
 UTF-8 decoding in the CLI (including CRLF/whitespace); parse that same byte
-snapshot. No reread of a changing trace. Hash the executing standalone script
+snapshot using JSONL newline handling that preserves Unicode characters
+inside strings. No reread of a changing trace. Hash the executing standalone script
 contents for replay identity, rather than assuming a clean Git checkout.
 The digest identifies bytes, not authenticity or validated model quality.
 
