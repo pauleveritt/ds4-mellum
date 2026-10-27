@@ -2,8 +2,10 @@
 
 Date: 2026-10-27. Status: approved by the user’s “proceed” after `9110b9c`; independent builder
 check complete. The [implementation plan](../plans/2026-10-27-mellum-device-observation.md)
-was approved by the user’s next “proceed”; implementation is underway.
-Real diagnostic execution follows full model-free checks and final review.
+was approved by the user’s next “proceed” and implemented. Independent review
+and the full model-free gate pass after fixes. The first live attempt refused
+before any native reads; an offline-tested compatibility repair is retained
+without retry. See [evidence](../research/2026-10-27-mellum-device-observation-evidence.md).
 Baseline: `5f59171`, branch `codex/mellum-ssd-replay`, existing worktree.
 [Research](../research/2026-10-27-mellum-device-observation.md) supplies primary
 sources; [S3a evidence](../research/2026-10-27-mellum-storage-evidence.md)

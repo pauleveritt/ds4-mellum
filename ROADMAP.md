@@ -108,7 +108,10 @@ representative cohort or streamed inference has run. The next
 [device-observation proposal](docs/superpowers/specs/2026-10-27-mellum-device-observation-design.md)
 brackets four CPU read runs with mapped block-driver counters and idle controls;
 the design is approved, its [implementation plan](docs/superpowers/plans/2026-10-27-mellum-device-observation.md)
-is approved and implemented for CPU validation; the new diagnostic has not run. The first proposed task is Phase 1 only;
+is implemented and CPU validated. Its first live attempt refused during
+device discovery before payload verification or any native reads; a saved-metadata
+WholeDisk compatibility repair now passes the CPU gate. No retry occurred. See
+[attempt evidence](docs/superpowers/research/2026-10-27-mellum-device-observation-evidence.md). The first proposed task is Phase 1 only;
 later phases require their own requests and prior-phase checkpoints.
 
 Collect the frozen workload matrix on this development laptop. Replay warm,
