@@ -3396,6 +3396,210 @@ static char *render_qwen_chat_prompt_text(const chat_msgs *msgs,
     return buf_take(&out);
 }
 
+/* ---- Mellum 2.1: its chat template, Hermes <tool_call> JSON ----
+ *
+ * The template renders a request's tools with `tool | tojson`, which is Python's
+ * json.dumps(ensure_ascii=False): ", " and ": " separators, key order kept, non-ASCII
+ * text as is.  The server keeps each tool's function object raw (parse_tools_value), so
+ * the wrapper is rebuilt around it and the whole value written again in that form. */
+static bool append_py_json_value(buf *b, const char **p, int depth) {
+    json_ws(p);
+    if (depth > JSON_MAX_NESTING) return false;
+    if (**p == '"') {
+        char *s = NULL;
+        if (!json_string(p, &s)) return false;
+        buf_putc(b, '"');
+        for (const unsigned char *c = (const unsigned char *)s; *c; c++) {
+            switch (*c) {
+            case '"': buf_puts(b, "\\\""); break;
+            case '\\': buf_puts(b, "\\\\"); break;
+            case '\n': buf_puts(b, "\\n"); break;
+            case '\r': buf_puts(b, "\\r"); break;
+            case '\t': buf_puts(b, "\\t"); break;
+            case '\b': buf_puts(b, "\\b"); break;
+            case '\f': buf_puts(b, "\\f"); break;
+            default:
+                if (*c < 0x20) buf_printf(b, "\\u%04x", *c);
+                else buf_putc(b, (char)*c);
+            }
+        }
+        buf_putc(b, '"');
+        free(s);
+        return true;
+    }
+    if (**p == '{' || **p == '[') {
+        const bool object = **p == '{';
+        const char close = object ? '}' : ']';
+        (*p)++;
+        buf_putc(b, object ? '{' : '[');
+        json_ws(p);
+        bool first = true;
+        while (**p && **p != close) {
+            if (!first) buf_puts(b, ", ");
+            first = false;
+            if (object) {
+                if (!append_py_json_value(b, p, depth + 1)) return false;
+                json_ws(p);
+                if (**p != ':') return false;
+                (*p)++;
+                buf_puts(b, ": ");
+            }
+            if (!append_py_json_value(b, p, depth + 1)) return false;
+            json_ws(p);
+            if (**p == ',') (*p)++;
+            json_ws(p);
+        }
+        if (**p != close) return false;
+        (*p)++;
+        buf_putc(b, close);
+        return true;
+    }
+    /* numbers and literals as the client wrote them */
+    const char *start = *p;
+    if (!json_skip_value(p)) return false;
+    buf_append(b, start, (size_t)(*p - start));
+    return true;
+}
+
+static void append_hermes_tools_block(buf *b, const char *tool_schemas) {
+    buf_puts(b, "# Tools\n\nYou may call one or more functions to assist with the user query.\n\n"
+                "You are provided with function signatures within <tools></tools> XML tags:\n<tools>");
+    const char *p = tool_schemas ? tool_schemas : "";
+    json_ws(&p);
+    while (*p) {
+        const size_t mark = b->len;
+        buf_puts(b, "\n{\"type\": \"function\", \"function\": ");
+        if (!append_py_json_value(b, &p, 0)) {
+            b->len = mark;
+            break;
+        }
+        buf_putc(b, '}');
+        json_ws(&p);
+    }
+    buf_puts(b, "\n</tools>\n\nFor each function call, return a json object with function name and arguments "
+                "within <tool_call></tool_call> XML tags:\n<tool_call>\n"
+                "{\"name\": <function-name>, \"arguments\": <args-json-object>}\n</tool_call><|im_end|>\n");
+}
+
+/* Python's str.strip('\n') / lstrip('\n') / rstrip('\n'), into b */
+static void append_strip_newlines(buf *b, const char *s, bool left, bool right) {
+    size_t n = strlen(s);
+    while (left && n && *s == '\n') { s++; n--; }
+    while (right && n && s[n - 1] == '\n') n--;
+    buf_append(b, s, n);
+}
+
+static void append_hermes_assistant_message(buf *b, const chat_msg *m, bool keep_reasoning) {
+    const char *content = m->content ? m->content : "";
+    char *split_reasoning = NULL, *split_content = NULL;
+    const char *reasoning = m->reasoning;
+    if (!reasoning) {
+        /* no reasoning_content: the template takes it from a <think> block in the content */
+        const char *close = strstr(content, "</think>");
+        if (close) {
+            /* the reasoning: before the first </think>, after the last <think> there; the content:
+             * after the last </think>; both without the newlines next to the tags */
+            const char *r = content;
+            for (const char *o; (o = strstr(r, "<think>")) != NULL && o < close;) r = o + strlen("<think>");
+            char *between = xstrndup(r, (size_t)(close - r));
+            buf rb = {0};
+            append_strip_newlines(&rb, between, true, true);
+            free(between);
+            split_reasoning = rb.ptr ? buf_take(&rb) : xstrdup("");
+            const char *after = close;
+            for (const char *o; (o = strstr(after, "</think>")) != NULL;) after = o + strlen("</think>");
+            while (*after == '\n') after++;
+            split_content = xstrdup(after);
+            reasoning = split_reasoning;
+            content = split_content;
+        }
+    }
+    buf_puts(b, "<|im_start|>assistant\n");
+    if (keep_reasoning && reasoning && reasoning[0]) {
+        buf_puts(b, "<think>\n");
+        append_strip_newlines(b, reasoning, true, true);
+        buf_puts(b, "\n</think>\n\n");
+        append_strip_newlines(b, content, true, false);
+    } else {
+        buf_puts(b, content);
+    }
+    for (int i = 0; i < m->calls.len; i++) {
+        const tool_call *tc = &m->calls.v[i];
+        if (i > 0 || content[0]) buf_putc(b, '\n');
+        buf_puts(b, "<tool_call>\n{\"name\": \"");
+        buf_puts(b, tc->name ? tc->name : "");
+        buf_puts(b, "\", \"arguments\": ");
+        buf_puts(b, tc->arguments && tc->arguments[0] ? tc->arguments : "{}");
+        buf_puts(b, "}\n</tool_call>");
+    }
+    buf_puts(b, "<|im_end|>\n");
+    free(split_reasoning);
+    free(split_content);
+}
+
+static bool hermes_is_tool_message(const chat_msg *m) {
+    return !strcmp(m->role, "tool") || !strcmp(m->role, "function");
+}
+
+/* Mellum 2.1's chat_template.jinja: the first system message (with the tools block when
+ * there are tools), user and later system turns as given, an assistant turn's reasoning
+ * kept only after the latest user message that is not a wrapped tool response (so within
+ * the current tool cycle), Hermes calls with the client's argument text, consecutive tool
+ * messages in one user turn, and the generation prompt (an empty think block when thinking
+ * is off).  Pinned against the template's text in tests/ds4_test.c --server. */
+static char *render_hermes_chat_prompt_text(const chat_msgs *msgs, const char *tool_schemas,
+                                            ds4_think_mode think_mode) {
+    buf out = {0};
+    const int n = msgs ? msgs->len : 0;
+    const bool first_system = n > 0 && !strcmp(msgs->v[0].role, "system");
+    if (tool_schemas && tool_schemas[0]) {
+        buf_puts(&out, "<|im_start|>system\n");
+        if (first_system) {
+            buf_puts(&out, msgs->v[0].content ? msgs->v[0].content : "");
+            buf_puts(&out, "\n\n");
+        }
+        append_hermes_tools_block(&out, tool_schemas);
+    } else if (first_system) {
+        buf_puts(&out, "<|im_start|>system\n");
+        buf_puts(&out, msgs->v[0].content ? msgs->v[0].content : "");
+        buf_puts(&out, "<|im_end|>\n");
+    }
+    int last_query = n - 1;
+    for (int i = n - 1; i >= 0; i--) {
+        const chat_msg *m = &msgs->v[i];
+        const char *c = m->content ? m->content : "";
+        const size_t cl = strlen(c);
+        const bool wrapped = !strncmp(c, "<tool_response>", 15) && cl >= 16 &&
+                             !strcmp(c + cl - 16, "</tool_response>");
+        if (!strcmp(m->role, "user") && !wrapped) {
+            last_query = i;
+            break;
+        }
+    }
+    for (int i = 0; i < n; i++) {
+        const chat_msg *m = &msgs->v[i];
+        const char *content = m->content ? m->content : "";
+        if (!strcmp(m->role, "user") || (!strcmp(m->role, "system") && i > 0)) {
+            buf_printf(&out, "<|im_start|>%s\n", m->role);
+            buf_puts(&out, content);
+            buf_puts(&out, "<|im_end|>\n");
+        } else if (!strcmp(m->role, "assistant")) {
+            append_hermes_assistant_message(&out, m, i > last_query);
+        } else if (hermes_is_tool_message(m)) {
+            if (i == 0 || !hermes_is_tool_message(&msgs->v[i - 1])) buf_puts(&out, "<|im_start|>user");
+            buf_puts(&out, "\n<tool_response>\n");
+            buf_puts(&out, content);
+            buf_puts(&out, "\n</tool_response>");
+            if (i == n - 1 || !hermes_is_tool_message(&msgs->v[i + 1])) buf_puts(&out, "<|im_end|>\n");
+        }
+    }
+    if (n == 0 || strcmp(msgs->v[n - 1].role, "assistant") != 0) {
+        buf_puts(&out, "<|im_start|>assistant\n");
+        if (!ds4_think_mode_enabled(think_mode)) buf_puts(&out, "<think>\n\n</think>\n\n");
+    }
+    return buf_take(&out);
+}
+
 static char *render_chat_prompt_text_for_syntax(server_model_syntax syntax,
                                                 const chat_msgs *msgs,
                                                 const char *tool_schemas,
@@ -3410,6 +3614,8 @@ static char *render_chat_prompt_text_for_syntax(server_model_syntax syntax,
     if (syntax == SERVER_MODEL_SYNTAX_QWEN) {
         return render_qwen_chat_prompt_text(msgs, tool_schemas, tool_orders, think_mode);
     }
+    if (syntax == SERVER_MODEL_SYNTAX_HERMES)
+        return render_hermes_chat_prompt_text(msgs, tool_schemas, think_mode);
     return render_deepseek_chat_prompt_text(msgs, tool_schemas,
                                             tool_orders, think_mode);
 }

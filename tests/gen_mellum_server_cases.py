@@ -73,6 +73,12 @@ CASES = [
       {"role": "tool", "tool_call_id": "c1", "content": "hello.py"},
       {"role": "assistant", "content": "One file: hello.py.", "reasoning_content": "Report it."},
       {"role": "user", "content": "Thanks. Now print it."}]),
+    # no reasoning_content: within the cycle the template takes the reasoning from the content's think block
+    ("tools: reasoning inside the content", True, TOOLS,
+     [SYS, {"role": "user", "content": "Run ls."},
+      {"role": "assistant", "content": "<think>\nUse bash.\n</think>\n\nRunning it.",
+       "tool_calls": [call("c1", "bash", {"command": "ls"})]},
+      {"role": "tool", "tool_call_id": "c1", "content": "hello.py"}]),
     ("tools: a call, think off", False, TOOLS,
      [SYS, {"role": "user", "content": "Run ls."},
       {"role": "assistant", "content": "", "tool_calls": [call("c1", "bash", {"command": "ls -la"})]},
