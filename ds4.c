@@ -17478,9 +17478,10 @@ typedef enum {
     MELLUM_S_Q, MELLUM_S_HEADS, MELLUM_S_K, MELLUM_S_V, MELLUM_S_K16, MELLUM_S_V16,
     /* full attention: one rows-table region per full layer, and the partials of one 64-row slice (shared) */
     MELLUM_S_ATTN_TABLE, MELLUM_S_ATTN_PART,
-    /* MoE: the router logits, the selection and its weights, the experts' mid and partial outputs */
+    /* MoE: the router logits, the selection and its weights, the experts' mid and partial outputs,
+     * and for the tiled experts each expert's token list and count */
     MELLUM_S_ROUTER_LOGITS, MELLUM_S_SELECTED, MELLUM_S_WEIGHTS,
-    MELLUM_S_MID, MELLUM_S_PARTIAL,
+    MELLUM_S_MID, MELLUM_S_PARTIAL, MELLUM_S_MOE_LISTS, MELLUM_S_MOE_COUNTS,
     MELLUM_SCRATCH_COUNT
 } mellum_scratch_id;
 
@@ -17579,6 +17580,8 @@ static uint32_t mellum_requests(uint32_t ctx, uint32_t cap_tokens, mellum_req *o
     MELLUM_SCRATCH(MELLUM_S_WEIGHTS, MELLUM_CLASS_MOE, T * n_used * sizeof(float));
     MELLUM_SCRATCH(MELLUM_S_MID, MELLUM_CLASS_MOE, T * n_used * ff * sizeof(float));
     MELLUM_SCRATCH(MELLUM_S_PARTIAL, MELLUM_CLASS_MOE, T * n_used * E * sizeof(float));
+    MELLUM_SCRATCH(MELLUM_S_MOE_LISTS, MELLUM_CLASS_MOE, n_exp * T * sizeof(int32_t));
+    MELLUM_SCRATCH(MELLUM_S_MOE_COUNTS, MELLUM_CLASS_MOE, n_exp * sizeof(int32_t));
 #undef MELLUM_SCRATCH
     MELLUM_ADD(MELLUM_REQ_LOGITS, MELLUM_CLASS_LOGITS, 0, (uint64_t)DS4_N_VOCAB * sizeof(float));
 #undef MELLUM_ADD
@@ -60424,13 +60427,21 @@ static bool qwen4_graph_moe(ds4_qwen4_gpu_graph *g, const ds4_model *m, const ds
     return ok;
 }
 
+/* From this many rows a chunk's experts run as tiled GEMMs over each expert's token list instead of one row at a
+ * time.  Measured on the M5 Max (tests/mellum_trace, prefill, runs 3-8 of 8): tiled loses at 16 rows (0.051 s
+ * against 0.046 s) and wins from 32 (0.067 against 0.081); a 2,200-token prompt prefills at 813-886 t/s against
+ * 349-364.  The price: the tiled kernels stage the activations as half, so a prefill chunk of 32 rows or more no
+ * longer equals its decode steps bit for bit.  Over 64 positions each of a 1,100- and a 2,200-token prompt, max
+ * |d logit| against the per-token path is 0.65 and 0.87 with the same top-1 token at all 128 (MELLUM.md). */
+#define MELLUM_MOE_TILED_MIN_ROWS 32u
+
 /* Mellum's FFN for the T rows of the FFN_NORM scratch, into MOE_OUT (the caller adds the residual): F32 router,
  * softmax over all 64, top 8 renormalized, Q8_0 SwiGLU experts, weighted sum.  It is not qwen4_graph_moe, which
  * reads ffn_gate_inp_shexp and the shared expert unconditionally and folds the hyper-connection combine into its
  * reduce.  Mellum's layer has none of those tensors; this binds only the router and the three expert tensors, and
- * the buffers are the MoE entries of mellum_requests, so the plan counts what the driver uses.  The ops are
- * ds4_gpu_mellum_moe_tensor's (contract in ds4_gpu.h): none of them tiles rows together, so a row's bits do not
- * depend on T. */
+ * the buffers are the MoE entries of mellum_requests, so the plan counts what the driver uses.  Below
+ * MELLUM_MOE_TILED_MIN_ROWS the ops are ds4_gpu_mellum_moe_tensor's (contract in ds4_gpu.h): none of them tiles
+ * rows together, so a row's bits do not depend on T.  From there the experts are tiled, and they do. */
 static bool mellum_graph_moe(ds4_qwen4_gpu_graph *g, const ds4_model *m, const ds4_layer_weights *l, uint32_t T) {
 #if !defined(__APPLE__)
     (void)g; (void)m; (void)l; (void)T;
@@ -60453,6 +60464,31 @@ static bool mellum_graph_moe(ds4_qwen4_gpu_graph *g, const ds4_model *m, const d
     p.up_offset = l->ffn_up_exps->abs_offset;
     p.down_offset = l->ffn_down_exps->abs_offset;
     ds4_gpu_tensor *const *s = g->mellum_scratch;
+    if (T >= MELLUM_MOE_TILED_MIN_ROWS) {
+        /* The router, top-8 and reduce as below; the experts as tiled GEMMs over each expert's
+         * token list (upstream's prefill MoE), which stage the activations as half. */
+        ds4_gpu_tensor *router_out[1] = { s[MELLUM_S_ROUTER_LOGITS] };
+        const uint64_t router_off[1] = { p.router_offset };
+        const uint32_t router_type[1] = { 0u }, router_rows[1] = { p.n_expert };
+        const bool ok =
+            ds4_gpu_qwen4_multi_gemv_tensor(s[MELLUM_S_FFN_NORM], T, p.n_embd, 1, router_out, m->map, m->size,
+                                            router_off, router_type, router_rows) &&
+            ds4_gpu_qwen4_router_topk_tensor(s[MELLUM_S_SELECTED], s[MELLUM_S_WEIGHTS], s[MELLUM_S_ROUTER_LOGITS], NULL,
+                                             m->map, m->size, 0u, 0u, 0u, NULL, T, p.n_expert, p.n_used) &&
+            ds4_gpu_qwen4_moe_build_lists_tensor(s[MELLUM_S_MOE_LISTS], s[MELLUM_S_MOE_COUNTS], s[MELLUM_S_SELECTED], T,
+                                                 p.n_used, p.n_expert, g->cap_tokens) &&
+            ds4_gpu_qwen4_moe_mm_mid_tensor(s[MELLUM_S_MID], s[MELLUM_S_FFN_NORM], s[MELLUM_S_MOE_LISTS],
+                                            s[MELLUM_S_MOE_COUNTS], m->map, m->size, p.gate_offset, p.up_offset,
+                                            p.expert_type, p.n_expert, T, p.n_used, p.n_used, p.n_embd, p.ff_dim,
+                                            g->cap_tokens) &&
+            ds4_gpu_qwen4_moe_mm_down_tensor(s[MELLUM_S_PARTIAL], s[MELLUM_S_MID], s[MELLUM_S_MOE_LISTS],
+                                             s[MELLUM_S_MOE_COUNTS], m->map, m->size, p.down_offset, p.expert_type,
+                                             p.n_expert, T, p.n_used, p.n_used, p.ff_dim, p.n_embd, g->cap_tokens) &&
+            ds4_gpu_qwen4_moe_reduce_tensor(s[MELLUM_S_MOE_OUT], s[MELLUM_S_PARTIAL], s[MELLUM_S_WEIGHTS], NULL, NULL,
+                                            NULL, NULL, T, p.n_used, p.n_used, p.n_embd, 0u) != 0;
+        if (!ok) fprintf(stderr, "ds4: Mellum MoE (tiled experts) failed (T=%u)\n", T);
+        return ok;
+    }
     const bool ok = ds4_gpu_mellum_moe_tensor(s[MELLUM_S_MOE_OUT], s[MELLUM_S_FFN_NORM], s[MELLUM_S_ROUTER_LOGITS],
                                               s[MELLUM_S_SELECTED], s[MELLUM_S_WEIGHTS], s[MELLUM_S_MID],
                                               s[MELLUM_S_PARTIAL], m->map, m->size, &p, T) != 0;
@@ -60474,9 +60510,12 @@ static bool mellum_graph_moe(ds4_qwen4_gpu_graph *g, const ds4_model *m, const d
  *               r = X + O(heads);  X = r + moe(rmsnorm(r) * ffn_norm)
  *   logits = output(rmsnorm(X_last) * output_norm)
  *
- * Every op is bit-identical over T rows and over T one-row calls (the projections through the
- * exact rows kernel, the router and experts one row per threadgroup, both attentions row by
- * row), so a chunk of any size and the decode steps compute the same bytes.  Only the T == 1
+ * Every op but one is bit-identical over T rows and over T one-row calls (the projections
+ * through the exact rows kernel, the router one row per threadgroup, both attentions row by
+ * row); the experts are too below MELLUM_MOE_TILED_MIN_ROWS, so a chunk of fewer rows and its
+ * decode steps compute the same bytes.  From that row count the experts run as tiled GEMMs on
+ * half-staged activations, which is 2.4x faster at prefill and no longer bit-identical to
+ * decode (the measured difference is at MELLUM_MOE_TILED_MIN_ROWS).  Only the T == 1
  * projections are the one-row kernel itself, which the rows kernel equals.
  *
  * After a forward, HIDDEN holds the chunk's rows as the last layer left them, before the output

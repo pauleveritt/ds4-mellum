@@ -11,18 +11,23 @@
 #   make -C ORACLE_DIR tests/mellum_trace
 #
 # For each of tests/mellum_oracle_{short,1100,2200}.tokens, in prefill (one sync) and decode (one
-# eval per token) mode, both engines' tests/mellum_trace write the session's last-row logits
-# (98,304 f32), and the two files must be equal byte for byte (cmp).  This engine's prefill and
-# decode files must also be equal to each other.  Then GREEDY_TOKENS (default 64) greedy tokens
-# from the short prompt, one decode run per token in each engine: every step's argmax and logits
-# must be equal.  A difference prints max|d logit| and whether the argmax agrees.
+# eval per token) mode, both engines' tests/mellum_trace write the logits at up to 64 positions
+# spread over the file (98,304 f32 each) and the session's last-row logits.  Decode must equal the
+# old engine's byte for byte (cmp).  So must a prefill whose chunks are all below 32 rows (the
+# short file): from 32 rows this engine's experts run as tiled GEMMs (ds4.c,
+# MELLUM_MOE_TILED_MIN_ROWS), so a longer prefill is compared within a tolerance instead: the same
+# top-1 token at every traced position and max|d logit| <= TOL (MELLUM_ORACLE_TOL, default 1.0).
+# This engine's prefill against its own decode is held to the same rule.  Then GREEDY_TOKENS
+# (default 64) greedy tokens from the short prompt, one decode run per token in each engine: every
+# step's argmax and logits must be equal.  Every comparison prints max|d logit| and top-1 agreement.
 #
-# Runs one model process at a time.  Exit 0 when everything is equal, 1 otherwise, 2 on bad usage.
+# Runs one model process at a time.  Exit 0 when everything passes, 1 otherwise, 2 on bad usage.
 set -u
 [ $# -ge 2 ] || { echo "usage: $0 ORACLE_DIR MODEL.gguf [GREEDY_TOKENS]" >&2; exit 2; }
 ORACLE=$(cd "$1" && pwd) || exit 2
 MODEL=$2
 GREEDY=${3:-64}
+TOL=${MELLUM_ORACLE_TOL:-1.0}
 cd "$(dirname "$0")/.." || exit 2
 ROOT=$(pwd)
 [ -x tests/mellum_trace ] || { echo "build tests/mellum_trace first (make tests/mellum_trace)" >&2; exit 2; }
@@ -44,32 +49,55 @@ print('max|d logit| %.3e, argmax %d vs %d' % (d, max(range(n), key=x.__getitem__
 PY
 }
 
-# run ENGINE_DIR TOKENS MODE OUT_PREFIX: the session logits land in OUT_PREFIX.session.logits.f32;
+# compare A B POSITIONS EXACT: the logits of two traced runs at every position, and their session
+# logits.  EXACT 1: every file must be byte-equal; 0: the same top-1 everywhere and max|d| <= TOL.
+# Prints one summary and returns 1 on failure.
+compare() {
+    python3 -I - "$1" "$2" "$3" "$4" "$TOL" <<'PY'
+import struct, sys
+a, b, positions, exact, tol = sys.argv[1], sys.argv[2], sys.argv[3].split(','), sys.argv[4] == '1', float(sys.argv[5])
+files = ['p%s.logits' % p for p in positions] + ['session.logits']
+worst, agree, equal = 0.0, 0, 0
+for f in files:
+    x = open('%s.%s.f32' % (a, f), 'rb').read(); y = open('%s.%s.f32' % (b, f), 'rb').read()
+    equal += x == y
+    n = len(x) // 4
+    u = struct.unpack('<%df' % n, x); v = struct.unpack('<%df' % n, y)
+    worst = max(worst, max(abs(i - j) for i, j in zip(u, v)))
+    agree += max(range(n), key=u.__getitem__) == max(range(n), key=v.__getitem__)
+ok = equal == len(files) if exact else (agree == len(files) and worst <= tol)
+rule = 'byte-equal' if exact else 'top-1 equal, max|d| <= %g' % tol
+print('%s (%s): %d of %d logits files byte-equal, top-1 agree %d/%d, max|d logit| %.3e' %
+      ('ok  ' if ok else 'FAIL', rule, equal, len(files), agree, len(files), worst))
+sys.exit(0 if ok else 1)
+PY
+}
+
+# run ENGINE_DIR TOKENS MODE OUT_PREFIX [POSITIONS]: the session logits land in
+# OUT_PREFIX.session.logits.f32 and, with POSITIONS, each position's in OUT_PREFIX.pN.logits.f32;
 # prints the driver's argmax.  Each engine runs from its own tree, which holds its Metal sources.
 run() {
-    (cd "$1" && DS4_MELLUM_TRACE="$4" "$1/tests/mellum_trace" "$MODEL" "$2" "$3") > "$4.out" 2> "$4.err" || {
-        echo "FAIL $1 $3 on $2: the driver failed:" >&2; tail -3 "$4.err" >&2; return 1; }
+    (cd "$1" && DS4_MELLUM_TRACE="$4" DS4_MELLUM_TRACE_AT="${5:-}" "$1/tests/mellum_trace" "$MODEL" "$2" "$3") \
+        > "$4.out" 2> "$4.err" || { echo "FAIL $1 $3 on $2: the driver failed:" >&2; tail -3 "$4.err" >&2; return 1; }
     sed -n 's/.*argmax \([0-9]*\),.*/\1/p' "$4.out" | head -1
 }
 
 for t in short 1100 2200; do
     tokens="$ROOT/tests/mellum_oracle_$t.tokens"
+    n=$(grep -v '^#' "$tokens" | wc -w | tr -d ' ')
+    positions=$(python3 -I -c "n = $n; k = min(64, n); print(','.join(str(round(i * (n - 1) / (k - 1))) for i in range(k)))")
+    tiled=0
+    [ "$n" -ge 32 ] && tiled=1
     for mode in prefill decode; do
-        run "$ROOT" "$tokens" "$mode" "$dir/new.$t.$mode" > /dev/null || { fail=1; continue; }
-        run "$ORACLE" "$tokens" "$mode" "$dir/old.$t.$mode" > /dev/null || { fail=1; continue; }
-        if cmp -s "$dir/new.$t.$mode.session.logits.f32" "$dir/old.$t.$mode.session.logits.f32"; then
-            echo "ok   $t $mode: session logits equal the old engine's (cmp)"
-        else
-            echo "FAIL $t $mode: session logits differ from the old engine's: $(diffstat "$dir/new.$t.$mode.session.logits.f32" "$dir/old.$t.$mode.session.logits.f32")"
-            fail=1
-        fi
+        run "$ROOT" "$tokens" "$mode" "$dir/new.$t.$mode" "$positions" > /dev/null || { fail=1; continue; }
+        run "$ORACLE" "$tokens" "$mode" "$dir/old.$t.$mode" "$positions" > /dev/null || { fail=1; continue; }
+        exact=1
+        [ "$mode" = prefill ] && [ "$tiled" -eq 1 ] && exact=0
+        r=$(compare "$dir/new.$t.$mode" "$dir/old.$t.$mode" "$positions" "$exact") || fail=1
+        echo "$(echo "$r" | cut -c1-4) $t $mode vs the old engine, $(echo "$r" | cut -c6-)"
     done
-    if cmp -s "$dir/new.$t.prefill.session.logits.f32" "$dir/new.$t.decode.session.logits.f32"; then
-        echo "ok   $t: prefill equals decode in this engine (cmp)"
-    else
-        echo "FAIL $t: prefill differs from decode: $(diffstat "$dir/new.$t.prefill.session.logits.f32" "$dir/new.$t.decode.session.logits.f32")"
-        fail=1
-    fi
+    r=$(compare "$dir/new.$t.prefill" "$dir/new.$t.decode" "$positions" $((1 - tiled))) || fail=1
+    echo "$(echo "$r" | cut -c1-4) $t prefill vs decode in this engine, $(echo "$r" | cut -c6-)"
 done
 
 # greedy tokens from the short prompt, decode mode, one run per token in each engine

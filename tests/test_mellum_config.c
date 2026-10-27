@@ -310,6 +310,7 @@ static uint64_t expect_per_row(void) {
          + 2ull * T_USED * 4u                          /* selected, weights */
          + (uint64_t)T_USED * T_FF * 4u                /* mid */
          + (uint64_t)T_USED * T_E * 4u                 /* per-expert partial outputs */
+         + (uint64_t)T_EXPERTS * 4u                    /* the tiled experts' token lists: a slot per expert per row */
          + 7ull * 64u;                                 /* full attention's rows table: 64 B a row, 7 full layers */
 }
 
@@ -319,7 +320,8 @@ static uint64_t expect_attn_part(uint64_t cap) {
 }
 
 static uint64_t expect_fixed(uint64_t cap) {
-    return 98304ull * 4u + expect_attn_part(cap);      /* the logits row; the shared attention partials */
+    /* the logits row; the shared attention partials; the tiled experts' token counts */
+    return 98304ull * 4u + expect_attn_part(cap) + (uint64_t)T_EXPERTS * 4u;
 }
 
 static uint64_t sum_requests(uint32_t ctx, uint32_t cap, uint32_t *n_out) {

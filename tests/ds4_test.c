@@ -656,64 +656,75 @@ static float test_mellum_frand(uint32_t *state) {
     return ((float)(*state & 0xffffffu) / 8388608.0f) - 1.0f;
 }
 
-/* mellum_graph_moe on the real model's layers (DS4_TEST_MELLUM_MODEL): the same 64 rows through layers 0, 13 and
- * 27 against the double reference (tests/mellum_moe_ref.inc), whose weights are found by their GGUF names and not
- * through the layer struct the driver reads, so a swapped or misbound tensor shows.  Row 0 alone (T=1) must equal row 0 of the 64-row
- * run bit for bit. */
+/* mellum_graph_moe on the real model's layers (DS4_TEST_MELLUM_MODEL): rows through layers 0, 13 and 27 against the
+ * double reference (tests/mellum_moe_ref.inc), whose weights are found by their GGUF names and not through the layer
+ * struct the driver reads, so a swapped or misbound tensor shows.  16 rows take the per-token experts, so row 0 alone
+ * (T=1) equals row 0 of the 16 bit for bit; 64 rows take the tiled expert GEMMs (half-staged activations), which
+ * must select the same experts and stay within MOE_TILED_TOL of the reference. */
+#define MOE_TILED_TOL 2e-3
 static void test_mellum_moe_real(void) {
     const char *model = getenv("DS4_TEST_MELLUM_MODEL");
     if (!model || !model[0]) {
         puts("mellum-moe: DS4_TEST_MELLUM_MODEL unset, skipped");
         return;
     }
-    enum { T = 64 };
+    enum { TMAX = 64 };
     ds4_engine *engine = NULL;
-    ds4_engine_options opt = { .model_path = model, .backend = DS4_BACKEND_METAL, .context_size = 2048, .prefill_chunk = T };
+    ds4_engine_options opt = { .model_path = model, .backend = DS4_BACKEND_METAL, .context_size = 2048, .prefill_chunk = TMAX };
     TEST_ASSERT(ds4_engine_open(&engine, &opt) == 0 && engine != NULL);
     if (!engine) return;
-    float *x = malloc((uint64_t)T * MREF_E * sizeof(float));
-    float *out = malloc((uint64_t)T * MREF_E * sizeof(float));
+    float *x = malloc((uint64_t)TMAX * MREF_E * sizeof(float));
+    float *out = malloc((uint64_t)TMAX * MREF_E * sizeof(float));
     float *out1 = malloc((uint64_t)MREF_E * sizeof(float));
-    int32_t sel[T][MREF_USED];
-    float w[T][MREF_USED];
+    int32_t sel[TMAX][MREF_USED];
+    float w[TMAX][MREF_USED];
     mref_t *ref = malloc(sizeof(*ref));
     TEST_ASSERT(x && out && out1 && ref);
     static const uint32_t layers[] = { 0, 13, 27 };
-    static const uint32_t rows[] = { 0, 7, 31, 63 };
+    static const uint32_t counts[] = { 16, 64 };
     uint32_t rng = 0x1234567u;
-    double worst_out = 0.0, worst_w = 0.0;
-    uint32_t sel_bad = 0;
-    for (size_t li = 0; x && li < sizeof(layers) / sizeof(layers[0]); li++) {
-        const uint32_t il = layers[li];
-        mref_weights mw = { 0 };
-        const void *map = NULL;
-        TEST_ASSERT(ds4_test_mellum_moe_weights(engine, il, &map, &mw.router, &mw.gate, &mw.up, &mw.down));
-        mw.base = map;
-        if (!map) break;
-        for (uint64_t i = 0; i < (uint64_t)T * MREF_E; i++) x[i] = 1.7f * test_mellum_frand(&rng);
-        TEST_ASSERT(ds4_test_mellum_moe(engine, il, x, T, out, out1, &sel[0][0], &w[0][0]));
-        for (size_t ri = 0; ri < sizeof(rows) / sizeof(rows[0]); ri++) {
-            const uint32_t r = rows[ri];
-            mref_moe_row(&mw, x + (uint64_t)r * MREF_E, ref);
-            double scale = 1e-30, d = 0.0;
-            for (uint32_t i = 0; i < MREF_E; i++) scale = fmax(scale, fabs(ref->out[i]));
-            for (uint32_t i = 0; i < MREF_E; i++) {
-                const double e = fabs((double)out[(uint64_t)r * MREF_E + i] - ref->out[i]);
-                d = isfinite(e) ? fmax(d, e) : 1e30;   /* a non-finite word fails the tolerance */
+    for (size_t c = 0; x && c < sizeof(counts) / sizeof(counts[0]); c++) {
+        const uint32_t T = counts[c];
+        const uint32_t rows[] = { 0, 7, T / 2u - 1u, T - 1u };
+        double worst_out = 0.0, worst_w = 0.0;
+        uint32_t sel_bad = 0;
+        uint64_t row0_diff = 0;
+        for (size_t li = 0; li < sizeof(layers) / sizeof(layers[0]); li++) {
+            const uint32_t il = layers[li];
+            mref_weights mw = { 0 };
+            const void *map = NULL;
+            TEST_ASSERT(ds4_test_mellum_moe_weights(engine, il, &map, &mw.router, &mw.gate, &mw.up, &mw.down));
+            mw.base = map;
+            if (!map) break;
+            for (uint64_t i = 0; i < (uint64_t)T * MREF_E; i++) x[i] = 1.7f * test_mellum_frand(&rng);
+            TEST_ASSERT(ds4_test_mellum_moe(engine, il, x, T, out, out1, &sel[0][0], &w[0][0]));
+            for (size_t ri = 0; ri < sizeof(rows) / sizeof(rows[0]); ri++) {
+                const uint32_t r = rows[ri];
+                mref_moe_row(&mw, x + (uint64_t)r * MREF_E, ref);
+                double scale = 1e-30, d = 0.0;
+                for (uint32_t i = 0; i < MREF_E; i++) scale = fmax(scale, fabs(ref->out[i]));
+                for (uint32_t i = 0; i < MREF_E; i++) {
+                    const double e = fabs((double)out[(uint64_t)r * MREF_E + i] - ref->out[i]);
+                    d = isfinite(e) ? fmax(d, e) : 1e30;   /* a non-finite word fails the tolerance */
+                }
+                worst_out = fmax(worst_out, d / scale);
+                for (uint32_t k = 0; k < MREF_USED; k++) {
+                    sel_bad += sel[r][k] != ref->sel[k];
+                    worst_w = fmax(worst_w, fabs((double)w[r][k] - ref->w[k]));
+                }
             }
-            worst_out = fmax(worst_out, d / scale);
-            for (uint32_t k = 0; k < MREF_USED; k++) {
-                sel_bad += sel[r][k] != ref->sel[k];
-                worst_w = fmax(worst_w, fabs((double)w[r][k] - ref->w[k]));
-            }
+            for (uint32_t i = 0; i < MREF_E; i++) row0_diff += memcmp(&out1[i], &out[i], sizeof(float)) != 0;
         }
-        TEST_ASSERT(memcmp(out1, out, MREF_E * sizeof(float)) == 0);
+        const bool tiled = T >= 32u;
+        printf("mellum-moe: T=%u (%s) layers 0/13/27, 4 rows each vs double: selected differ %u, weights %.2e, output %.2e; "
+               "T=1 vs row 0 of T=%u: %llu words differ\n", T, tiled ? "tiled experts" : "per-token experts", sel_bad,
+               worst_w, worst_out, T, (unsigned long long)row0_diff);
+        TEST_ASSERT(sel_bad == 0);
+        TEST_ASSERT(worst_w <= 2.5e-6);
+        TEST_ASSERT(worst_out <= (tiled ? MOE_TILED_TOL : 1e-5));
+        if (!tiled) TEST_ASSERT(row0_diff == 0);
+        else TEST_ASSERT(row0_diff > 0);   /* the tiled path is not the decode arithmetic */
     }
-    printf("mellum-moe: layers 0/13/27, 4 of 64 rows each vs double: selected differ %u, weights %.2e, output %.2e; "
-           "T=1 equals row 0 of T=64 bit for bit\n", sel_bad, worst_w, worst_out);
-    TEST_ASSERT(sel_bad == 0);
-    TEST_ASSERT(worst_w <= 2.5e-6);
-    TEST_ASSERT(worst_out <= 1e-5);
     free(x); free(out); free(out1); free(ref);
     ds4_engine_close(engine);
 }
