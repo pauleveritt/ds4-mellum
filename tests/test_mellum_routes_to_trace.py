@@ -1,11 +1,14 @@
 """Model-free spool/export tests: python3 -I tests/test_mellum_routes_to_trace.py."""
 from contextlib import contextmanager
+from copy import deepcopy
 import hashlib
 import importlib.util
 import io
+import json
 from pathlib import Path
 import struct
 import sys
+import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -129,6 +132,135 @@ def test_reader_bounds_lengths_before_payload_reads():
     while reader.read_forward() is not None:
         count += 1
     assert count == reader.summary()["forwards"] == 200
+
+
+def metadata_fixture():
+    return {
+        "header": {"schema_version": 2, "capture_kind": "synthetic", "model_id": "fixture-model",
+                   "engine_revision": "fixture-engine", "numerical_mode": "release", "workload_id": "fixture-workload",
+                   "capture_manifest": {
+                       "manifest_version": 1, "capture_id": "fixture-capture",
+                       "artifacts": {"model_id": "fixture-model", "tokenizer_id": "fixture-tokenizer", "template_id": "fixture-template"},
+                       "build": {"engine_revision": "fixture-engine", "source_state_id": "fixture-source",
+                                 "binary_sha256": "0" * 64, "recorder_revision": "fixture-recorder"},
+                       "execution": {"context_tokens": 8192, "prefill_chunk_tokens": 1024, "numerical_mode": "release",
+                                     "requested_kernel": "fixture-requested", "device": "fixture-device", "os": "fixture-os", "capabilities": {}},
+                       "generation": {"mode": "teacher-forced", "settings": {"seed": None}},
+                       "workload": {"protocol_id": "fixture-protocol", "conversation_id": "fixture-conversation", "repository_id": "fixture-repo",
+                                    "split": "tuning", "continuation_kind": "fixture-continuation"},
+                       "extension": {"text": "before\u2028after", "nested": [None, True, 1.5]},
+                   }},
+        "segments": {"7": "fixture-\u2029segment", "8": "append"},
+        "execution_profiles": {"11": "fixture-exact", "12": "fixture-tiled"},
+    }
+
+
+@contextmanager
+def bad_metadata(reason):
+    try:
+        yield
+    except ValueError as exc:
+        assert reason in str(exc), str(exc)
+    else:
+        raise AssertionError("invalid metadata accepted")
+
+
+def read_metadata_bytes(raw):
+    with tempfile.TemporaryDirectory() as directory:
+        path = Path(directory) / "metadata.json"
+        path.write_bytes(raw)
+        return tool().read_metadata(path)
+
+
+def test_metadata_limits_catalogs_and_unicode():
+    data = metadata_fixture()
+    raw = json.dumps(data, ensure_ascii=False).encode()
+    header, segments, profiles = read_metadata_bytes(raw + b" " * (2**20 - len(raw)))
+    assert header == data["header"]
+    assert segments == {7: "fixture-\u2029segment", 8: "append"}
+    assert profiles == {11: "fixture-exact", 12: "fixture-tiled"}
+    with bad_metadata("1 MiB"):
+        read_metadata_bytes(raw + b" " * (2**20 + 1 - len(raw)))
+    with bad_metadata("decode"):
+        read_metadata_bytes(b"\xff")
+    with bad_metadata("duplicate"):
+        read_metadata_bytes(b'{"x":1,"x":2}')
+    with bad_metadata("finite"):
+        read_metadata_bytes(b'{"extension":{"value":1e999}}')
+    with bad_metadata("metadata"):
+        read_metadata_bytes(b'{"extension":' + b'[' * 2000 + b'0' + b']' * 2000 + b'}')
+    for catalog in ("segments", "execution_profiles"):
+        for value in (None, [], {}, {"01": "x"}, {"-1": "x"}, {"4294967296": "x"},
+                      {"+1": "x"}, {"1": " "}, {"1": 1}, {"\u0661": "x"}):
+            broken = deepcopy(data)
+            broken[catalog] = value
+            with bad_metadata(catalog):
+                read_metadata_bytes(json.dumps(broken).encode())
+        broken = deepcopy(data)
+        del broken[catalog]
+        with bad_metadata(catalog):
+            read_metadata_bytes(json.dumps(broken).encode())
+
+
+def completed_metadata():
+    header = metadata_fixture()["header"]
+    summary = consume(spool())[1]
+    return tool().complete_metadata(header, summary, {11: "fixture-exact", 12: "fixture-tiled"}, {11: 1})
+
+
+def test_completed_metadata_derives_and_preserves_evidence():
+    data = metadata_fixture()["header"]
+    saved = deepcopy(data)
+    result = tool().complete_metadata(data, consume(spool())[1], {11: "fixture-exact", 12: "unused"}, {11: 1})
+    assert data == saved and result["capture_kind"] == "synthetic"
+    assert result["geometry"] == dict(layers=28, experts_per_layer=64, top_k=8, expert_bytes=6580224)
+    manifest = result["capture_manifest"]
+    assert manifest["complete"] is True
+    assert manifest["extent"] == dict(forwards=1, positions=1, first_position=42, last_position=42)
+    assert manifest["artifacts"]["token_stream_sha256"] == hashlib.sha256(b"\xd2\x04\0\0").hexdigest()
+    assert manifest["execution"]["effective_kernel"] == "native-profile-catalog"
+    assert manifest["execution"]["route_capture"] == {
+        "spool_sha256": hashlib.sha256(spool()).hexdigest(), "cap_tokens": 2,
+        "profiles": {"11": "fixture-exact"}, "profile_forward_counts": {"11": 1},
+    }
+    assert manifest["extension"] == saved["capture_manifest"]["extension"]
+    data["capture_kind"] = "measured"
+    assert tool().complete_metadata(data, consume(spool())[1], {11: "fixture-exact"}, {11: 1})["capture_kind"] == "measured"
+
+
+def test_completed_metadata_rejects_computed_conflicts():
+    complete = completed_metadata()
+    paths = [("geometry",), ("capture_manifest", "complete"), ("capture_manifest", "extent"),
+             ("capture_manifest", "artifacts", "token_stream_sha256"),
+             ("capture_manifest", "execution", "effective_kernel"),
+             ("capture_manifest", "execution", "route_capture")]
+    assert tool().complete_metadata(complete, consume(spool())[1], {11: "fixture-exact"}, {11: 1}) == complete
+    for path in paths:
+        broken = deepcopy(complete)
+        parent = broken
+        for name in path[:-1]:
+            parent = parent[name]
+        parent[path[-1]] = "conflict"
+        with bad_metadata(path[-1]):
+            tool().complete_metadata(broken, consume(spool())[1], {11: "fixture-exact"}, {11: 1})
+    broken = deepcopy(complete)
+    broken["capture_manifest"]["execution"]["route_capture"]["profile_forward_counts"]["11"] = True
+    with bad_metadata("route_capture"):
+        tool().complete_metadata(broken, consume(spool())[1], {11: "fixture-exact"}, {11: 1})
+
+
+def test_completed_metadata_requires_s1_contract():
+    for path, value in ((("schema_version",), 1), (("model_id",), "other"),
+                        (("capture_manifest", "build", "engine_revision"), "other"),
+                        (("capture_manifest", "execution", "numerical_mode"), "exact-prefill"),
+                        (("workload_id",), None), (("capture_manifest", "generation"), None)):
+        broken = metadata_fixture()["header"]
+        parent = broken
+        for name in path[:-1]:
+            parent = parent[name]
+        parent[path[-1]] = value
+        with bad_metadata(path[-1]):
+            tool().complete_metadata(broken, consume(spool())[1], {11: "fixture-exact"}, {11: 1})
 
 
 def load_tests(loader, tests, pattern):
