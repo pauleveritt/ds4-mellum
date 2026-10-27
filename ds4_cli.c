@@ -386,6 +386,7 @@ typedef struct {
     bool last_output_newline;
     char pending[16];
     size_t pending_len;
+    int n_emitted;          /* tokens printed this turn (the greedy path counts them here) */
 } token_printer;
 
 static bool bytes_has_prefix(const char *p, size_t n, const char *prefix) {
@@ -491,8 +492,16 @@ static void token_printer_write_text(token_printer *p, const char *text, size_t 
     }
 }
 
+/* A turn that ran into -n says so: the text simply stops there, and a long
+ * reasoning block can use the whole budget before the answer starts. */
+static void cli_report_token_cap(int generated, int n_predict) {
+    if (n_predict > 0 && generated >= n_predict)
+        fprintf(stderr, "ds4: stopped at the -n cap of %d tokens\n", n_predict);
+}
+
 static void print_generated_token(void *ud, int token) {
     token_printer *p = ud;
+    p->n_emitted++;
     size_t len = 0;
     char *text = ds4_token_text(p->engine, token, &len);
     token_printer_write_text(p, text, len);
@@ -683,6 +692,7 @@ static int run_sampled_generation(ds4_engine *engine, const cli_config *cfg, con
     generation_done(&printer);
     if (cli_interrupt_requested()) cli_interrupt_clear();
 
+    cli_report_token_cap(generated, cfg->gen.n_predict);
     const double prefill_s = t_prefill1 - t_prefill0;
     const double decode_s = t_decode1 - t_decode0;
     ds4_log(stderr,
@@ -1279,6 +1289,7 @@ static int run_generation(ds4_engine *engine, const cli_config *cfg) {
                                             &printer,
                                             cli_prefill_progress_cb,
                                             &progress);
+            if (rc == 0) cli_report_token_cap(printer.n_emitted, cfg->gen.n_predict);
         }
     }
 
@@ -1696,6 +1707,7 @@ static int run_chat_turn(ds4_engine *engine, cli_config *cfg, repl_chat *chat,
         ds4_tokens_push(&chat->transcript, ds4_token_eos(engine));
     }
 
+    cli_report_token_cap(generated, cfg->gen.n_predict);
     const double prefill_s = t_prefill1 - t_prefill0;
     const double decode_s = t_decode1 - t_decode0;
     if (interrupted) cli_interrupt_clear();
