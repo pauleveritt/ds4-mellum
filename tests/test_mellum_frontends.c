@@ -223,8 +223,51 @@ static void check_reuse_effective_prompt(void) {
     }
     puts("ok   server: after a Mellum answer, the reused prompt is the next request's render (Chat and Responses)");
 }
+
+/* The prompt a real request parser renders for a Mellum engine (tiny vocabulary): api 0 Chat, 1 Responses,
+ * 2 Anthropic.  NULL when the parser refuses the request. */
+static char *mellum_request_prompt(int api, const char *body) {
+    static ds4_engine e;
+    static bool ready;
+    if (!ready) {
+        tiny_vocab(&e);
+        ready = true;
+    }
+    g_ds4_shape = DS4_SHAPE_MELLUM;
+    server s;
+    memset(&s, 0, sizeof(s));
+    s.engine = &e;
+    pthread_mutex_init(&s.tool_mu, NULL);
+    request r;
+    char err[160] = "";
+    const bool ok = api == 0 ? parse_chat_request(&e, &s, body, 64, 4096, &r, err, sizeof(err)) :
+                    api == 1 ? parse_responses_request(&e, &s, body, 64, 4096, &r, err, sizeof(err)) :
+                               parse_anthropic_request(&e, &s, body, 64, 4096, &r, err, sizeof(err));
+    if (!ok) {
+        fprintf(stderr, "mellum_request_prompt: refused: %s\n", err);
+        return NULL;
+    }
+    char *text = xstrdup(r.prompt_text ? r.prompt_text : "");
+    request_free(&r);
+    return text;
+}
+
+/* P6-R2: a developer message is the system turn, as role_is_system has it for every model */
+static void check_developer_is_system(void) {
+    const char *want = "<|im_start|>system\nS<|im_end|>\n<|im_start|>user\nQ<|im_end|>\n<|im_start|>assistant\n";
+    char *chat = mellum_request_prompt(0, "{\"model\":\"mellum-2.1\",\"messages\":[{\"role\":\"developer\",\"content\":\"S\"},"
+                                          "{\"role\":\"user\",\"content\":\"Q\"}]}");
+    CHECK(chat && !strcmp(chat, want));
+    char *resp = mellum_request_prompt(1, "{\"model\":\"mellum-2.1\",\"input\":[{\"role\":\"developer\",\"content\":\"S\"},"
+                                          "{\"role\":\"user\",\"content\":\"Q\"}]}");
+    CHECK(resp && !strcmp(resp, want));
+    free(chat);
+    free(resp);
+    puts("ok   server: a Mellum developer message renders as the system turn (Chat and Responses)");
+}
 #else
 static void check_reuse_effective_prompt(void) {}
+static void check_developer_is_system(void) {}
 #endif
 
 #if defined(MELLUM_FRONTEND_AGENT)
@@ -649,5 +692,6 @@ int main(void) {
     check_tool_observation();
     check_pi_tools();
     check_reuse_effective_prompt();
+    check_developer_is_system();
     return 0;
 }
