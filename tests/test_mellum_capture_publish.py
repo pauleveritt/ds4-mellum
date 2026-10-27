@@ -192,6 +192,7 @@ def test_publication_rejects_partial_changed_or_conflicting_evidence():
             assert not arguments['output'].exists()
     for section, value in (
         ('execution_profiles', {'0': 'invented'}), ('build', {'binary_sha256': '0' * 64}),
+        ('build', {'source_inputs': {'invented.c': '0' * 64}}),
         ('execution', {'capabilities': {'tensor_tiles_available': False}}),
         ('generation', {'mode': 'generated', 'settings': {}}),
     ):
