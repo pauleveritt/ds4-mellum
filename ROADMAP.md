@@ -70,10 +70,14 @@ and bounded actual-encoding profiles. The design is approved. Its
 [CPU-core plan](docs/superpowers/plans/2026-10-27-mellum-capture-cpu-core.md)
 now supplies canonical bounded profiles, terminal append-only operation/forward
 control, catalog-before-footer finalization and synthetic C-to-export/replay
-checks, all included in the model-free test gate. This core is not wired to
-inference. Next: implement the owned-session adapter and observe actual Metal
-encoding choices, then validate cancellation/cleanup, source provenance and
-live parity during an authorized GPU window. No further GPU use has occurred.
+checks, all included in the model-free test gate. The controller is now wired
+through the diagnostic API. The [owned-session adapter plan](docs/superpowers/plans/2026-10-27-mellum-owned-capture-adapter.md)
+now adds a separate opaque diagnostic API, buffered graph snapshots and actual
+Metal encoding notifications into an immutable catalog. Metal/CPU builds and
+model-free boundaries are checked; this wiring has not run on a GPU. Next:
+validate cancellation/cleanup, routes/logits, no-head forwards, actual profiles,
+allocation and overhead during an authorized GPU window, then finish the
+qualified source-provenance publisher. No further GPU use has occurred.
 
 Buffer selected IDs on the GPU before per-layer scratch is reused; export at
 existing synchronization points. Bound recorder memory and reject incomplete

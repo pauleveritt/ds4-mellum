@@ -1103,7 +1103,7 @@ test-mellum-ssd-replay:
 .PHONY: test-mellum
 test-mellum: tests/test_mellum_config tests/test_mellum_tokenizer tests/test_mellum_frontends_cli \
 		tests/test_mellum_frontends_agent tests/test_mellum_frontends_server test-mellum-ssd-replay test-mellum-routes \
-		test-mellum-profile test-mellum-capture-state
+		test-mellum-profile test-mellum-capture-state test-mellum-capture-api test-mellum-observer test-mellum-capture-build
 	./tests/test_mellum_config
 	./tests/test_mellum_tokenizer
 	./tests/test_mellum_frontends_cli

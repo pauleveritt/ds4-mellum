@@ -62,9 +62,9 @@ Enter borrows an already-active scope. Refuse nested/foreign attempts without da
 **Consumes:** existing `ds4.h`, routes/profile sink definitions.
 **Produces:** public API above; CPU/non-Apple definitions with safe unsupported/null-handle behavior.
 
-- [ ] Write real linked API tests: create with a sentinel out pointer returns nonzero, sets NULL, writes no sink bytes, reports unsupported; null out/options/engine/context and null/zero/tiny error buffers remain safe; null sync/eval/finish fail, null logits returns 0, free(NULL) succeeds. Tests do not construct/load a model.
-- [ ] Add declarations/minimal false-return stubs; `make test-mellum-capture-api` must fail an assertion rather than linking. Commit RED.
-- [ ] Implement safe bounded errors/platform stubs, run same target PASS, commit GREEN.
+- [x] Write real linked API tests: create with a sentinel out pointer returns nonzero, sets NULL, writes no sink bytes, reports unsupported; null out/options/engine/context and null/zero/tiny error buffers remain safe; null sync/eval/finish fail, null logits returns 0, free(NULL) succeeds. Tests do not construct/load a model.
+- [x] Add declarations/minimal false-return stubs; `make test-mellum-capture-api` must fail an assertion rather than linking. Commit RED.
+- [x] Implement safe bounded errors/platform stubs, run same target PASS, commit GREEN.
 
 ### Task 2: Bounded production encoding observer
 
@@ -72,9 +72,9 @@ Enter borrows an already-active scope. Refuse nested/foreign attempts without da
 **Consumes:** existing scope/registry APIs, types above.
 **Produces:** observer interfaces above; immutable audited production catalog.
 
-- [ ] Tests with real registry: validated catalog; disabled null/unknown observations are silent; nested/foreign enter and leave preserve owner; unknown name/wrong value count/null values poison active profile; poisoned leave clears global scope so a fresh registry can enter. Missing required roles remain invalid.
-- [ ] Record a complete exact-path fixture with literal real kernel names, projection/head tags, required roles and auxiliary conversions. Reverse ordering reuses ID; change NSG/specialization constants creates distinct ID. Canonical strings expose named values and absent head. Add minimal stubs; run assertion RED with `make test-mellum-observer`, commit.
-- [ ] Implement fixed table plus observer, run PASS. Keep table/logic in separate small GREEN commits if needed.
+- [x] Tests with real registry: validated catalog; disabled null/unknown observations are silent; nested/foreign enter and leave preserve owner; unknown name/wrong value count/null values poison active profile; poisoned leave clears global scope so a fresh registry can enter. Missing required roles remain invalid.
+- [x] Record a complete exact-path fixture with literal real kernel names, projection/head tags, required roles and auxiliary conversions. Reverse ordering reuses ID; change NSG/specialization constants creates distinct ID. Canonical strings expose named values and absent head. Add minimal stubs; run assertion RED with `make test-mellum-observer`, commit.
+- [x] Implement fixed table plus observer, run PASS. Keep table/logic in separate small GREEN commits if needed.
 
 ### Task 3: Actual Metal encoding observations
 
@@ -82,10 +82,10 @@ Enter borrows an already-active scope. Refuse nested/foreign attempts without da
 **Consumes:** Task 2 observer, successful encode branches.
 **Produces:** actual math descriptor events while scope active, no observation of blits or requested-only controls.
 
-- [ ] Audit reachable calls from Mellum graph: embedding; weighted norm; Q8 legacy/decode/exact/MV-ext/NAX/generic/unpack plus tails; f32/f16 conversion; residual add; Mellum norm/RoPE/ring/SWA; qwen4 router/top-k/lists/MoE mid/down/reduce/staging; full attention decode/rows/merge variants. Record every actual encoding branch, excluding observer copies.
-- [ ] Add live assertions to diagnostic harness for nonempty profiles, required roles and real head/expert path distinctions. Live RED/run is unavailable: record this limitation; CPU supplied-event tests are not a substitute for device proof.
-- [ ] Hook successful dispatch sites. Record constants from the same selected values used to create that actual pipeline; unspecialized values use the actual defaults, not merely requested settings. Preserve command-buffer finalization even on observer failure; sticky profile failure is checked at graph completion.
-- [ ] `make ds4_metal.o` and `make test-mellum-observer`: expect compile/PASS without running Metal.
+- [x] Audit reachable calls from Mellum graph: embedding; weighted norm; Q8 legacy/decode/exact/MV-ext/NAX/generic/unpack plus tails; f32/f16 conversion; residual add; Mellum norm/RoPE/ring/SWA; qwen4 router/top-k/lists/MoE mid/down/reduce/staging; full attention decode/rows/merge variants. Record every actual encoding branch, excluding observer copies.
+- [x] Add live assertions to diagnostic harness for nonempty profiles, required roles and real head/expert path distinctions. Live RED/run is unavailable: record this limitation; CPU supplied-event tests are not a substitute for device proof.
+- [x] Hook successful dispatch sites. Record constants from the same selected values used to create that actual pipeline; unspecialized values use the actual defaults, not merely requested settings. Preserve command-buffer finalization even on observer failure; sticky profile failure is checked at graph completion.
+- [x] `make ds4_metal.o` and `make test-mellum-observer`: expect compile/PASS without running Metal.
 
 ### Task 4: Owned session and graph adapter
 
@@ -93,16 +93,16 @@ Enter borrows an already-active scope. Refuse nested/foreign attempts without da
 **Consumes:** CPU controller, Task 2 observer/catalog and Task 3 encoding events.
 **Produces:** supported Metal create and real graph snapshots, public operation wrappers.
 
-- [ ] Expand API tests for invalid tokens/contexts and terminal/FINISHED controller gating using real internal controller state where no session operation is reached. Write live owned-versus-baseline/reference tests for sync/eval/append/logits, allocation/copy/read errors and cancellation; defer actual runs explicitly.
-- [ ] Create validates a ready resident Mellum Q8 Metal engine, non-distributed, no TP/multi-tier/speculation; fresh private ordinary session, actual cap layout, host+GPU IDs allocated before header. On failure free all owned resources and leave out NULL. Callback error/status handling is null-buffer safe.
-- [ ] Graph pointer borrows handle. Open forward/scope before math; acknowledge each successful ID copy before selected scratch reuse; ordinary cleanup always runs. After existing completion read IDs once, clear observer, finalize frame only on all-success. On any error clear observer/owned scope and fail terminally. Tag only output projection as HEAD; no-logits forwards must explicitly omit head.
-- [ ] Sync validates actual private checkpoint prefix/context/token IDs before inference; eval validates token/context/position; preserve cancellation status 2. End checks actual graph/checkpoint frontier through the controller. No-op sync emits no frames. Logits only with controller availability; free detaches graph, frees private session/buffers, never invokes sinks/footer.
-- [ ] Run model-free targets, `make ds4.o ds4_metal.o ds4_cpu.o` and build diagnostic harness; expect pass/compile only. Split implementation into focused <=150-product-line commits.
+- [x] Expand API tests for invalid tokens/contexts and terminal/FINISHED controller gating using real internal controller state where no session operation is reached. Write live owned-versus-baseline/reference tests for sync/eval/append/logits, allocation/copy/read errors and cancellation; defer actual runs explicitly.
+- [x] Create validates a ready resident Mellum Q8 Metal engine, non-distributed, no TP/multi-tier/speculation; fresh private ordinary session, actual cap layout, host+GPU IDs allocated before header. On failure free all owned resources and leave out NULL. Callback error/status handling is null-buffer safe.
+- [x] Graph pointer borrows handle. Open forward/scope before math; acknowledge each successful ID copy before selected scratch reuse; ordinary cleanup always runs. After existing completion read IDs once, clear observer, finalize frame only on all-success. On any error clear observer/owned scope and fail terminally. Tag only output projection as HEAD; no-logits forwards must explicitly omit head.
+- [x] Sync validates actual private checkpoint prefix/context/token IDs before inference; eval validates token/context/position; preserve cancellation status 2. End checks actual graph/checkpoint frontier through the controller. No-op sync emits no frames. Logits only with controller availability; free detaches graph, frees private session/buffers, never invokes sinks/footer.
+- [x] Run model-free targets, `make ds4.o ds4_metal.o ds4_cpu.o` and build diagnostic harness; expect pass/compile only. Split implementation into focused <=150-product-line commits.
 
 ### Task 5: CPU/build gate and final review
 
-- [ ] Run `env -u DS4_TEST_MELLUM_MODEL make -j4 test-mellum`, explicit C99 CPU build and observer ASan/UBSan. No broad `make test`, GPU/model process or model lock bypass.
-- [ ] Update roadmap/usage/spec with compiled adapter status and exact unrun live/qualified-provenance gates; keep S2b open. Persist encoding audit and decisions.
+- [x] Run `env -u DS4_TEST_MELLUM_MODEL make -j4 test-mellum`, explicit C99 CPU build and observer ASan/UBSan. No broad `make test`, GPU/model process or model lock bypass.
+- [x] Update roadmap/usage/spec with compiled adapter status and exact unrun live/qualified-provenance gates; keep S2b open. Persist encoding audit and decisions.
 - [ ] One fresh read-only independent review of `c9ac887..HEAD`, with this plan/spec/rulings and Review Focus. Fix Critical/Important in one RED/GREEN pass, ledger deferred minors, no second reviewer.
 - [ ] Preserve branch/worktree and commit final evidence. No push/merge.
 

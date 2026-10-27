@@ -1,7 +1,8 @@
 # Native Mellum route spool preparation
 
-S2a supplies CPU-only capture helpers and an exporter. They are not attached
-to inference. All examples below fabricate selections; no GPU, locality,
+S2a supplies CPU-only capture helpers and an exporter. A separate native
+diagnostic adapter now connects them to inference, but its live gates are
+still unrun. All examples below fabricate selections; no GPU, locality,
 model quality or performance result follows from them.
 
 Use Python 3.14+ and a C99-capable compiler. No third-party dependencies.
@@ -141,11 +142,79 @@ The registry/controller, 16 KiB formatting scratch and proposed pair of ID
 buffers at cap=1024 fit within the 2,200,000 logical-byte design bound, excluding
 session, token and sink storage. This is not a measured process peak.
 
+## Owned diagnostic adapter (compiled, live gates pending)
+
+`ds4_mellum_capture.h` declares a separate opaque handle. Create requires a
+ready resident Mellum Q8 Metal engine without distributed/TP/multi-tier or
+speculative support. It owns a fresh private session, controller and bounded
+host/GPU route buffers; the engine and sinks remain caller-owned. CPU and
+non-Apple builds return an unsupported error without creating a session or
+writing spool bytes. Hidden-state trace controls are incompatible with capture.
+
+Use create, sync of a full unchanged/extended token prefix, one-token eval,
+copy_logits, finish and free. Sync reserves the same generation room as the
+ordinary session API. An identical prompt emits no new frames; cancellation
+remains terminal even before the first frame and preserves status 2. Public
+operations check token IDs, context and the actual private committed prefix.
+A failed handle cannot continue. Finish emits observed profiles before the
+footer; free never finalizes or closes caller resources. Calls and callbacks
+must obey the serialized, non-reentrant lifetime contract in the header.
+
+Run `make test-mellum-capture-api test-mellum-observer test-mellum-capture-build`
+for model-free boundary, observer and build checks. These are included in
+`make test-mellum`. The API tests supply private CPU fixture state to reach
+validation and real ordinary cancellation/no-op behavior without model work;
+no GPU temporal claims follow. The following compiles/links the native paths
+without executing them:
+
+```sh
+make ds4.o ds4_metal.o ds4_cpu.o tests/mellum_routes_gpu
+```
+
+The immutable `ds4_mellum_kernels.inc` catalog identifies actual math functions
+and named specialization values. One scoped observer borrows the current
+profile; nested/foreign scope operations preserve the existing owner. Unknown
+functions, malformed constants and overflow poison the profile. Notifications
+do not return early through GPU cleanup; the forward is rejected after ordinary
+completion. No table walk, heap allocation or GPU synchronization occurs in a
+disabled observer. Default-path overhead still requires measurement.
+
+Actual-encoding audit:
+
+| Reachable math | Observation site | Recorded constants |
+| --- | --- | --- |
+| Q8 embedding | `ds4_gpu_encode_get_rows_q8_0` after dispatch | Actual `kernel_get_rows_q8_0_f32` identity |
+| Weighted norm/residual add | Weighted rows norm and add dispatches | Fixed actual functions |
+| KV f32-to-f16 | `ds4_gpu_encode_cpy_f32_f16_1d` | Actual contiguous or generic function |
+| Q8 decode/exact rows | Actual MV dispatch | NSG used by the pipeline |
+| Q8 multi-row MV extension | Actual extension dispatch | NSG and NXPSG |
+| Q8 NAX aligned prefix and generic tail/fallback | Each actual legacy matmul dispatch | Boundary constants; function identifies tile variant |
+| Optional Q8 unpack | Actual unpack dispatch and following f16 matmul | Actual unpack/f16 identity and boundary constants |
+| Router/top-k, list building, staging, reduce | `qwen4_dispatch_resident` | Actual selected function |
+| Exact MoE mid/down | Same successful dispatch site | Specialization flag plus effective type/shared/dim/rows, including shader defaults |
+| Tiled MoE main/tails/NAX/SIMD-group/fallback | Same successful dispatch site | Weight-type and tail-base pipeline constants |
+| Full attention decode/rows/merge | Same successful dispatch site | Actual selected variant |
+| Mellum QK norm/RoPE, ring commit and SWA | `mellum_dispatch` after dispatch | Actual selected function |
+| Output projection | Actual Q8 site under graph HEAD tag | Projection constants, role HEAD |
+
+Observer blits are excluded. Shape, position, runtime source identity and
+capabilities remain separate metadata. Profiles are canonical specialization
+sets, not ordered dispatch timelines. Future newly reachable unlisted math
+must extend this audit/catalog; an observed unknown function fails capture.
+
+The live harness retains its ordinary/buffered/synchronous-reference matrix
+and adds owned-handle operation-logit checks, observed-profile checks, ordered
+route comparison (ignoring independently assigned profile IDs), a direct
+no-head/head sequence and cancellation/header/frame/copy/read failure checks.
+It compiles, but none of these new GPU checks has run. Real allocation-failure
+injection, cancellation between chunks, actual profile/fallback coverage and
+measured allocation/overhead remain GPU gates. Ordinary Mellum session/graph
+host allocations now return errors rather than terminating the process.
+
 ## Remaining GPU work
 
-S2b must attach per-session capture storage, copy selections before scratch
-reuse, read after existing command completion, report actual kernel/fallback
-paths and supply phase/segment labels from sync/eval operations. It still needs
+The adapter now supplies per-session storage, buffered copies, completion
+readback, observed-kernel notifications and sync/eval labels in code. It needs
 byte-equal traced/untraced logits, no added per-layer host wait, ordered GPU
 snapshots and cancellation/error cleanup checks. The current blit primitive
 closes the compute encoder; overhead must be measured later. The existing
@@ -163,11 +232,12 @@ cases; without it the execution step skips. One model process at a time.
 The harness compares logits after every sync/eval and compares buffered route
 spools with a per-layer synchronous reference. It includes a final one-token
 prompt append. Its graph hooks compile only into the test executable; shipping
-builds have no observer allocation or native-writer dependency. The smoke
+builds omit these test-only hooks; the diagnostic API and native writer are
+linked into the ordinary engine, with no recorder allocation until create. The smoke
 wrapper clears inherited Mellum trace/path and prefill-chunk controls.
 
 The [GPU proof](superpowers/research/2026-10-27-mellum-route-gpu-proof.md)
-records the first matrix and exploratory replay. Owned-session integration,
-live lifecycle failure coverage and actual encoded-kernel metadata are still required before
+records the earlier primitive matrix and exploratory replay. The new owned-session
+live lifecycle and actual encoded-kernel observations must be validated before
 S2b is complete. Do not turn experimental raw spools into qualified v2 evidence
 using guessed profile descriptions.
