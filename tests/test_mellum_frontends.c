@@ -27,6 +27,8 @@
 #error "build with -DMELLUM_FRONTEND_CLI, -DMELLUM_FRONTEND_AGENT or -DMELLUM_FRONTEND_SERVER"
 #endif
 
+#include <glob.h>
+
 #define CHECK(c) do { if (!(c)) { fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #c); exit(1); } } while (0)
 
 /* Sampling defaults: a front end fills the knobs its user left unset from the
@@ -386,12 +388,43 @@ static void check_pi_edit(const char *dir) {
     puts("ok   agent: Pi's edit for Mellum, exact (edits[] against the original, Pi's refusals, BOM and CRLF kept)");
 }
 
+/* bash: stdout and stderr merged, Pi's texts for no output, a failing exit, a timeout, and a tail cut */
+static void check_pi_bash(void) {
+    glob_t before = {0}, after = {0};
+    glob("/tmp/ds4_agent_output_*", 0, NULL, &before);
+    agent_worker *w = pi_worker();
+    w->wake_fd[0] = w->wake_fd[1] = -1;
+    PI_EXPECT(pi_run("bash", "command", "printf hi", NULL), "hi");
+    PI_EXPECT(pi_run("bash", "command", "true", NULL), "(no output)");
+    PI_EXPECT(pi_run("bash", "command", "exit 3", NULL), "(no output)\n\nCommand exited with code 3");
+    char *r = pi_run("bash", "command", "echo out; echo err 1>&2; exit 2", NULL);
+    CHECK(strstr(r, "out\n") && strstr(r, "err\n") && strstr(r, "\n\nCommand exited with code 2"));
+    free(r);
+    PI_EXPECT(pi_run("bash", "command", "sleep 5", "timeout", "#1", NULL), "Command timed out after 1 seconds");
+    /* the tail is kept: 3,000 lines become the last 2,000, with the footer naming the full output */
+    r = pi_run("bash", "command", "seq 1 3000", NULL);
+    CHECK(strstr(r, "1001\n1002\n") == r);
+    CHECK(strstr(r, "2999\n3000\n\n[Showing lines 1001-3000 of 3000. Full output: /tmp/ds4_agent_output_") != NULL);
+    free(r);
+    PI_EXPECT(pi_run("bash", NULL), "bash requires a command string.");
+    glob("/tmp/ds4_agent_output_*", 0, NULL, &after);
+    for (size_t i = 0; i < after.gl_pathc; i++) {
+        bool old = false;
+        for (size_t j = 0; j < before.gl_pathc && !old; j++) old = !strcmp(after.gl_pathv[i], before.gl_pathv[j]);
+        if (!old) unlink(after.gl_pathv[i]);
+    }
+    globfree(&before);
+    globfree(&after);
+    puts("ok   agent: Pi's bash for Mellum (merged output, Pi's status lines, timeout, the tail cut)");
+}
+
 static void check_pi_tools(void) {
     char dir[] = "/tmp/ds4-mellum-pi-XXXXXX";
     CHECK(mkdtemp(dir) != NULL);
     check_pi_read(dir);
     check_pi_write(dir);
     check_pi_edit(dir);
+    check_pi_bash();
     char cmd[PATH_MAX + 16];
     snprintf(cmd, sizeof(cmd), "rm -rf %s", dir);
     CHECK(system(cmd) == 0);
