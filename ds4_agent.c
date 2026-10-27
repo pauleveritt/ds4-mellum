@@ -430,6 +430,9 @@ static const char *agent_engine_refusal(ds4_engine *engine) {
 }
 
 static agent_tool_syntax agent_tool_syntax_for_engine(ds4_engine *engine) {
+    /* Mellum shares the qwen4 family but was trained on the Hermes JSON call
+     * form, not the Qwen3-coder XML one. */
+    if (ds4_engine_is_mellum(engine)) return AGENT_TOOL_SYNTAX_HERMES;
     if (ds4_engine_is_qwen4(engine)) return AGENT_TOOL_SYNTAX_QWEN;
     return ds4_engine_is_glm_dsa(engine) ? AGENT_TOOL_SYNTAX_GLM
          : ds4_engine_is_deepseek41(engine) ? AGENT_TOOL_SYNTAX_DSML41
