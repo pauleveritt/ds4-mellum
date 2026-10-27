@@ -41,6 +41,19 @@ void mellum_test_complete(unsigned id,const unsigned char *buf,size_t size) {
     } else assert(buffers[owner]==buf);
     pthread_mutex_unlock(&guard);
 }
+static int hook_phase, hook_fail;
+static int ready(void *context,char *err,size_t n) {
+    (void)err; (void)n;
+    assert(context==&hook_phase && created==4 && joined==0);
+    for (unsigned i=0;i<12;++i) assert(seen[i]==0);
+    hook_phase=1; return hook_fail==1 ? -1 : 0;
+}
+static int done(void *context,char *err,size_t n) {
+    (void)err; (void)n;
+    assert(context==&hook_phase && hook_phase==1 && created==joined);
+    for (unsigned i=0;i<12;++i) assert(seen[i]==1);
+    hook_phase=2; return hook_fail==2 ? -1 : 0;
+}
 int main(void) {
     char path[]="/tmp/mellum-run-XXXXXX", err[160];
     int fd=mkstemp(path); assert(fd>=0);
@@ -69,6 +82,15 @@ int main(void) {
         mellum_read_sample samples[12]; mellum_read_summary summary={0};
         assert(mellum_read_execute(fd,&plan,4,samples,&summary,err,sizeof(err))!=0);
         assert(created==joined && created>0 && err[0]);
+    }
+    fail_create=fail_io=0;
+    for (hook_fail=0;hook_fail<3;++hook_fail) {
+        memset(seen,0,sizeof(seen)); owner_count=0; created=joined=hook_phase=0;
+        mellum_read_sample samples[12]; mellum_read_summary summary={0};
+        mellum_read_observers hooks={ready,done,&hook_phase};
+        int rc=mellum_read_execute_observed(fd,&plan,4,samples,&summary,&hooks,err,sizeof(err));
+        assert((rc==0)==(hook_fail==0));
+        assert(created==joined && hook_phase==(hook_fail==1 ? 1 : 2));
     }
     assert(close(fd)==0 && unlink(path)==0);
     puts("worker content, timing and join checks: PASS"); return 0;
