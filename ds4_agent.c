@@ -4495,7 +4495,15 @@ static void agent_tool_viz_render_read(agent_stream_renderer *sr) {
     }
     renderer_color(sr->renderer, "\x1b[33m");
     bool whole = agent_parse_bool_default(v->read_whole, false);
-    if (whole && (!v->read_start[0] || !strcmp(v->read_start, "1"))) {
+    if (sr->parser && sr->parser->syntax == AGENT_TOOL_SYNTAX_HERMES) {
+        /* Pi's read: without a limit it reads to its own cap, so show only what was asked */
+        if (v->read_start[0] || v->read_max[0]) {
+            agent_tool_viz_puts(sr, " ");
+            agent_tool_viz_puts(sr, v->read_start[0] ? v->read_start : "1");
+            agent_tool_viz_puts(sr, ":");
+            agent_tool_viz_puts(sr, v->read_max[0] ? v->read_max : "EOF");
+        }
+    } else if (whole && (!v->read_start[0] || !strcmp(v->read_start, "1"))) {
         agent_tool_viz_puts(sr, " (whole file)");
     } else if (whole) {
         agent_tool_viz_puts(sr, " ");
