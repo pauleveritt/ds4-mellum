@@ -9,6 +9,7 @@ import stat
 import subprocess
 import sys
 import time
+from xml.parsers import expat
 
 
 def uint(value: object) -> int:
@@ -102,25 +103,52 @@ def command(argv: list[str], *, timeout: float=5, limit: int=32*2**20) -> dict:
                     streams[key.fileobj].extend(block[:limit-total]);total+=len(block)
                     if total>limit:raise ValueError('metadata output exceeds bound')
             child.wait(timeout=max(.001,deadline-time.monotonic()))
-    except (ValueError,subprocess.TimeoutExpired) as exc:
+    except BaseException as exc:
         if child.poll() is None:child.kill()
         child.wait()
         result.update(stdout=bytes(streams[child.stdout]),stderr=bytes(streams[child.stderr]),
                       returncode=child.returncode,end_ns=now_ns())
         raise CommandFailure(str(exc),result) from exc
     finally:
+        if child.poll() is None:child.kill()
+        child.wait()
         child.stdout.close();child.stderr.close()
     result.update(stdout=bytes(streams[child.stdout]),stderr=bytes(streams[child.stderr]),
                   returncode=child.returncode,end_ns=now_ns())
     return result
 
 
+def bounded_xml(raw: bytes) -> None:
+    # Fixed Apple tools emit XML. Reject binary plist trailers and oversized trees
+    # before plistlib can allocate their declared object tables/containers.
+    if len(raw)>2**20 or raw.startswith(b'bplist'):
+        raise ValueError('metadata XML exceeds supported decoding bounds')
+    parser=expat.ParserCreate();depth=nodes=characters=0
+    def start(name,attrs):
+        nonlocal depth,nodes
+        depth+=1;nodes+=1
+        if depth>64 or nodes>16384:raise ValueError('metadata XML structure exceeds bounds')
+    def end(name):
+        nonlocal depth
+        depth-=1
+    def data(value):
+        nonlocal characters
+        characters+=len(value)
+        if characters>2**20:raise ValueError('metadata XML text exceeds bound')
+    def doctype(name,system,public,internal):
+        if name!='plist' or internal:raise ValueError('metadata XML entity declarations refused')
+    parser.StartElementHandler=start;parser.EndElementHandler=end;parser.CharacterDataHandler=data
+    parser.StartDoctypeDeclHandler=doctype
+    parser.Parse(raw,True)
+
+
 def decoded(result: dict):
     try:
         if result['returncode']:raise ValueError('metadata command failed')
+        bounded_xml(result['stdout'])
         return plistlib.loads(result['stdout'])
-    except (ValueError,TypeError,plistlib.InvalidFileException) as exc:
-        raise CommandFailure('invalid metadata plist/status',result) from exc
+    except (ValueError,TypeError,KeyError,IndexError,OverflowError,expat.ExpatError,plistlib.InvalidFileException) as exc:
+        raise CommandFailure('invalid/bounded metadata plist/status',result) from exc
 
 
 def snapshot(topology: dict) -> dict:
@@ -135,28 +163,33 @@ def snapshot(topology: dict) -> dict:
         raise CommandFailure('driver/media/counter snapshot invalid',result) from exc
 
 
+def volume_for_file(file: dict,query) -> dict:
+    observed=Path(file['path']).stat().st_dev
+    candidates=[]
+    for entry in Path('/dev').iterdir():
+        if re.fullmatch(r'disk[0-9]+s[0-9]+',entry.name):
+            device=entry.stat()
+            if stat.S_ISBLK(device.st_mode) and device.st_rdev==observed:candidates.append(entry)
+    node=one(candidates)
+    volume=query(['/usr/sbin/diskutil','info','-plist',str(node)])
+    if volume['DeviceNode']!=str(node):raise ValueError('device node differs')
+    return dict(volume,observed_st_dev=observed,device_rdev=node.stat().st_rdev)
+
+
 def discover(files: dict[str,dict]) -> dict:
     if sys.platform!='darwin':raise ValueError('macOS device observation required')
     raw=[]
     def query(argv):
         result=command(argv);raw.append(result);return decoded(result)
-    volumes={}
-    for name,file in files.items():
-        path=Path(file['path'])
-        observed=path.stat().st_dev
-        candidates=[]
-        for entry in Path('/dev').iterdir():
-            if re.fullmatch(r'disk[0-9]+s[0-9]+',entry.name):
-                device=entry.stat()
-                if stat.S_ISBLK(device.st_mode) and device.st_rdev==observed:candidates.append(entry)
-        node=one(candidates)
-        volume=query(['/usr/sbin/diskutil','info','-plist',str(node)])
-        if volume['DeviceNode']!=str(node):raise ValueError('device node differs')
-        volumes[name]=dict(volume,observed_st_dev=observed,device_rdev=node.stat().st_rdev)
-    apfs=query(['/usr/sbin/diskutil','apfs','list','-plist'])
-    store=one(volumes['model']['APFSPhysicalStores'])['APFSPhysicalStore']
-    match=re.fullmatch(r'(disk[0-9]+)s[0-9]+',store)
-    if not match:raise ValueError('unsupported physical store')
-    disk=query(['/usr/sbin/diskutil','info','-plist',match[1]])
-    registry=query(['/usr/sbin/ioreg','-a','-l','-r','-c','IOBlockStorageDriver'])
-    return dict(parse_topology(files,volumes,apfs,registry,disk),raw=raw)
+    try:
+        volumes={name:volume_for_file(file,query) for name,file in files.items()}
+        apfs=query(['/usr/sbin/diskutil','apfs','list','-plist'])
+        store=one(volumes['model']['APFSPhysicalStores'])['APFSPhysicalStore']
+        match=re.fullmatch(r'(disk[0-9]+)s[0-9]+',store)
+        if not match:raise ValueError('unsupported physical store')
+        disk=query(['/usr/sbin/diskutil','info','-plist',match[1]])
+        registry=query(['/usr/sbin/ioreg','-a','-l','-r','-c','IOBlockStorageDriver'])
+        return dict(parse_topology(files,volumes,apfs,registry,disk),raw=raw)
+    except BaseException as exc:
+        if isinstance(exc,CommandFailure) and not any(item is exc.evidence for item in raw):raw.append(exc.evidence)
+        raise CommandFailure(str(exc) or type(exc).__name__,dict(commands=raw,error=type(exc).__name__)) from exc
