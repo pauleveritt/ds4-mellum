@@ -121,3 +121,12 @@
 Spec mapping: native gates → Task 1; discovery/snapshots → Task 2; controls/interpretation → Tasks 3/5; independent manifest/budgets → Task 4; checked orchestration/failure → Task 6; review/execution/report → Task 7. Review Focus has owning regression tests. Schema names, pipe tokens, snapshot intervals and function signatures agree across tasks. Ordinary read API is retained, current report validation is reused, and the spent reservation cannot be consumed. Preparation remains metadata-only; two full byte verification passes fit the cap without weakening existing source/payload checks. The exact parser/metadata allowance is an execution prerequisite, not permission to increase the cap.
 
 Executed inline after user approval. Tasks 1–6 are complete; Task 7 retained the first discovery refusal and stopped as designed, with zero native reads. The WholeDisk compatibility repair was tested against saved metadata and the full CPU suite; no repeat experiment ran. See the [evidence](../research/2026-10-27-mellum-device-observation-evidence.md) and [ledger](../research/2026-10-27-mellum-device-observation-ledger.md).
+
+
+2026-10-27 follow-up: after explicit user authorization, a fresh manifest at
+`3edad69` completed the same four-cell diagnostic once. The artifact-only audit
+passed. All four timed windows and all adjacent idle controls recorded zero
+device read bytes; all bins are `little-device-traffic`. The new reservation is
+spent. See the appended second-attempt evidence and ledger above. This closes
+the diagnostic, leaving SSD miss cost unresolved; a controlled physical-read
+experiment requires a separate design. No further variant or inference ran.

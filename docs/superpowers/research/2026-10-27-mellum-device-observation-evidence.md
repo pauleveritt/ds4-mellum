@@ -1,10 +1,10 @@
-# Device-observation implementation and refused first attempt
+# Device-observation implementation and execution evidence
 
 Date: 2026-10-27. Implements the approved
 [design](../specs/2026-10-27-mellum-device-observation-design.md) and
 [plan](../plans/2026-10-27-mellum-device-observation.md).
 
-## Outcome
+## First-attempt outcome
 
 CPU tooling is implemented. The one real attempt stopped during device discovery,
 before payload verification, reservation, prewarming or native timed work. There
@@ -99,10 +99,106 @@ arguments/exits, baseline/final CPU gates, the review diff/summary, execution
 ledger and offline topology check. The failure and original batch artifacts
 remain immutable; the successful-run artifact does not exist.
 
-## Next step
+## Next step after the first attempt
 
 The repaired tooling is ready for a newly authorized CPU-only attempt using the
 same four-cell design and explicit budgets. Until it runs, device-observed read
 service remains open. Generated ac-demo S3b collection, streamed inference and
 physical 8 GB validation remain later milestones. Ten tok/s is still only a
 proposed checkpoint.
+
+## 2026-10-27 — Authorized second attempt completed
+
+**Question:** Do the four warm-file native read cells produce observable reads
+at the mapped block driver? **Scope:** CPU-only diagnostic on the development
+laptop, using the same frozen 512 distinct tuning experts, one worker and one
+repetition per cell. After the user authorized proceeding, a fresh manifest
+bound repaired source `3edad694a4f7985e161c538191c7cab932f1ac92`. The first
+attempt and its artifacts remain unchanged. This was a separately authorized
+attempt, with no automatic retry or replacement cell.
+
+**Finding (fact):** Preparation and execution both exited 0. All four cells
+completed 3,369,074,688 logical bytes each. Every timed bracket and all eight
+adjacent idle windows recorded zero block-driver read-byte deltas. All four
+classifications are `little-device-traffic`; the conservative background
+estimate is exactly 0/1 bytes in each cell. Native cache controls report
+F_NOCACHE enabled and F_RDAHEAD disabled for both `avoid` cells.
+
+| Cell | Layout | Mode | Native makespan | Outer counter interval | Device read bytes |
+|---|---|---|---:|---:|---:|
+| 0 | original | buffered | 109.635 ms | 161,854,000 ns | 0 |
+| 1 | original | avoid | 117.202 ms | 169,496,000 ns | 0 |
+| 2 | packed | buffered | 89.268 ms | 138,552,000 ns | 0 |
+| 3 | packed | avoid | 90.089 ms | 136,536,000 ns | 0 |
+
+Adjacent idle inner intervals, before/after respectively, were
+1,006,935,000/1,007,337,000 ns (cell 0),
+1,007,231,000/1,004,227,000 ns (cell 1),
+1,002,422,000/1,005,668,000 ns (cell 2), and
+1,007,171,000/1,006,136,000 ns (cell 3).
+The native interval is contained within each counter bracket; these outer
+intervals include snapshot uncertainty and are not native service times.
+
+**Source:** Local native reports, raw IOKit plists and report JSON under
+`mellum-device-observation-02-run/artifact`, produced by this investigation and
+audited 2026-10-27. Exact commands, exits and the artifact-only audit are in
+`mellum-device-observation-02-execution` below the retained root above. Commands:
+
+```sh
+python3 -I tools/mellum_storage.py observe-prepare --prior-batch "$ROOT/mellum-storage-s3a-batch/artifact" --binary "$WORKTREE/tools/mellum_read_bench" --output "$ROOT/mellum-device-observation-02-batch"
+python3 -I tools/mellum_storage.py observe-run --batch "$ROOT/mellum-device-observation-02-batch/artifact" --output "$ROOT/mellum-device-observation-02-run"
+```
+
+Here ROOT is the retained visualization root above and WORKTREE is
+`/Users/pauleveritt/.codex/worktrees/mellum-ssd-replay/ds4-mellum`.
+The execution log records 38.524 seconds wall time. Source, native binary,
+plans, original model and packed payload identities were checked before/after
+execution. Successful publication follows both full model/packed byte-verifier
+calls. The later audit checked source/metadata hashes, consumed-wire identities,
+all 512 native samples per cell, stable topology and every raw snapshot's
+SHA/plist counters, then rederived classifications and byte arithmetic. It
+read saved artifacts only and did not rehash either large payload.
+
+| Class | Actual second attempt | Cap |
+|---|---:|---:|
+| Native timed logical reads | 13,476,298,752 B | 16 GiB |
+| Native prewarming | 6,738,149,376 B | 8 GiB |
+| CLI Python preparation | 18,095,197 B | cumulative below |
+| CLI Python execution | 96,902,362,193 B | cumulative below |
+| Cumulative instrumented CLI Python reads | 96,920,457,390 B | 128 GiB |
+| Full model/packed byte-verification passes | 2 | 2 |
+
+Cumulative Python reads also fit the frozen 105,325,556,288 B forecast. The
+same accounting exclusions described for the first attempt apply. The new
+reservation is spent, with `retry_permitted=false`.
+
+The host is Mac17,7, Apple M5 Max, 128 GiB RAM, macOS 27.0.1 arm64, with
+APPLE SSD AP2048Z (2,001,111,162,880 B). Before/after topology agrees:
+volume disk3s5 (`BF58637C-3FAD-437B-8E01-90E30EC8D019`), container disk3
+(`8C90DA7F-D18C-44E8-86D1-0F854C355C46`), physical store disk0s2
+(`7E8A1F90-90CD-47F3-8CF8-E3D767907249`), whole disk disk0,
+driver ID 4294971011, media ID 4294971012.
+
+| Artifact below root | SHA-256 |
+|---|---|
+| `mellum-device-observation-02-batch/artifact/manifest.json` | `057be462f0f3a13d4d2314708c97c384c0f9f5a99413f490312c494dbdcc764b` |
+| `mellum-device-observation-02-batch/execution-reservation.json` | `df799b50aa4d3c94f135de03d84d06cc175d6cc16a9bde0016695b0152908bf9` |
+| `mellum-device-observation-02-run/artifact/report.json` | `f2d7cd6205f7d6727029a101fb6ea28c53389c6cbe138325b0577f018d7429b9` |
+| `mellum-device-observation-02-execution/artifact-hashes.json` | `1d99c041feaa2e4677eb479719f7a57f9248c26f2a72e0fec0ee3d4443eb05a8` |
+
+The 24-file hash index includes both immutable artifact containers, reservation,
+commands/logs/exits, `audit_saved.py` and its passing `audit-saved.log`.
+
+**Assessment (inference):** These invocations cannot supply SSD-service costs.
+The cache flags did not produce observed physical-device reads in this warm-file
+setup. Device-wide counters do not prove file attribution or NAND service;
+`physical_io_verified=false` remains unchanged. Single repetitions do not
+establish layout superiority. No miss-stall, inference tok/s or physical 8 GB
+feasibility result follows from these timings.
+
+**Recommendation:** Design a separate controlled physical-read experiment before
+using read latency in streaming feasibility estimates. Confidence is high that
+this diagnostic leaves SSD miss cost unresolved. No extra cells, cache purges,
+pressure, privileged operations, aligned/cold-read variants or inference were
+started. S3b representative collection, GPU execution and ds4-engine integration
+remain later work; 10 tok/s remains only a proposed checkpoint.

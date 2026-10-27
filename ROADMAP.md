@@ -109,10 +109,15 @@ representative cohort or streamed inference has run. The next
 brackets four CPU read runs with mapped block-driver counters and idle controls;
 the design is approved, its [implementation plan](docs/superpowers/plans/2026-10-27-mellum-device-observation.md)
 is implemented and CPU validated. Its first live attempt refused during
-device discovery before payload verification or any native reads; a saved-metadata
-WholeDisk compatibility repair now passes the CPU gate. No retry occurred. See
-[attempt evidence](docs/superpowers/research/2026-10-27-mellum-device-observation-evidence.md). The first proposed task is Phase 1 only;
-later phases require their own requests and prior-phase checkpoints.
+device discovery; the saved-metadata WholeDisk repair passed the CPU gate.
+A separately authorized fresh attempt completed all four cells, with zero
+block-driver read bytes in every timed bracket and adjacent idle control,
+including both cache-avoidance cells. These warm-file timings leave SSD miss
+cost unresolved; `physical_io_verified=false` remains. See
+[execution evidence](docs/superpowers/research/2026-10-27-mellum-device-observation-evidence.md).
+Next: design a separate controlled physical-read experiment. No automatic retry
+or new variant is authorized by this result. The first proposed task is Phase 1
+only; later phases require their own requests and prior-phase checkpoints.
 
 Collect the frozen workload matrix on this development laptop. Replay warm,
 post-append and whole-session demand separately, with held-out evaluation.
