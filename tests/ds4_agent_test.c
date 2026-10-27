@@ -879,6 +879,18 @@ static void test_qwen_tool_syntax(void) {
     AGENT_TEST_ASSERT(!agent_syntax_is_xml_tool_call(AGENT_TOOL_SYNTAX_DSML));
 }
 
+/* ---- Hermes (Mellum) tool syntax ---- */
+
+/* a Hermes call opens with <tool_call> and renders as chat messages, like Qwen's and GLM's */
+static void test_hermes_syntax_basics(void) {
+    AGENT_TEST_ASSERT(!strcmp(agent_tool_start(AGENT_TOOL_SYNTAX_HERMES), "<tool_call>"));
+    AGENT_TEST_ASSERT(agent_syntax_is_xml_tool_call(AGENT_TOOL_SYNTAX_HERMES));
+}
+
+static void test_hermes_tool_syntax(void) {
+    test_hermes_syntax_basics();
+}
+
 static void test_v41_tool_syntax(void) {
     const char text[] =
         "<think>Plan.</think>\n\n<｜DSML｜ calls>\n"
@@ -1020,6 +1032,7 @@ int main(int argc, char **argv) {
     ds4_agent_unit_tests_run();
     test_v41_tool_syntax();
     test_qwen_tool_syntax();
+    test_hermes_tool_syntax();
     test_compaction_boundaries();
     test_observation_error_is_not_context_exhaustion();
     test_atomic_file_tools();

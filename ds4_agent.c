@@ -296,6 +296,7 @@ typedef enum {
     AGENT_TOOL_SYNTAX_GLM,
     AGENT_TOOL_SYNTAX_DSML41,
     AGENT_TOOL_SYNTAX_QWEN,
+    AGENT_TOOL_SYNTAX_HERMES,   /* Mellum: <tool_call>\n{"name": ..., "arguments": {...}}\n</tool_call> */
 } agent_tool_syntax;
 
 typedef enum {
@@ -432,7 +433,8 @@ static const char *agent_dsml_tag_name(agent_tool_syntax syntax, const char *nam
 }
 
 static const char *agent_tool_start(agent_tool_syntax syntax) {
-    if (syntax == AGENT_TOOL_SYNTAX_GLM || syntax == AGENT_TOOL_SYNTAX_QWEN) return "<tool_call>";
+    if (syntax == AGENT_TOOL_SYNTAX_GLM || syntax == AGENT_TOOL_SYNTAX_QWEN ||
+        syntax == AGENT_TOOL_SYNTAX_HERMES) return "<tool_call>";
     return syntax == AGENT_TOOL_SYNTAX_DSML41 ? "<｜DSML｜ calls>" : "<｜DSML｜tool_calls>";
 }
 
@@ -444,9 +446,10 @@ static bool agent_tool_syntax_assistant_turn_uses_eos(agent_tool_syntax syntax) 
     return syntax != AGENT_TOOL_SYNTAX_GLM;
 }
 
-/* GLM and Qwen both open a call with <tool_call> and render as chat messages */
+/* GLM, Qwen and Hermes all open a call with <tool_call> and render as chat messages */
 static bool agent_syntax_is_xml_tool_call(agent_tool_syntax syntax) {
-    return syntax == AGENT_TOOL_SYNTAX_GLM || syntax == AGENT_TOOL_SYNTAX_QWEN;
+    return syntax == AGENT_TOOL_SYNTAX_GLM || syntax == AGENT_TOOL_SYNTAX_QWEN ||
+           syntax == AGENT_TOOL_SYNTAX_HERMES;
 }
 
 static void agent_worker_append_assistant_turn_end(agent_worker *w) {
@@ -4259,6 +4262,7 @@ static void agent_stream_start_dsml(agent_stream_renderer *sr, bool ignored) {
     sr->dsml_start_len = 0;
     sr->post_think_gap = false;
     agent_trace(sr->renderer->worker, "%s tool start detected%s",
+                sr->syntax == AGENT_TOOL_SYNTAX_HERMES ? "hermes" :
                 sr->syntax == AGENT_TOOL_SYNTAX_QWEN ? "qwen" :
                 sr->syntax == AGENT_TOOL_SYNTAX_GLM ? "glm" : "dsml",
                 ignored ? " inside thinking" : "");
