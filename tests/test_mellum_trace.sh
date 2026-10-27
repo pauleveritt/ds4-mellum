@@ -4,6 +4,7 @@
 #
 #   1. a listed position writes its three files, each with its exact size, and an unlisted
 #      position writes none; the session's own logits are written too (<prefix>.session.logits.f32);
+#      every listed position's logits are checked finite;
 #   2. a listed position that is not one of the tokens is an error naming it (exit 1, nothing written);
 #   3. DS4_MELLUM_TRACE_AT without DS4_MELLUM_TRACE is a usage error (exit 2); DS4_MELLUM_TRACE alone
 #      is an untraced run that writes only the session logits;
@@ -45,6 +46,9 @@ for mode in prefill decode; do
     done
     check "$mode: the session logits are 1 x 98304 f32 (393216 bytes)" size_is "$p.session.logits.f32" 393216
     check "$mode: unlisted position 1 writes nothing" [ ! -e "$p.p1.hidden.f32" ]
+    for pos in 0 2; do
+        check "$mode: p$pos logits are checked finite" grep -q "position $pos logits: 0 non-finite" "$dir/$mode.out"
+    done
 done
 # the session's last-row logits are the traced last position's logits
 check "prefill: session logits equal the traced position 2 logits" cmp -s "$dir/prefill.session.logits.f32" "$dir/prefill.p2.logits.f32"
