@@ -8,6 +8,8 @@ from dataclasses import asdict, dataclass
 from decimal import Decimal, InvalidOperation
 import heapq
 import json
+import math
+import re
 from pathlib import Path
 
 
@@ -104,6 +106,80 @@ def parse_object(text: str, line: int) -> dict:
     except ValueError as exc:
         fail(line, f"invalid JSON: {exc}")
     return object_value(raw, line, "record")
+
+
+def finite_json(value: object, line: int, path: str) -> None:
+    """Validate JSON values, including exponent overflow and nested extensions."""
+    if value is None or type(value) in (str, bool, int):
+        return
+    if type(value) is float and math.isfinite(value):
+        return
+    if isinstance(value, list):
+        for index, item in enumerate(value):
+            finite_json(item, line, f"{path}[{index}]")
+        return
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if not isinstance(key, str):
+                fail(line, f"{path} keys must be strings")
+            finite_json(item, line, f"{path}.{key}")
+        return
+    fail(line, f"{path} must contain only finite JSON values")
+
+
+def is_sha256(value: object) -> bool:
+    return isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value) is not None
+
+
+def validate_capture_manifest(raw: object, header_fields: dict) -> dict:
+    """Preserve declared provenance; validate its shape, not its authenticity."""
+    root = "capture_manifest"
+    manifest = object_value(raw, 1, root)
+    finite_json(manifest, 1, root)
+    if integer(manifest.get("manifest_version"), 1, f"{root}.manifest_version", 1) != 1:
+        fail(1, f"{root}.manifest_version must be 1")
+    if manifest.get("complete") is not True:
+        fail(1, f"{root}.complete must be true")
+    fields = {
+        "": ("capture_id",),
+        "artifacts": ("model_id", "tokenizer_id", "template_id", "token_stream_sha256"),
+        "build": ("engine_revision", "source_state_id", "binary_sha256", "recorder_revision"),
+        "execution": ("numerical_mode", "requested_kernel", "effective_kernel", "device", "os"),
+        "generation": ("mode",),
+        "workload": ("protocol_id", "conversation_id", "repository_id", "split", "continuation_kind"),
+        "extent": (),
+    }
+    sections = {}
+    for section, names in fields.items():
+        prefix = f"{root}.{section}" if section else root
+        data = object_value(manifest.get(section), 1, prefix) if section else manifest
+        sections[section] = data
+        for name in names:
+            value = data.get(name)
+            if not isinstance(value, str) or not value.strip():
+                fail(1, f"{prefix}.{name} must be a nonempty string")
+            if name.endswith("_sha256") and not is_sha256(value):
+                fail(1, f"{prefix}.{name} must be a lowercase SHA-256 digest")
+    for section, name, minimum in (
+        ("execution", "context_tokens", 1), ("execution", "prefill_chunk_tokens", 1),
+        ("extent", "forwards", 1), ("extent", "positions", 1),
+        ("extent", "first_position", 0), ("extent", "last_position", 0),
+    ):
+        integer(sections[section].get(name), 1, f"{root}.{section}.{name}", minimum)
+    for section, name in (("execution", "capabilities"), ("generation", "settings")):
+        object_value(sections[section].get(name), 1, f"{root}.{section}.{name}")
+    for section, name, allowed in (
+        ("generation", "mode", ("generated", "teacher-forced")),
+        ("workload", "split", ("tuning", "evaluation")),
+    ):
+        if sections[section][name] not in allowed:
+            fail(1, f"{root}.{section}.{name} must be one of {allowed}")
+    for section, name in (
+        ("artifacts", "model_id"), ("build", "engine_revision"), ("execution", "numerical_mode"),
+    ):
+        if sections[section][name] != header_fields[name]:
+            fail(1, f"{root}.{section}.{name} must match header {name}")
+    return manifest
 
 
 def parse_header(raw: dict) -> Header:
