@@ -125,9 +125,9 @@ does not complete either measurement.
 | SSD read cost | Controlled reads of exact Q8 gate/up/down ranges and candidate contiguous layout that produce observed storage traffic; latency distributions and throughput at declared concurrency, with cache state and counter uncertainty recorded | No; CPU and SSD only |
 | Representative cache locality | Frozen Phase 1 ac-demo workload captures and held-out replay at roughly 3 GiB expert cache; miss bytes and demand bursts for warm, post-append and whole-session windows | Yes for native routing captures; preparation and offline replay use CPU only |
 
-Start with the proposed [storage-service design](docs/superpowers/specs/2026-10-27-mellum-storage-service-design.md)
-for controlled reads on this laptop; implementation and execution await design
-approval.
+The [storage-service design](docs/superpowers/specs/2026-10-27-mellum-storage-service-design.md)
+for controlled reads on this laptop is approved; its [implementation plan](docs/superpowers/plans/2026-10-27-mellum-storage-service.md)
+is prepared for review.
 Include a positive control for observation and an explicit cache-state setup;
 warm-cache rates cannot satisfy the SSD-read-cost result. Before reusing the
 observer, fix the reviewed cancellation path so it retains captured cell

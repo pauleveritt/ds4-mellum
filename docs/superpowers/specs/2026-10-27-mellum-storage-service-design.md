@@ -1,7 +1,8 @@
 # Mellum S3: first storage-observed expert read costs
 
-Date: 2026-10-27. Status: proposed; implementation and execution await design
-approval. Baseline `73c75ca`, existing `codex/mellum-ssd-replay` worktree.
+Date: 2026-10-27. Status: approved by the user’s “proceed” after `5953705`.
+The [implementation plan](../plans/2026-10-27-mellum-storage-service.md) is prepared
+for review; no implementation or experiment has run. Baseline `73c75ca`, existing `codex/mellum-ssd-replay` worktree.
 This is the next CPU-only work in [S3](../../../ROADMAP.md), before GPU time
 returns. [Previous evidence](../research/2026-10-27-mellum-device-observation-evidence.md)
 contains four successful warm-file runs with zero timed-window device reads.
