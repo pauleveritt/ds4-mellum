@@ -43,6 +43,8 @@
 
 #include "ds4.h"
 #include "ds4_mellum_capture.h"
+#include "ds4_mellum_capture_state.h"
+#include "ds4_mellum_observer.h"
 #include "ds4_tool_text.h"
 #include "ds4_distributed.h"
 #include "ds4_image.h"
@@ -142,6 +144,18 @@ static uint32_t metal_graph_cuda_tp_output_tiers_for_head(
 #ifndef DS4_NO_GPU
 #include "ds4_gpu.h"
 #endif
+
+/* Private diagnostic storage. The session/graph never escapes this handle. */
+struct ds4_mellum_capture {
+    ds4_session *session;
+    mellum_capture_state core;
+    mellum_profile_scope scope;
+    uint32_t *host;
+    uint64_t bytes;
+#ifdef DS4_HAS_QWEN4_METAL
+    ds4_gpu_tensor *gpu;
+#endif
+};
 
 /* Non-CUDA builds (Mac/Metal, CPU-only) never link ds4_cuda.cu. Provide
  * stubs for the multi-GPU plumbing multi-GPU functions and globals declared in

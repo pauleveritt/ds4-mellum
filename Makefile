@@ -1554,8 +1554,8 @@ test-mellum-capture-state: tests/test_mellum_capture_state
 	python3 -I tests/test_mellum_capture_state_export.py
 
 # Link the public unsupported-platform contract against the actual CPU engine.
-tests/test_mellum_capture_api: tests/test_mellum_capture_api.c ds4_mellum_capture.h $(CPU_CORE_OBJS)
-	$(CC) $(filter-out -std=% -ffast-math,$(CFLAGS)) -std=c99 -I. -o $@ tests/test_mellum_capture_api.c $(CPU_CORE_OBJS) $(LDLIBS)
+tests/test_mellum_capture_api: tests/test_mellum_capture_api.c ds4.c $(MELLUM_CAPTURE_HEADERS) $(filter-out ds4_cpu.o,$(CPU_CORE_OBJS))
+	$(CC) $(filter-out -std=% -ffast-math,$(CFLAGS)) -std=c99 -Wno-unused-function -DDS4_NO_GPU -I. -o $@ tests/test_mellum_capture_api.c $(filter-out ds4_cpu.o,$(CPU_CORE_OBJS)) $(LDLIBS)
 
 .PHONY: test-mellum-capture-api
 test-mellum-capture-api: tests/test_mellum_capture_api

@@ -117,6 +117,35 @@ static bool run_owned(ds4_engine *engine,int context,const ds4_tokens *tokens,in
     return ok;
 }
 
+typedef struct { size_t bytes,calls,limit; } owned_sink;
+static size_t owned_bytes(void *ctx,const void *data,size_t n) {
+    owned_sink *s=ctx;(void)data;s->calls++;
+    if(n>s->limit-s->bytes)n=s->limit-s->bytes;s->bytes+=n;return n;
+}
+static bool owned_cancel(void *ctx) { (void)ctx;return true; }
+static bool owned_failures(ds4_engine *engine,int context,int token) {
+    for(unsigned fault=0;fault<4;fault++) {
+        owned_sink sink={.limit=SIZE_MAX};ds4_mellum_capture *c=NULL;char err[512]={0};
+        ds4_mellum_capture_options options={.spool_sink=owned_bytes,.spool_context=&sink,
+            .cancel=fault==0 ? owned_cancel:NULL};
+        if(ds4_mellum_capture_create(&c,engine,context,&options,err,sizeof(err)))return false;
+        uint32_t *host=c->host;ds4_gpu_tensor *gpu=c->gpu;
+        if(fault==1)sink.limit=sink.bytes+4;
+        if(fault==2)c->gpu=NULL; /* Actual copy rejects NULL, then ordinary GPU cleanup must run. */
+        if(fault==3)c->host=NULL; /* Actual read rejects NULL, after successful GPU completion. */
+        ds4_tokens prompt={.v=&token,.len=1};
+        int status=ds4_mellum_capture_sync(c,&prompt,0,err,sizeof(err));
+        c->host=host;c->gpu=gpu;
+        size_t calls=sink.calls;
+        bool ok=status==(fault==0 ? DS4_SESSION_SYNC_INTERRUPTED:1) &&
+            c->core.state==MELLUM_CAPTURE_FAILED && !c->scope.owner && !ds4_gpu_commands_active() &&
+            ds4_mellum_capture_finish(c,NULL,NULL,err,sizeof(err))!=0 &&
+            !ds4_mellum_capture_copy_logits(c,NULL,0) && sink.calls==calls;
+        ds4_mellum_capture_free(c);if(!ok || sink.calls!=calls)return false;
+    }
+    return true;
+}
+
 int main(int argc, char **argv) {
     if (argc != 5 || getenv("DS4_MELLUM_TRACE_AT") || getenv("DS4_MELLUM_TRACE")) return 2;
     ds4_tokens tokens = {0};
@@ -200,6 +229,7 @@ int main(int argc, char **argv) {
     }
     if (ok) ok = same_files(paths[0], paths[1]);
     if (ok) ok=run_owned(engine,opt.context_size,&tokens,(int)first,argv[4],gold);
+    if (ok) ok=owned_failures(engine,opt.context_size,tokens.v[0]);
     if (gold) fclose(gold);
     ds4_engine_close(engine); ds4_tokens_free(&tokens);
     fprintf(stderr, "routing GPU proof: %s\n", ok ? "PASS (all logits and ordered spool bytes match)" : "FAIL");
