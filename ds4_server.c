@@ -3554,7 +3554,15 @@ static void append_hermes_assistant_message(buf *b, const chat_msg *m, bool keep
     } else {
         buf_puts(b, content);
     }
-    append_hermes_tool_calls_text(b, &m->calls, content[0] != '\0');
+    const char *raw = m->calls.len ? m->calls.raw_tool_text : NULL;
+    if (raw && raw[0]) {
+        /* the calls as sampled (restored by tool memory when the client sent them back): the
+         * KV's bytes.  With no content the template's separator is already written. */
+        if (!content[0]) while (*raw == '\n' || *raw == ' ') raw++;
+        buf_puts(b, raw);
+    } else {
+        append_hermes_tool_calls_text(b, &m->calls, content[0] != '\0');
+    }
     buf_puts(b, "<|im_end|>\n");
     free(split_reasoning);
     free(split_content);
