@@ -1103,7 +1103,8 @@ test-mellum-ssd-replay:
 .PHONY: test-mellum
 test-mellum: tests/test_mellum_config tests/test_mellum_tokenizer tests/test_mellum_frontends_cli \
 		tests/test_mellum_frontends_agent tests/test_mellum_frontends_server test-mellum-ssd-replay test-mellum-routes \
-		test-mellum-profile test-mellum-capture-state test-mellum-capture-api test-mellum-observer test-mellum-capture-build
+		test-mellum-profile test-mellum-capture-state test-mellum-capture-api test-mellum-observer test-mellum-capture-build \
+		test-mellum-capture-receipt test-mellum-capture-publish
 	./tests/test_mellum_config
 	./tests/test_mellum_tokenizer
 	./tests/test_mellum_frontends_cli
@@ -1581,3 +1582,7 @@ tests/test_mellum_capture_receipt: tests/test_mellum_capture_receipt.c tests/mel
 .PHONY: test-mellum-capture-receipt
 test-mellum-capture-receipt: tests/test_mellum_capture_receipt
 	./tests/test_mellum_capture_receipt
+
+.PHONY: test-mellum-capture-publish
+test-mellum-capture-publish:
+	python3 -I tests/test_mellum_capture_publish.py

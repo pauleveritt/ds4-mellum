@@ -1,7 +1,7 @@
 # Mellum diagnostic session recorder
 
 Date: 2026-10-27. Status: approved by the user on 2026-10-27; CPU core implemented.
-Owned-session adapter and actual-encoding hooks compile; live validation and qualified source provenance remain open.
+Owned-session adapter and actual-encoding hooks compile; the publisher passes CPU tests. Live validation and a qualified source-provenance artifact remain open.
 Baseline: `8d9c53c`, isolated `codex/mellum-ssd-replay` worktree.
 
 ## Intent and evidence

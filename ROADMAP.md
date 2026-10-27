@@ -76,8 +76,12 @@ now adds a separate opaque diagnostic API, buffered graph snapshots and actual
 Metal encoding notifications into an immutable catalog. Metal/CPU builds and
 model-free boundaries are checked; this wiring has not run on a GPU. Next:
 validate cancellation/cleanup, routes/logits, no-head forwards, actual profiles,
-allocation and overhead during an authorized GPU window, then finish the
-qualified source-provenance publisher. No further GPU use has occurred.
+allocation and overhead during an authorized GPU window, then collect a
+qualified source-provenance artifact. The publisher is now prepared and
+CPU-tested: it force-builds and brackets the parity harness with source/binary
+checks, uses observed profiles and actual-capability receipts, and publishes
+through the existing exporter. It has not collected a live qualified artifact.
+No further GPU use has occurred.
 
 Buffer selected IDs on the GPU before per-layer scratch is reused; export at
 existing synchronization points. Bound recorder memory and reject incomplete

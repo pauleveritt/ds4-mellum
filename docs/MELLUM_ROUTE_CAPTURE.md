@@ -2,7 +2,7 @@
 
 S2a supplies CPU-only capture helpers and an exporter. A separate native
 diagnostic adapter now connects them to inference, but its live gates are
-still unrun. All examples below fabricate selections; no GPU, locality,
+still unrun. The synthetic example below fabricates selections; no GPU, locality,
 model quality or performance result follows from them.
 
 Use Python 3.14+ and a C99-capable compiler. No third-party dependencies.
@@ -210,6 +210,86 @@ It compiles, but none of these new GPU checks has run. Real allocation-failure
 injection, cancellation between chunks, actual profile/fallback coverage and
 measured allocation/overhead remain GPU gates. Ordinary Mellum session/graph
 host allocations now return errors rather than terminating the process.
+
+## Source-checked publisher (CPU-tested, live collection pending)
+
+`tools/mellum_capture_publish.py` is the orchestration entry point for a future
+authorized GPU window. It force-builds the diagnostic harness, runs its ordinary,
+buffered, synchronous-reference and owned-session comparisons, then exports the
+owned spool only if the entire harness succeeds. This command runs GPU inference;
+it has not been executed during CPU-only development. `--help` and
+`make test-mellum-capture-publish test-mellum-capture-receipt` are model-free.
+
+Prepare a metadata file containing only a caller-declared header. For example:
+
+```json
+{
+  "header": {
+    "model_id": "your-pinned-mellum-q8-model",
+    "workload_id": "your-frozen-workload",
+    "capture_manifest": {
+      "capture_id": "your-unique-capture-id",
+      "artifacts": {
+        "model_id": "your-pinned-mellum-q8-model",
+        "tokenizer_id": "your-pinned-tokenizer",
+        "template_id": "your-pinned-template"
+      },
+      "execution": {"device": "your-physical-test-device-label"},
+      "workload": {
+        "protocol_id": "your-workload-protocol",
+        "conversation_id": "your-conversation",
+        "repository_id": "your-repository",
+        "split": "tuning",
+        "continuation_kind": "teacher-forced-continuation"
+      }
+    }
+  }
+}
+```
+
+During an authorized device window, from any directory:
+
+```sh
+python3 -I /absolute/path/to/ds4-mellum/tools/mellum_capture_publish.py \
+  --model /absolute/path/to/mellum-q8.gguf \
+  --tokens /absolute/path/to/frozen.tokens --first-prefill 32 \
+  --context 8192 --prefill-chunk 1024 \
+  --metadata /absolute/path/to/cohort.json --output /absolute/path/to/new-trace.jsonl
+```
+
+Add `--exact-prefill` for that numerical cohort. Tokens use the existing native
+decimal-ID/comment grammar, capped at a 16 MiB input file. The protocol requires
+at least two tokens after the initial prompt: teacher-forced decode, then a final
+one-token prompt append. It reserves 64 context positions as the proof harness
+does. It does not generate a continuation. Actual token bytes, positions, phase,
+segments and chunk boundaries are checked against the input and schedule, beyond
+reference-route agreement. Publication never overwrites an existing output.
+
+The publisher rejects inherited `DS4_*` controls (except the unused
+`DS4_TEST_MELLUM_MODEL`), `MELLUM_TRACE_*` settings and make override controls;
+it sets only its explicit context/chunk/exact controls. This includes empty
+source overrides and routing replay controls. The normal model lock still applies.
+
+The build manifest retains source file hashes, revision, aggregate source-state
+identity, binary hash and the forced-build command log. Sources include Git-listed
+C/header/Objective-C/include/Metal/Python/Makefile inputs and default Metal files.
+Source inputs cannot be symlinks. The publisher checks source state before/after
+the build and after collection, requires a newly built executable, and checks
+binary/token/model-file identity after collection. Model bytes are not hashed;
+model/tokenizer/template/workload IDs and the device label remain caller-declared.
+Model file stat identity is recorded. Restored changes between checks and hostile
+compiler behavior are outside this consistency check; it is not attestation or
+a reproducible-build guarantee.
+
+The native finish callback supplies the bounded profile catalog. The checked-close
+runtime receipt supplies actual context/cap and backend capability flags, recorded
+separately from requested controls. Caller conflicts with derived fields are errors;
+caller-supplied profile catalogs cannot be used. JSON serialization escapes catalog
+strings. Private temporary files are removed on success or failure; the existing
+exporter validates footer/catalog/extents and publishes atomically without overwrite.
+No live qualified artifact, workload locality or SSD performance follows from the
+CPU subprocess-boundary tests. Generated workloads and the remaining live failure,
+path, memory and overhead matrix are still separate gates.
 
 ## Remaining GPU work
 
