@@ -15,6 +15,15 @@ tokenizer.json, JetBrains/Mellum2.1-12B-A2.5B-Thinking)::
 
     uv run --no-project --with jinja2==3.1.6 --with tokenizers==0.23.3 python -I \\
         tests/gen_mellum_chat_ids.py $SNAP > tests/mellum_chat_ids.inc
+
+The tool-bearing shapes give the template Pi's four tools, read, bash, edit and
+write (descriptions and parameter schemas from Pi's MIT source,
+@earendil-works/pi-coding-agent, dist/core/tools/{read,bash,edit,write}.js),
+as {"type", "function": {"name", "description", "parameters": {"type",
+"required", "properties"}, "strict": false}} in that key order.  `tojson` is
+transformers' (default separators, insertion order, no key sorting, no HTML
+escaping), so the key order inside a property ("type" before "description")
+is this file's choice and shows in the text.
 """
 
 import hashlib
@@ -43,6 +52,87 @@ CASES = [
      [("user", "Count files and directories."), ("assistant", "Let me check."),
       ("tool", "42 files"), ("tool", "7 directories")]),
 ]
+
+
+def _tool(name, description, required, properties):
+    return {"type": "function",
+            "function": {"name": name, "description": description,
+                         "parameters": {"type": "object", "required": required,
+                                        "properties": properties},
+                         "strict": False}}
+
+
+def _str(description):
+    return {"type": "string", "description": description}
+
+
+def _num(description):
+    return {"type": "number", "description": description}
+
+
+# Pi's four default tools, in Pi's order
+TOOLS = [
+    _tool("read",
+          "Read the contents of a file. Supports text files and images (jpg, png, gif, webp, bmp)."
+          " Images are sent as attachments. For text files, output is truncated to 2000 lines or"
+          " 50KB (whichever is hit first). Use offset/limit for large files. When you need the full"
+          " file, continue with offset until complete.",
+          ["path"],
+          {"path": _str("Path to the file to read (relative or absolute)"),
+           "offset": _num("Line number to start reading from (1-indexed)"),
+           "limit": _num("Maximum number of lines to read")}),
+    _tool("bash",
+          "Execute a bash command in the current working directory. Returns stdout and stderr."
+          " Output is truncated to last 2000 lines or 50KB (whichever is hit first). If truncated,"
+          " full output is saved to a temp file. Optionally provide a timeout in seconds.",
+          ["command"],
+          {"command": _str("Shell command to execute"),
+           "timeout": _num("Timeout in seconds (optional, no default timeout)")}),
+    _tool("edit",
+          "Edit a single file using exact text replacement. Every edits[].oldText must match a"
+          " unique, non-overlapping region of the original file. If two changes affect the same"
+          " block or nearby lines, merge them into one edit instead of emitting overlapping edits."
+          " Do not include large unchanged regions just to connect distant changes.",
+          ["path", "edits"],
+          {"path": _str("Path to the file to edit (relative or absolute)"),
+           "edits": {"type": "array",
+                     "items": {"type": "object", "required": ["oldText", "newText"],
+                               "properties": {
+                                   "oldText": _str(
+                                       "Exact text for one targeted replacement. It must be unique"
+                                       " in the original file and must not overlap with any other"
+                                       " edits[].oldText in the same call."),
+                                   "newText": _str("Replacement text for this targeted edit.")}},
+                     "description":
+                         "One or more targeted replacements. Each edit is matched against the"
+                         " original file, not incrementally. Do not include overlapping or nested"
+                         " edits. If two changes touch the same block or nearby lines, merge them"
+                         " into one edit instead."}}),
+    _tool("write",
+          "Write content to a file. Creates the file if it doesn't exist, overwrites if it does."
+          " Automatically creates parent directories.",
+          ["path", "content"],
+          {"path": _str("Path to the file to write (relative or absolute)"),
+           "content": _str("Content to write to the file")}),
+]
+
+# The tool-bearing shapes, thinking on: (2) a system turn with the tools and a user turn; (3) and
+# an assistant turn with reasoning and one tool call; (4) and a tool message; (5) and a second
+# tool message, which shares the first one's user turn.
+TOOL_SYSTEM = "You are a coding agent. Current working directory: /testbed"
+TOOL_USER = "Read hello.py and tell me what it prints."
+TOOL_REASONING = "The user wants to know what hello.py prints. I should read the file first."
+TOOL_CALL_NAME = "read"
+TOOL_CALL_ARGS = {"path": "hello.py"}
+TOOL_RESULT = 'print("hello, world")\n'
+TOOL_RESULT_2 = "second result: 7 files\n"
+TOOL_CASES = [
+    ("tools: system+user, think on", 2),
+    ("tools: +assistant reasoning and one tool call, think on", 3),
+    ("tools: +tool message, think on", 4),
+    ("tools: +two tool messages, one user turn, think on", 5),
+]
+
 # the generation prompt alone, as the template's last block writes it
 PREFIXES = [
     ("assistant prefix, think on", True, "<|im_start|>assistant\n"),
@@ -97,6 +187,39 @@ def main(snap):
     for j, (name, think, text) in enumerate(PREFIXES):
         p("    {%s, %s, (int)(sizeof(fx_prefix_ids_%d) / sizeof(int)), fx_prefix_ids_%d},"
           % (cstr(name), "true" if think else "false", j, j))
+    p("};")
+
+    # the tool-bearing shapes: inputs, the template's exact text, and the tokenizer's ids for it
+    def lines(text):
+        parts = text.split("\n")
+        pieces = [x + "\n" for x in parts[:-1]] + ([parts[-1]] if parts[-1] else [])
+        return "\n".join("    " + cstr(x) for x in pieces) or '    ""'
+
+    p("static const char fx_tool_system[] = %s;" % cstr(TOOL_SYSTEM))
+    p("static const char fx_tool_user[] = %s;" % cstr(TOOL_USER))
+    p("static const char fx_tool_reasoning[] = %s;" % cstr(TOOL_REASONING))
+    p("static const char fx_tool_call_name[] = %s;" % cstr(TOOL_CALL_NAME))
+    p("static const char fx_tool_call_args[] = %s;" % cstr(json.dumps(TOOL_CALL_ARGS, ensure_ascii=False)))
+    p("static const char fx_tool_result[] = %s;" % cstr(TOOL_RESULT))
+    p("static const char fx_tool_result_2[] = %s;" % cstr(TOOL_RESULT_2))
+    for i, (name, nmsg) in enumerate(TOOL_CASES):
+        messages = [{"role": "system", "content": TOOL_SYSTEM},
+                    {"role": "user", "content": TOOL_USER}]
+        if nmsg >= 3:
+            messages.append({"role": "assistant", "content": "", "reasoning_content": TOOL_REASONING,
+                             "tool_calls": [{"type": "function", "function": {
+                                 "name": TOOL_CALL_NAME, "arguments": TOOL_CALL_ARGS}}]})
+        if nmsg >= 4:
+            messages.append({"role": "tool", "content": TOOL_RESULT})
+        if nmsg >= 5:
+            messages.append({"role": "tool", "content": TOOL_RESULT_2})
+        text = tpl.render(messages=messages, tools=TOOLS, add_generation_prompt=True)
+        p("static const char fx_tool_text_%d[] =\n%s;" % (i, lines(text)))
+        p("static const int fx_tool_ids_%d[] = {%s};" % (i, ", ".join(map(str, ids(text)))))
+    p("static const fx_tool_case fx_tool_cases[] = {")
+    for i, (name, nmsg) in enumerate(TOOL_CASES):
+        p("    {%s, %d, fx_tool_text_%d, (int)(sizeof(fx_tool_ids_%d) / sizeof(int)), fx_tool_ids_%d},"
+          % (cstr(name), nmsg, i, i, i))
     p("};")
     print("\n".join(out))
 

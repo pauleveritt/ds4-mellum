@@ -10,7 +10,9 @@
 typedef struct { const char *role, *content; } fx_msg;
 typedef struct { const char *name; bool think; int nmsg; const fx_msg *msgs; int nids; const int *ids; } fx_case;
 typedef struct { const char *name; bool think; int nids; const int *ids; } fx_prefix;
+typedef struct { const char *name; int nmsg; const char *text; int nids; const int *ids; } fx_tool_case;
 #include "mellum_chat_ids.inc"
+#include "mellum_tool_text.h"
 
 #define CHECK(c) do { if (!(c)) { fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #c); exit(1); } } while (0)
 
@@ -765,6 +767,10 @@ static void check_mellum_chat_tiny(void) {
         CHECK(ds4_chat_append_multimodal_message(&e, &got, "tool", parts, NULL, 0, NULL, err, sizeof(err)) == 1);
         expect_ids("tiny: tool message, multimodal path", &got, want.v, want.len);
     }
+    /* the system turn's text is the template's: the tools block's <tool_call> is token 29 */
+    got.len = 0;
+    ds4_chat_append_message(&e, &got, "system", "call <tool_call> here");
+    CHECK(count_id(&got, 29) == 1);
     {   /* ds4_chat_append_tool_results: one result is that same turn; no results, or a NULL
          * one, is refused and appends nothing */
         const char *one[] = {"42 files"}, *holed[] = {"42 files", NULL};
@@ -792,6 +798,10 @@ static void check_mellum_chat_tiny(void) {
     ds4_tokens_push(&want, 27); push_bytes(&want, "assistant\n"); ds4_tokens_push(&want, 23); push_bytes(&want, "\n");
     ds4_chat_append_assistant_prefix(&e, &got, DS4_THINK_HIGH);
     expect_ids("tiny: Flash Next think-on prefix", &got, want.v, want.len);
+    /* sibling: Flash Next's system text stays plain */
+    got.len = 0;
+    ds4_chat_append_message(&e, &got, "system", "call <tool_call> here");
+    CHECK(count_id(&got, 29) == 0);
     /* sibling: Flash Next's tool message keeps its wrapper as plain text */
     got.len = 0;
     ds4_chat_append_message(&e, &got, "tool", "42 files");
@@ -811,6 +821,65 @@ static void check_mellum_chat_tiny(void) {
     model_close(&m);
     unlink(path);
     printf("ok   chat (tiny vocabulary): prefix arms, no effort turn, tool turn; Flash Next keeps its prefix and tool text\n");
+}
+
+static void text_cat(char **buf, size_t *len, const char *s) {
+    size_t k = strlen(s);
+    *buf = realloc(*buf, *len + k + 1);
+    CHECK(*buf != NULL);
+    memcpy(*buf + *len, s, k + 1);
+    *len += k;
+}
+
+/* The tool-bearing shapes: Pi's four tools in the system turn, an assistant turn with reasoning
+ * and one call, tool results.  Two checks per shape: the text mellum_tool_text.h builds equals
+ * what jinja2 rendered, and the engine's renderer gives the ids the tokenizer gives that text. */
+static void check_mellum_tool_renders(ds4_engine *e) {
+    for (size_t i = 0; i < N_OF(fx_tool_cases); i++) {
+        const fx_tool_case *tc = &fx_tool_cases[i];
+        char *sys = mtt_system_text(fx_tool_system);
+        char *asst = tc->nmsg >= 3 ? mtt_assistant_text(fx_tool_reasoning, fx_tool_call_name, fx_tool_call_args) : NULL;
+        char *text = NULL;
+        size_t tlen = 0;
+        text_cat(&text, &tlen, "<|im_start|>system\n");
+        text_cat(&text, &tlen, sys);
+        text_cat(&text, &tlen, "<|im_end|>\n<|im_start|>user\n");
+        text_cat(&text, &tlen, fx_tool_user);
+        text_cat(&text, &tlen, "<|im_end|>\n");
+        if (asst) {
+            text_cat(&text, &tlen, "<|im_start|>assistant\n");
+            text_cat(&text, &tlen, asst);
+            text_cat(&text, &tlen, "<|im_end|>\n");
+        }
+        if (tc->nmsg >= 4) {
+            text_cat(&text, &tlen, "<|im_start|>user\n<tool_response>\n");
+            text_cat(&text, &tlen, fx_tool_result);
+            text_cat(&text, &tlen, "\n</tool_response>");
+            if (tc->nmsg >= 5) {
+                text_cat(&text, &tlen, "\n<tool_response>\n");
+                text_cat(&text, &tlen, fx_tool_result_2);
+                text_cat(&text, &tlen, "\n</tool_response>");
+            }
+            text_cat(&text, &tlen, "<|im_end|>\n");
+        }
+        text_cat(&text, &tlen, "<|im_start|>assistant\n");
+        if (strcmp(text, tc->text) != 0) {
+            size_t k = 0;
+            while (text[k] && text[k] == tc->text[k]) k++;
+            fprintf(stderr, "FAIL %s: mellum_tool_text.h's text differs from jinja2's at byte %zu\n", tc->name, k);
+            exit(1);
+        }
+        ds4_tokens got = {0};
+        ds4_chat_append_message(e, &got, "system", sys);
+        ds4_chat_append_message(e, &got, "user", fx_tool_user);
+        if (asst) ds4_chat_append_message(e, &got, "assistant", asst);
+        const char *results[] = {fx_tool_result, fx_tool_result_2};
+        if (tc->nmsg >= 4) CHECK(ds4_chat_append_tool_results(e, &got, results, (size_t)tc->nmsg - 3) == 1);
+        ds4_chat_append_assistant_prefix(e, &got, DS4_THINK_HIGH);
+        expect_ids(tc->name, &got, tc->ids, tc->nids);
+        ds4_tokens_free(&got);
+        free(text); free(asst); free(sys);
+    }
 }
 
 /* The real GGUF: the renderer against ids from 2.1's own template (tests/gen_mellum_chat_ids.py). */
@@ -848,6 +917,7 @@ static void check_mellum_chat_model(const char *model_path) {
         expect_ids(fc->name, &got, fc->ids, fc->nids);
         ds4_tokens_free(&got);
     }
+    check_mellum_tool_renders(&e);
     {   /* the CLI -p path: system and prompt through encode_chat_prompt */
         ds4_tokens got = {0};
         ds4_encode_chat_prompt(&e, "You are a helpful assistant.", "Hello, world!", DS4_THINK_HIGH, &got);
@@ -859,7 +929,8 @@ static void check_mellum_chat_model(const char *model_path) {
     }
     vocab_free(&e.vocab);
     model_close(&m);
-    printf("ok   Mellum (real GGUF): %zu renders and 2 prefixes equal 2.1's template ids\n", N_OF(fx_cases));
+    printf("ok   Mellum (real GGUF): %zu renders, %zu with tools, and 2 prefixes equal 2.1's template ids\n",
+           N_OF(fx_cases), N_OF(fx_tool_cases));
 }
 
 /* The engine's one sampling call: Mellum's tuple (2.1's generation_config.json carries no
