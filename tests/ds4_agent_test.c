@@ -968,8 +968,10 @@ static void test_hermes_markers_inside_strings(void) {
     agent_dsml_parser p = hermes_parser();
     for (size_t i = 0; text[i]; i++) {
         agent_dsml_feed(&p, text + i, 1);
-        AGENT_TEST_ASSERT(p.state != AGENT_DSML_ERROR && p.calls.len == 0);
-        if (p.state == AGENT_DSML_ERROR || p.calls.len) break;
+        AGENT_TEST_ASSERT(p.state != AGENT_DSML_ERROR);
+        /* the call completes only with the final </tool_call>, never at one in the string */
+        AGENT_TEST_ASSERT(text[i + 1] ? p.calls.len == 0 : p.calls.len == 1);
+        if (p.state == AGENT_DSML_ERROR) break;
     }
     agent_dsml_finish(&p);
     AGENT_TEST_ASSERT(p.state == AGENT_DSML_DONE && p.calls.len == 1);
