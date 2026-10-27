@@ -70,6 +70,34 @@ class Compare(unittest.TestCase):
         b['p9'][3] = -20.0
         self.assertEqual(self.run_compare(base_rows(), b, False, tol=10)[0], 1)
 
+    def test_a_nan_in_an_earlier_reference_row_fails(self):
+        b = base_rows()
+        b['p0'][3] = float('nan')
+        for exact in (True, False):
+            rc, out = self.run_compare(base_rows(), b, exact)
+            self.assertEqual(rc, 1, out)
+            self.assertIn('not finite', out)
+
+    def test_a_non_finite_value_in_either_run_fails(self):
+        for side in ('a', 'b'):
+            for bad in (float('nan'), float('inf'), float('-inf')):
+                rows = base_rows()
+                rows['p5'][6] = bad
+                a, b = (rows, base_rows()) if side == 'a' else (base_rows(), rows)
+                for exact in (True, False):
+                    with self.subTest(side=side, value=bad, exact=exact):
+                        rc, out = self.run_compare(a, b, exact)
+                        self.assertEqual(rc, 1, out)
+                        self.assertIn('not finite', out)
+
+    def test_the_same_nan_in_both_runs_fails_although_byte_equal(self):
+        rows = base_rows()
+        rows['session'][2] = float('nan')
+        for exact in (True, False):
+            rc, out = self.run_compare(rows, rows, exact)
+            self.assertEqual(rc, 1, out)
+            self.assertIn('not finite', out)
+
 
 if __name__ == '__main__':
     unittest.main()
