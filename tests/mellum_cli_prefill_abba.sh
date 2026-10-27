@@ -19,7 +19,7 @@ mkdir -p "$OUT"
 state() {
     echo "$(date +%H:%M:%S) $(pmset -g batt | head -1 | sed 's/Now drawing from //')" \
          "powermode=$(pmset -g | awk '/powermode/{print $2}')" \
-         "$(pmset -g therm 2>&1 | tr '\n' ' ' | sed 's/Note: //g')"
+         "$(pmset -g therm 2>&1 | tr '\n' ' ' | sed 's/Note: //g; s/ *$//')"
 }
 
 # templated token count of a prompt file
