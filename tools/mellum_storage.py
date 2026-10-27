@@ -20,11 +20,16 @@ def main() -> None:
     index = commands.add_parser('index')
     index.add_argument('--model', type=Path, required=True)
     index.add_argument('--output', type=Path, required=True)
+    pack = commands.add_parser('pack')
+    pack.add_argument('--index', type=Path, required=True)
+    pack.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
     if args.command == 'index':
         value = index_tools.build_index(args.model)
         result = common.publication.publish(args.output, lambda stage: common.write_json(stage / 'index.json', value))
         print(result)
+    elif args.command == 'pack':
+        print(identity.sibling('mellum_expert_pack').pack(args.index, args.output))
 
 
 if __name__ == '__main__':
