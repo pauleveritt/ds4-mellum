@@ -796,6 +796,36 @@ static void check_pi_types(const char *dir) {
     puts("ok   agent: Pi's string arguments must be strings; another JSON type is refused before any write");
 }
 
+/* P6-R13: a call with "arguments" twice is read as json.loads reads it, the last one alone: its members are not merged
+ * with the earlier one's, so a last one without content writes nothing */
+static void check_pi_duplicate_arguments(const char *dir) {
+    char *f = pi_fixture(dir, "dup.txt", "as it was\n");
+    char *g = xmalloc(strlen(dir) + 16);
+    sprintf(g, "%s/dup2.txt", dir);
+    char call[2 * PATH_MAX + 200];
+    snprintf(call, sizeof(call), "{\"name\": \"write\", \"arguments\": {\"path\": \"%s\", \"content\": \"stale\"}, "
+             "\"arguments\": {\"path\": \"%s\"}}", f, g);
+    PI_EXPECT(pi_hermes_run(call), "write requires a content string.");
+    snprintf(call, sizeof(call), "{\"name\": \"write\", \"arguments\": \"{\\\"path\\\": \\\"%s\\\", \\\"content\\\": \\\"stale\\\"}\", "
+             "\"arguments\": {\"path\": \"%s\"}}", f, g);
+    PI_EXPECT(pi_hermes_run(call), "write requires a content string.");
+    CHECK(access(g, F_OK) != 0);
+    char *back = pi_slurp(f);
+    CHECK(!strcmp(back, "as it was\n"));
+    free(back);
+    /* the sibling: the last one, complete, is the call */
+    snprintf(call, sizeof(call), "{\"arguments\": {\"path\": \"%s\", \"content\": \"old\"}, "
+             "\"arguments\": {\"content\": \"new\", \"path\": \"%s\"}, \"name\": \"write\"}", g, f);
+    PI_EXPECT_PREFIX(pi_hermes_run(call), "Successfully wrote 3 bytes to ");
+    CHECK(access(g, F_OK) != 0);
+    back = pi_slurp(f);
+    CHECK(!strcmp(back, "new"));
+    free(back);
+    free(f);
+    free(g);
+    puts("ok   agent: a Mellum call's repeated arguments object replaces the earlier one, as json.loads reads it");
+}
+
 static void check_pi_tools(void) {
     char dir[] = "/tmp/ds4-mellum-pi-XXXXXX";
     CHECK(mkdtemp(dir) != NULL);
@@ -805,6 +835,7 @@ static void check_pi_tools(void) {
     check_pi_edit_fuzzy(dir);
     check_pi_nul(dir);
     check_pi_types(dir);
+    check_pi_duplicate_arguments(dir);
     check_pi_bash();
     check_pi_bash_deadline();
     check_pi_unknown();
