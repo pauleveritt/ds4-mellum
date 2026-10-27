@@ -1524,3 +1524,11 @@ tests/mellum_routes_gpu: tests/mellum_routes_gpu.o ds4_mellum_routes.c $(filter-
 .PHONY: test-mellum-routes-gpu
 test-mellum-routes-gpu: tests/mellum_routes_gpu
 	./tests/test_mellum_routes_gpu.sh
+
+# GPU-free recorder metadata core, explicitly C99.
+tests/test_mellum_profile: tests/test_mellum_profile.c ds4_mellum_profile.c ds4_mellum_profile.h
+	$(CC) $(filter-out -std=%,$(QUALITY_CFLAGS)) -std=c99 -I. -o $@ tests/test_mellum_profile.c ds4_mellum_profile.c
+
+.PHONY: test-mellum-profile
+test-mellum-profile: tests/test_mellum_profile
+	./tests/test_mellum_profile
