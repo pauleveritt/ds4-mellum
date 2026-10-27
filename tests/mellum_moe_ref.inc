@@ -83,3 +83,38 @@ static inline void mref_moe_row(const mref_weights *a, const float *x, mref_t *r
             r->out[o] += r->w[s] * mref_q8_dot(a->base + a->down + (e * MREF_E + o) * MREF_ROW_DOWN, mid, MREF_FF);
     }
 }
+
+/* The tiled expert GEMMs' staging (metal/qwen4.metal, kernel_qwen4_moe_mm_mid and _down): each Q8_0 weight as
+ * half(d * q), the input row and the SwiGLU output as half; the products are summed wider.  The router reads the
+ * row unstaged, so the selection and its weights are mref_moe_row's. */
+static inline double mref_q8_dot_staged(const uint8_t *row, const double *x_half, uint32_t n) {
+    double acc = 0.0;
+    for (uint32_t ib = 0; ib < n / 32u; ib++) {
+        const uint8_t *b = row + (uint64_t)ib * MREF_Q8_BLOCK_BYTES;
+        __fp16 h;
+        memcpy(&h, b, 2);
+        const float d = (float)h;
+        for (uint32_t j = 0; j < 32u; j++) {
+            const __fp16 w = (__fp16)(d * (float)(int8_t)b[2u + j]);
+            acc += (double)w * x_half[ib * 32u + j];
+        }
+    }
+    return acc;
+}
+
+static inline void mref_moe_row_staged(const mref_weights *a, const float *x, mref_t *r) {
+    mref_moe_row(a, x, r);   /* the selection and its weights */
+    double xh[MREF_E], mid[MREF_FF];
+    for (uint32_t i = 0; i < MREF_E; i++) xh[i] = (double)(__fp16)x[i];
+    for (uint32_t i = 0; i < MREF_E; i++) r->out[i] = 0.0;
+    for (uint32_t s = 0; s < MREF_USED; s++) {
+        const uint64_t e = (uint64_t)r->sel[s];
+        for (uint32_t f = 0; f < MREF_FF; f++) {
+            const double g = mref_q8_dot_staged(a->base + a->gate + (e * MREF_FF + f) * MREF_ROW_GATE, xh, MREF_E);
+            const double u = mref_q8_dot_staged(a->base + a->up + (e * MREF_FF + f) * MREF_ROW_GATE, xh, MREF_E);
+            mid[f] = (double)(__fp16)(float)(g / (1.0 + exp(-g)) * u);
+        }
+        for (uint32_t o = 0; o < MREF_E; o++)
+            r->out[o] += r->w[s] * mref_q8_dot_staged(a->base + a->down + (e * MREF_E + o) * MREF_ROW_DOWN, mid, MREF_FF);
+    }
+}

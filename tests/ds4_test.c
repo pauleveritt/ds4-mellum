@@ -760,6 +760,159 @@ static float test_mellum_frand(uint32_t *state) {
  * (T=1) equals row 0 of the 16 bit for bit; 64 rows take the tiled expert GEMMs (half-staged activations), which
  * must select the same experts and stay within MOE_TILED_TOL of the reference. */
 #define MOE_TILED_TOL 2e-3
+
+/* Real activations (review fix R7): the MoE input rows of a real prompt (tests/mellum_heldout_unicode.tokens, where
+ * the release prefill's router flips were found), read from the trace's ffn_in files at 64 positions, through
+ * layers 0, 6, 10, 13, 14 and 27 as 64 tiled rows and as four calls of 16 exact rows, against the double reference.
+ * A row must select the reference's experts in its order, unless the reference's own 8th and 9th router logits
+ * are within MOE_TIE_GAP: such a near-tie the f32 router may break either way, so it is counted, not failed.
+ * Where the selection agrees, the weights are held to the random-row test's tolerance, and the output to 1e-5 of
+ * the double reference for exact rows; tiled rows stage half operands, so theirs is held to MOE_STAGED_TOL of a
+ * reference that stages the same way (mref_moe_row_staged), and its distance from the unstaged one is printed. */
+#define MOE_TIE_GAP 1e-4
+#define MOE_STAGED_TOL 2.5e-4
+static bool test_mellum_read_tokens(const char *path, ds4_tokens *out) {
+    FILE *f = fopen(path, "r");
+    if (!f) return false;
+    char line[8192];
+    while (fgets(line, sizeof(line), f)) {
+        if (line[0] == '#') continue;
+        for (char *p = line, *end; *p; p = end) {
+            const long v = strtol(p, &end, 10);
+            if (end == p) { if (*p) end = p + 1; continue; }
+            ds4_tokens_push(out, (int)v);
+        }
+    }
+    fclose(f);
+    return out->len > 0;
+}
+
+static void test_mellum_moe_real_rows(ds4_engine *engine) {
+    enum { NPOS = 64, NL = 28 };
+    ds4_tokens toks = {0};
+    TEST_ASSERT(test_mellum_read_tokens("tests/mellum_heldout_unicode.tokens", &toks) && toks.len >= NPOS);
+    const char *tmp = getenv("TMPDIR");
+    char dir[512], prefix[600], at[1024] = "", path[700];
+    snprintf(dir, sizeof(dir), "%s/mellum-moe-rows.XXXXXX", tmp && tmp[0] ? tmp : "/tmp");
+    TEST_ASSERT(mkdtemp(dir) != NULL);
+    snprintf(prefix, sizeof(prefix), "%s/t", dir);
+    int pos[NPOS];
+    for (int i = 0; i < NPOS; i++) {
+        pos[i] = (int)lround((double)i * (toks.len - 1) / (NPOS - 1));
+        snprintf(at + strlen(at), sizeof(at) - strlen(at), "%s%d", i ? "," : "", pos[i]);
+    }
+    setenv("DS4_MELLUM_TRACE", prefix, 1);
+    setenv("DS4_MELLUM_TRACE_AT", at, 1);
+    ds4_session *s = NULL;
+    char err[256] = {0};
+    TEST_ASSERT(ds4_session_create(&s, engine, 2048) == 0 && s != NULL);
+    if (s) TEST_ASSERT(ds4_session_sync(s, &toks, err, sizeof(err)) == 0);
+    ds4_session_free(s);
+    unsetenv("DS4_MELLUM_TRACE");
+    unsetenv("DS4_MELLUM_TRACE_AT");
+    float *rows = malloc((size_t)NPOS * NL * MREF_E * sizeof(float));
+    float *x = malloc((size_t)NPOS * MREF_E * sizeof(float)), *out = malloc((size_t)NPOS * MREF_E * sizeof(float));
+    float *out1 = malloc(MREF_E * sizeof(float));
+    int32_t (*sel)[MREF_USED] = malloc(sizeof(int32_t[NPOS][MREF_USED]));
+    float (*w)[MREF_USED] = malloc(sizeof(float[NPOS][MREF_USED]));
+    mref_t *ref = malloc(sizeof(*ref));
+    TEST_ASSERT(rows && x && out && out1 && sel && w && ref);
+    for (int i = 0; rows && i < NPOS; i++) {
+        static const char *const what[] = {"hidden", "qk", "ffn_in", "logits"};
+        snprintf(path, sizeof(path), "%s.p%d.ffn_in.f32", prefix, pos[i]);
+        FILE *f = fopen(path, "rb");
+        TEST_ASSERT(f && fread(rows + (size_t)i * NL * MREF_E, sizeof(float), (size_t)NL * MREF_E, f) == (size_t)NL * MREF_E);
+        if (f) fclose(f);
+        for (int k = 0; k < 4; k++) {
+            snprintf(path, sizeof(path), "%s.p%d.%s.f32", prefix, pos[i], what[k]);
+            unlink(path);
+        }
+    }
+    snprintf(path, sizeof(path), "%s.session.logits.f32", prefix);
+    unlink(path);
+    rmdir(dir);
+    static const uint32_t layers[] = { 0, 6, 10, 13, 14, 27 };
+    for (int tiled = 1; tiled >= 0 && rows && x && out && out1 && sel && w && ref; tiled--) {
+        uint32_t near = 0, near_differ = 0, sel_bad = 0;
+        double worst_w = 0.0, worst_out = 0.0, min_gap = 1e30, worst_xmax = 0.0, unstaged = 0.0;
+        uint32_t worst_layer = 0;
+        int worst_pos = -1;
+        for (size_t li = 0; li < sizeof(layers) / sizeof(layers[0]); li++) {
+            const uint32_t il = layers[li];
+            mref_weights mw = { 0 };
+            const void *map = NULL;
+            TEST_ASSERT(ds4_test_mellum_moe_weights(engine, il, &map, &mw.router, &mw.gate, &mw.up, &mw.down));
+            mw.base = map;
+            if (!map) break;
+            for (int i = 0; i < NPOS; i++)
+                memcpy(x + (size_t)i * MREF_E, rows + ((size_t)i * NL + il) * MREF_E, MREF_E * sizeof(float));
+            const uint32_t T = tiled ? NPOS : 16u;
+            for (uint32_t r0 = 0; r0 < NPOS; r0 += T)
+                TEST_ASSERT(ds4_test_mellum_moe(engine, il, x + (size_t)r0 * MREF_E, T, out + (size_t)r0 * MREF_E, out1,
+                                                &sel[r0][0], &w[r0][0]));
+            const float *rw = (const float *)(mw.base + mw.router);
+            for (int r = 0; r < NPOS; r++) {
+                const float *xr = x + (size_t)r * MREF_E;
+                mref_moe_row(&mw, xr, ref);
+                double logit[MREF_NEXP];
+                for (uint32_t e = 0; e < MREF_NEXP; e++) {
+                    double acc = 0.0;
+                    for (uint32_t i = 0; i < MREF_E; i++) acc += (double)rw[(uint64_t)e * MREF_E + i] * xr[i];
+                    logit[e] = acc;
+                }
+                double l8 = 1e30, l9 = -1e30;   /* the reference's 8th logit, and the best one it left out */
+                bool chosen[MREF_NEXP] = { false };
+                for (uint32_t k = 0; k < MREF_USED; k++) { chosen[ref->sel[k]] = true; l8 = fmin(l8, logit[ref->sel[k]]); }
+                for (uint32_t e = 0; e < MREF_NEXP; e++) if (!chosen[e]) l9 = fmax(l9, logit[e]);
+                const double gap = l8 - l9;
+                bool same = true;
+                for (uint32_t k = 0; k < MREF_USED; k++) same = same && sel[r][k] == ref->sel[k];
+                if (gap < MOE_TIE_GAP) near++;
+                if (!same) {
+                    if (gap < MOE_TIE_GAP) near_differ++;
+                    else sel_bad++;
+                    min_gap = fmin(min_gap, gap);
+                    continue;
+                }
+                if (tiled) {   /* the staging's cost on real rows, measured against the unstaged reference */
+                    double sc = 1e-30, e = 0.0;
+                    for (uint32_t i = 0; i < MREF_E; i++) sc = fmax(sc, fabs(ref->out[i]));
+                    for (uint32_t i = 0; i < MREF_E; i++) e = fmax(e, fabs((double)out[(size_t)r * MREF_E + i] - ref->out[i]));
+                    unstaged = fmax(unstaged, isfinite(e) ? e / sc : 1e30);
+                    mref_moe_row_staged(&mw, xr, ref);
+                }
+                double scale = 1e-30, d = 0.0;
+                for (uint32_t i = 0; i < MREF_E; i++) scale = fmax(scale, fabs(ref->out[i]));
+                for (uint32_t i = 0; i < MREF_E; i++) {
+                    const double e = fabs((double)out[(size_t)r * MREF_E + i] - ref->out[i]);
+                    d = isfinite(e) ? fmax(d, e) : 1e30;
+                }
+                if (d / scale > worst_out) {
+                    worst_out = d / scale;
+                    worst_layer = il;
+                    worst_pos = pos[r];
+                    worst_xmax = 0.0;
+                    for (uint32_t i = 0; i < MREF_E; i++) worst_xmax = fmax(worst_xmax, fabs((double)xr[i]));
+                }
+                for (uint32_t k = 0; k < MREF_USED; k++) worst_w = fmax(worst_w, fabs((double)w[r][k] - ref->w[k]));
+            }
+        }
+        printf("mellum-moe: real rows (%s, %d positions of a Unicode prompt x layers 0/6/10/13/14/27) vs double: "
+               "%u near-ties (8th/9th logit gap < %g), %u of them selected differently; %u other selections differ; "
+               "where the selection agrees, weights %.2e, output %.2e%s (layer %u, position %d, max |x| %.1f)\n",
+               tiled ? "64 tiled rows" : "16 exact rows", NPOS, near, MOE_TIE_GAP, near_differ, sel_bad, worst_w,
+               worst_out, tiled ? " against the staged reference" : "", worst_layer, worst_pos, worst_xmax);
+        if (tiled) printf("mellum-moe: real rows, 64 tiled rows against the unstaged reference: output %.2e (the "
+                          "half staging's cost)\n", unstaged);
+        if (sel_bad) printf("mellum-moe: the smallest gap among differing selections: %.3e\n", min_gap);
+        TEST_ASSERT(sel_bad == 0);
+        TEST_ASSERT(worst_w <= 2.5e-6);
+        TEST_ASSERT(worst_out <= (tiled ? MOE_STAGED_TOL : 1e-5));
+    }
+    free(rows); free(x); free(out); free(out1); free(sel); free(w); free(ref);
+    ds4_tokens_free(&toks);
+}
+
 static void test_mellum_moe_real(void) {
     const char *model = getenv("DS4_TEST_MELLUM_MODEL");
     if (!model || !model[0]) {
@@ -824,6 +977,7 @@ static void test_mellum_moe_real(void) {
         else TEST_ASSERT(row0_diff > 0);   /* the tiled path is not the decode arithmetic */
     }
     free(x); free(out); free(out1); free(ref);
+    test_mellum_moe_real_rows(engine);
     ds4_engine_close(engine);
 }
 #else
