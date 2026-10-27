@@ -1,8 +1,14 @@
 #!/usr/bin/env python3
 """Convert complete native Mellum routing spools without using a model or GPU."""
-from dataclasses import dataclass
+from copy import deepcopy
+from dataclasses import asdict, dataclass
+from functools import cache
 import hashlib
+import importlib.util
+import json
+from pathlib import Path
 import struct
+import sys
 from typing import BinaryIO
 
 U64_MAX = 2**64 - 1
@@ -116,3 +122,74 @@ class SpoolReader:
         return dict(cap_tokens=self.cap_tokens, forwards=self.forwards, positions=self.positions,
                     first_position=self.first_position, last_position=self.next_position - 1,
                     spool_sha256=self.spool_hash.hexdigest(), token_stream_sha256=self.token_hash.hexdigest())
+
+
+@cache
+def replay_module():
+    # Explicit sibling loading keeps isolated (-I) CLI execution independent of cwd.
+    spec = importlib.util.spec_from_file_location("mellum_capture_replay", Path(__file__).with_name("mellum_ssd_replay.py"))
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def read_metadata(path: Path) -> tuple[dict, dict[int, str], dict[int, str]]:
+    try:
+        with path.open("rb") as source:
+            raw = source.read(2**20 + 1)
+        if len(raw) > 2**20:
+            raise RouteCaptureError("metadata exceeds 1 MiB")
+        replay = replay_module()
+        data = replay.parse_object(raw.decode("utf-8"), 1)
+        header = replay.object_value(data.get("header"), 1, "header")
+        catalogs = []
+        for name in ("segments", "execution_profiles"):
+            catalog = replay.object_value(data.get(name), 1, name)
+            if not catalog:
+                raise RouteCaptureError(f"{name} must not be empty")
+            parsed = {}
+            for key, value in catalog.items():
+                if (not key.isascii() or not key.isdigit() or len(key) > 10 or
+                    int(key) > 2**32 - 1 or str(int(key)) != key):
+                    raise RouteCaptureError(f"{name} keys must be canonical decimal u32 IDs")
+                if not isinstance(value, str) or not value.strip():
+                    raise RouteCaptureError(f"{name}[{key}] must be a nonempty string")
+                parsed[int(key)] = value
+            catalogs.append(parsed)
+        return header, catalogs[0], catalogs[1]
+    except (ValueError, RecursionError) as exc:
+        raise RouteCaptureError(f"invalid metadata: {exc}") from exc
+
+
+def _computed(parent: dict, key: str, value: object) -> None:
+    # JSON comparison distinguishes true from 1, including within extension objects.
+    if key in parent and json.dumps(parent[key], sort_keys=True, allow_nan=False) != json.dumps(value, sort_keys=True, allow_nan=False):
+        raise RouteCaptureError(f"computed {key} conflicts with native spool")
+    parent[key] = value
+
+
+def complete_metadata(header: dict, summary: dict, profiles: dict[int, str],
+                      profile_counts: dict[int, int]) -> dict:
+    try:
+        replay = replay_module()
+        result = deepcopy(header)
+        if type(result.get("schema_version")) is not int or result["schema_version"] != 2:
+            raise RouteCaptureError("schema_version must be 2")
+        manifest = replay.object_value(result.get("capture_manifest"), 1, "capture_manifest")
+        artifacts = replay.object_value(manifest.get("artifacts"), 1, "capture_manifest.artifacts")
+        execution = replay.object_value(manifest.get("execution"), 1, "capture_manifest.execution")
+        _computed(result, "geometry", asdict(replay.MELLUM))
+        _computed(manifest, "complete", True)
+        _computed(manifest, "extent", {key: summary[key] for key in ("forwards", "positions", "first_position", "last_position")})
+        _computed(artifacts, "token_stream_sha256", summary["token_stream_sha256"])
+        _computed(execution, "effective_kernel", "native-profile-catalog")
+        _computed(execution, "route_capture", {
+            "spool_sha256": summary["spool_sha256"], "cap_tokens": summary["cap_tokens"],
+            "profiles": {str(key): profiles[key] for key in sorted(profile_counts)},
+            "profile_forward_counts": {str(key): profile_counts[key] for key in sorted(profile_counts)},
+        })
+        replay.parse_header(result)
+        return result
+    except (ValueError, RecursionError) as exc:
+        raise RouteCaptureError(f"invalid metadata: {exc}") from exc
