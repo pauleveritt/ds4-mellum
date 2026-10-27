@@ -604,6 +604,31 @@ static void check_pi_bash(void) {
     puts("ok   agent: Pi's bash for Mellum (merged output, Pi's status lines, timeout, the tail cut)");
 }
 
+/* P6-R11: as Pi's bash.js, a command without a timeout has no deadline (0), however long it runs; an explicit positive
+ * timeout is rounded up to whole seconds, capped at a day, and ends the job once that much time has passed.  The time
+ * is given, not waited for (the "sleep 5" run above is the explicit timeout end to end) */
+static int pi_timeout_of(const char *v) {
+    agent_tool_call c = {.name = xstrdup("bash")};
+    agent_tool_call_add_arg_owned(&c, "command", xstrdup("true"), true);
+    if (v) agent_tool_call_add_arg_owned(&c, "timeout", xstrdup(v), false);
+    const int t = pi_bash_timeout(&c);
+    agent_tool_call_free(&c);
+    return t;
+}
+
+static void check_pi_bash_deadline(void) {
+    CHECK(pi_timeout_of(NULL) == 0);
+    CHECK(pi_timeout_of("0") == 0 && pi_timeout_of("-4") == 0);
+    CHECK(!agent_bash_deadline_passed(pi_timeout_of(NULL), 121.0));
+    CHECK(!agent_bash_deadline_passed(pi_timeout_of(NULL), 7.0 * 24 * 3600));
+    /* the siblings: an explicit timeout still ends the job */
+    CHECK(pi_timeout_of("1") == 1 && pi_timeout_of("2.5") == 3 && pi_timeout_of("1e9") == 24 * 3600);
+    CHECK(!agent_bash_deadline_passed(pi_timeout_of("2.5"), 2.9));
+    CHECK(agent_bash_deadline_passed(pi_timeout_of("2.5"), 3.0));
+    CHECK(agent_bash_deadline_passed(pi_timeout_of("200"), 200.5));
+    puts("ok   agent: Pi's bash has no deadline without a timeout; an explicit one still ends the job");
+}
+
 /* the four are all a Mellum engine is offered: any other name, the agent's own tools included, gets the answer Pi's
  * agent loop gives (pi-agent-core, agent-loop.js) */
 static void check_pi_unknown(void) {
@@ -781,6 +806,7 @@ static void check_pi_tools(void) {
     check_pi_nul(dir);
     check_pi_types(dir);
     check_pi_bash();
+    check_pi_bash_deadline();
     check_pi_unknown();
     char cmd[PATH_MAX + 16];
     snprintf(cmd, sizeof(cmd), "rm -rf %s", dir);
