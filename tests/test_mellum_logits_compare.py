@@ -30,6 +30,11 @@ def base_rows():
     return rows
 
 
+def three_way(*p):
+    """logits whose softmax is p"""
+    return [math.log(x) for x in p]
+
+
 def two_way(p):
     """logits whose softmax is (p, 1 - p)"""
     return [math.log(p), math.log(1 - p)]
@@ -44,11 +49,12 @@ class Compare(unittest.TestCase):
     def tearDown(self):
         self.dir.cleanup()
 
-    def run_compare(self, a_rows, b_rows, exact, tol=10, kltol=0.01, klmax=100, dlogp=100, positions=POSITIONS):
+    def run_compare(self, a_rows, b_rows, exact, tol=10, kltol=0.01, klmax=100, dlogp=100, positions=POSITIONS,
+                    neartie=0):
         write_run(self.a, a_rows)
         write_run(self.b, b_rows)
         r = subprocess.run([sys.executable, '-I', str(SCRIPT), self.a, self.b, ','.join(map(str, positions)),
-                            '1' if exact else '0', str(tol), str(kltol), str(klmax), str(dlogp)],
+                            '1' if exact else '0', str(tol), str(kltol), str(klmax), str(dlogp), str(neartie)],
                            capture_output=True, text=True)
         return r.returncode, r.stdout
 
@@ -139,6 +145,38 @@ class Compare(unittest.TestCase):
         rc, out = self.run_compare(cand, ref, False, kltol=0.01)
         self.assertEqual(rc, 0, out)
         self.assertIn('mean KL 8.25e-03', out)
+
+
+    def near_tie_rows(self, ref_p, cand_p):
+        ref = {'p%d' % p: three_way(0.6, 0.3, 0.1) for p in POSITIONS}
+        ref['session'] = three_way(0.6, 0.3, 0.1)
+        cand = {k: list(v) for k, v in ref.items()}
+        ref['p5'], cand['p5'] = three_way(*ref_p), three_way(*cand_p)
+        return cand, ref
+
+    def test_a_top1_change_at_a_near_tie_passes(self):
+        # the reference's top two are 0.12 nats apart (0.45 / 0.40); the candidate swaps them
+        cand, ref = self.near_tie_rows((0.45, 0.40, 0.15), (0.40, 0.45, 0.15))
+        rc, out = self.run_compare(cand, ref, False, neartie=0.75)
+        self.assertEqual(rc, 0, out)
+        self.assertIn('top-1 agree 3/4 (1 change at a near-tie)', out)
+
+    def test_the_same_change_fails_under_a_narrower_margin(self):
+        cand, ref = self.near_tie_rows((0.45, 0.40, 0.15), (0.40, 0.45, 0.15))
+        rc, out = self.run_compare(cand, ref, False, neartie=0.05)
+        self.assertEqual(rc, 1, out)
+
+    def test_a_top1_change_at_a_wide_margin_fails(self):
+        # the reference's top two are 1.25 nats apart (0.7 / 0.2): a change there is not a near-tie, whatever the caps
+        cand, ref = self.near_tie_rows((0.7, 0.2, 0.1), (0.2, 0.7, 0.1))
+        rc, out = self.run_compare(cand, ref, False, neartie=0.75)
+        self.assertEqual(rc, 1, out)
+        self.assertIn('top-1 agree 3/4 (0 changes at a near-tie)', out)
+
+    def test_a_near_tie_change_still_meets_the_caps(self):
+        cand, ref = self.near_tie_rows((0.45, 0.40, 0.15), (0.40, 0.45, 0.15))
+        self.assertEqual(self.run_compare(cand, ref, False, neartie=0.75, klmax=1e-4)[0], 1)
+        self.assertEqual(self.run_compare(cand, ref, False, neartie=0.75, dlogp=0.05)[0], 1)
 
 
 if __name__ == '__main__':
