@@ -9,8 +9,9 @@ numbered checkpoints. This roadmap tracks the separate SSD investigation.
 - CPU replay preparation: implemented on `codex/mellum-ssd-replay`; 33
   synthetic replay tests and the model-free Mellum suite pass.
 - First diagnostic resident routing captures now pass on an M5 Max / 128 GiB
-  laptop. No Mellum SSD inference or storage benchmark has been performed.
-  Physical 8 GB feasibility is unresolved.
+  laptop. The bounded CPU warm-read batch is complete; physical SSD traffic
+  remains unverified. No Mellum SSD inference has run, and physical 8 GB
+  feasibility is unresolved.
 - This branch retains the Checkpoint 3.6 baseline. The separate `mellum`
   checkout has advanced to `f635616` with frontend work; this SSD branch does
   not integrate or change it. SSD phases keep their own numbering.
@@ -103,7 +104,10 @@ preserves all nine tracked files at the pinned commit. The
 now includes checked original ranges, an exact 11.79 GB packed payload and all
 72 bounded native runs. Packed warm reads were 14–30% faster, but both cache
 labels produced 29–78 GB/s; physical SSD traffic remains unverified. No generated
-representative cohort or streamed inference has run. The first proposed task is Phase 1 only;
+representative cohort or streamed inference has run. The next
+[device-observation proposal](docs/superpowers/specs/2026-10-27-mellum-device-observation-design.md)
+brackets four CPU read runs with mapped block-driver counters and idle controls;
+it awaits approval and has not run. The first proposed task is Phase 1 only;
 later phases require their own requests and prior-phase checkpoints.
 
 Collect the frozen workload matrix on this development laptop. Replay warm,
