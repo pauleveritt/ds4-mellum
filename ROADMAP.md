@@ -107,7 +107,8 @@ labels produced 29–78 GB/s; physical SSD traffic remains unverified. No genera
 representative cohort or streamed inference has run. The next
 [device-observation proposal](docs/superpowers/specs/2026-10-27-mellum-device-observation-design.md)
 brackets four CPU read runs with mapped block-driver counters and idle controls;
-it awaits approval and has not run. The first proposed task is Phase 1 only;
+the design is approved, its [implementation plan](docs/superpowers/plans/2026-10-27-mellum-device-observation.md)
+awaits review, and it has not run. The first proposed task is Phase 1 only;
 later phases require their own requests and prior-phase checkpoints.
 
 Collect the frozen workload matrix on this development laptop. Replay warm,

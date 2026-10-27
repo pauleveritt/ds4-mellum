@@ -1,6 +1,8 @@
 # Mellum S3a follow-up: observe block-device reads
 
-Date: 2026-10-27. Status: proposed; independent builder check complete, awaiting user approval.
+Date: 2026-10-27. Status: approved by the user’s “proceed” after `9110b9c`; independent builder
+check complete. The [implementation plan](../plans/2026-10-27-mellum-device-observation.md)
+awaits user review; implementation and execution have not started.
 Baseline: `5f59171`, branch `codex/mellum-ssd-replay`, existing worktree.
 [Research](../research/2026-10-27-mellum-device-observation.md) supplies primary
 sources; [S3a evidence](../research/2026-10-27-mellum-storage-evidence.md)
