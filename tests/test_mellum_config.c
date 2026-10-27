@@ -776,6 +776,16 @@ static void check_mellum_chat_tiny(void) {
         CHECK(ds4_chat_append_tool_results(&e, &got, holed, 2) == 0 && got.len == 0);
         CHECK(ds4_chat_append_tool_results(&e, &got, NULL, 1) == 0 && got.len == 0);
     }
+    {   /* two results are one user turn, a <tool_response> block each */
+        const char *two[] = {"42 files", "7 dirs"};
+        want.len = got.len = 0;
+        ds4_tokens_push(&want, 27); push_bytes(&want, "user\n"); ds4_tokens_push(&want, 31);
+        push_bytes(&want, "\n42 files\n"); ds4_tokens_push(&want, 32); push_bytes(&want, "\n");
+        ds4_tokens_push(&want, 31); push_bytes(&want, "\n7 dirs\n"); ds4_tokens_push(&want, 32);
+        ds4_tokens_push(&want, 28); push_bytes(&want, "\n");
+        CHECK(ds4_chat_append_tool_results(&e, &got, two, 2) == 1);
+        expect_ids("tiny: two tool results", &got, want.v, want.len);
+    }
     /* sibling: Flash Next keeps its own prefix (<think> and a newline when thinking) */
     g_ds4_shape = DS4_SHAPE_QWEN4_EXP;
     want.len = got.len = 0;
@@ -821,7 +831,19 @@ static void check_mellum_chat_model(const char *model_path) {
     for (size_t i = 0; i < N_OF(fx_cases); i++) {
         const fx_case *fc = &fx_cases[i];
         ds4_tokens got = {0};
-        for (int j = 0; j < fc->nmsg; j++) ds4_chat_append_message(&e, &got, fc->msgs[j].role, fc->msgs[j].content);
+        for (int j = 0; j < fc->nmsg; j++) {
+            if (strcmp(fc->msgs[j].role, "tool")) {
+                ds4_chat_append_message(&e, &got, fc->msgs[j].role, fc->msgs[j].content);
+                continue;
+            }
+            /* a run of tool messages is one turn's results */
+            const char *parts[8];
+            size_t n = 0;
+            while (j < fc->nmsg && !strcmp(fc->msgs[j].role, "tool") && n < N_OF(parts))
+                parts[n++] = fc->msgs[j++].content;
+            j--;
+            CHECK(ds4_chat_append_tool_results(&e, &got, parts, n) == 1);
+        }
         ds4_chat_append_assistant_prefix(&e, &got, fc->think ? DS4_THINK_HIGH : DS4_THINK_NONE);
         expect_ids(fc->name, &got, fc->ids, fc->nids);
         ds4_tokens_free(&got);

@@ -38,6 +38,10 @@ CASES = [
      [("system", "You are a coding agent."), ("user", "How many files are here?"),
       ("assistant", "Let me check."), ("tool", "42 files\nin 3 directories")]),
     ("tool only, think on", True, [("tool", "42 files")]),
+    # consecutive tool messages share one user turn, a <tool_response> block each
+    ("user, assistant, two tool messages, think on", True,
+     [("user", "Count files and directories."), ("assistant", "Let me check."),
+      ("tool", "42 files"), ("tool", "7 directories")]),
 ]
 # the generation prompt alone, as the template's last block writes it
 PREFIXES = [

@@ -27,6 +27,13 @@ static const fx_msg fx_msgs_4[] = {
     {"tool", "42 files"},
 };
 static const int fx_ids_4[] = {27, 1397, 233, 31, 233, 54, 52, 2617, 233, 32, 28, 233, 27, 8091, 233};
+static const fx_msg fx_msgs_5[] = {
+    {"user", "Count files and directories."},
+    {"assistant", "Let me check."},
+    {"tool", "42 files"},
+    {"tool", "7 directories"},
+};
+static const int fx_ids_5[] = {27, 1397, 233, 2798, 2617, 335, 15701, 48, 28, 233, 27, 8091, 233, 3616, 776, 1483, 48, 28, 233, 27, 1397, 233, 31, 233, 54, 52, 2617, 233, 32, 233, 31, 233, 57, 15701, 233, 32, 28, 233, 27, 8091, 233};
 static const int fx_prefix_ids_0[] = {27, 8091, 233};
 static const int fx_prefix_ids_1[] = {27, 8091, 233, 23, 233, 233, 24, 233, 233};
 static const fx_case fx_cases[] = {
@@ -35,6 +42,7 @@ static const fx_case fx_cases[] = {
     {"user only, think on", true, 1, fx_msgs_2, (int)(sizeof(fx_ids_2) / sizeof(int)), fx_ids_2},
     {"system, user, assistant, tool, think on", true, 4, fx_msgs_3, (int)(sizeof(fx_ids_3) / sizeof(int)), fx_ids_3},
     {"tool only, think on", true, 1, fx_msgs_4, (int)(sizeof(fx_ids_4) / sizeof(int)), fx_ids_4},
+    {"user, assistant, two tool messages, think on", true, 4, fx_msgs_5, (int)(sizeof(fx_ids_5) / sizeof(int)), fx_ids_5},
 };
 static const fx_prefix fx_prefixes[] = {
     {"assistant prefix, think on", true, (int)(sizeof(fx_prefix_ids_0) / sizeof(int)), fx_prefix_ids_0},
