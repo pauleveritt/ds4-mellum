@@ -771,6 +771,16 @@ static void check_mellum_chat_tiny(void) {
     got.len = 0;
     ds4_chat_append_message(&e, &got, "system", "call <tool_call> here");
     CHECK(count_id(&got, 29) == 1);
+    {   /* the CLI's -sys path renders the system turn the same way */
+        ds4_tokens each = {0};
+        ds4_chat_append_message(&e, &each, "system", "call <tool_call> here");
+        ds4_chat_append_message(&e, &each, "user", "hi");
+        ds4_chat_append_assistant_prefix(&e, &each, DS4_THINK_HIGH);
+        got.len = 0;
+        ds4_encode_chat_prompt(&e, "call <tool_call> here", "hi", DS4_THINK_HIGH, &got);
+        expect_ids("tiny: encode_chat_prompt with a system prompt", &got, each.v, each.len);
+        ds4_tokens_free(&each);
+    }
     {   /* ds4_chat_append_tool_results: one result is that same turn; no results, or a NULL
          * one, is refused and appends nothing */
         const char *one[] = {"42 files"}, *holed[] = {"42 files", NULL};
