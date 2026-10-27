@@ -13089,6 +13089,21 @@ static char *build_responses_visible_assistant_suffix(const request *r,
  * Instead, remember the visible bytes as a key for the current sampled frontier.
  * The next request can then continue from live KV while tokenizing only the new
  * visible suffix. */
+/* The visible transcript a Responses turn is remembered under: the prompt and the turn as the
+ * next request may replay it. */
+static char *server_responses_visible_key(server *s, server_slot *slot, const request *r,
+                                          const char *content, const char *reasoning,
+                                          const tool_calls *calls) {
+    (void)s;
+    (void)slot;
+    char *suffix = build_responses_visible_assistant_suffix(r, content, reasoning, calls);
+    buf visible = {0};
+    buf_puts(&visible, r && r->prompt_text ? r->prompt_text : "");
+    buf_puts(&visible, suffix ? suffix : "");
+    free(suffix);
+    return visible.ptr ? buf_take(&visible) : xstrdup("");
+}
+
 static char *build_thinking_visible_text(const request *r,
                                          const char *content) {
     if (!r || !r->prompt_text) return NULL;
@@ -14796,18 +14811,12 @@ decode_again:
              * frontier.  The next Responses request may replay only this
              * visible surface, while the real session also contains hidden
              * reasoning and exact sampled tool-call bytes. */
-            char *visible_suffix =
-                build_responses_visible_assistant_suffix(&j->req,
-                    parsed_content ? parsed_content : "",
-                    parsed_reasoning,
-                    &parsed_calls);
-            buf visible = {0};
-            buf_puts(&visible, j->req.prompt_text ? j->req.prompt_text : "");
-            buf_puts(&visible, visible_suffix ? visible_suffix : "");
-            responses_live_remember(s, slot, visible.ptr ? visible.ptr : "",
+            char *visible = server_responses_visible_key(s, slot, &j->req,
+                                                         parsed_content ? parsed_content : "",
+                                                         parsed_reasoning, &parsed_calls);
+            responses_live_remember(s, slot, visible ? visible : "",
                                     parsed_calls.len ? &parsed_calls : NULL, &j->req);
-            buf_free(&visible);
-            free(visible_suffix);
+            free(visible);
         } else {
             responses_live_clear(s, slot);
         }
