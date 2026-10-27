@@ -14741,6 +14741,13 @@ static int agent_read_stdin_available(agent_input_buf *in, bool *eof) {
     }
 }
 
+/* The exit status of a headless run that left its loop with rc (step 38; a stub until its fix). */
+static int agent_noninteractive_exit_code(agent_worker *w, int rc, FILE *err) {
+    (void)w;
+    (void)err;
+    return rc;
+}
+
 /* Headless mode is intentionally just another front-end for the same worker.
  * With -p/--prompt it is a one-shot execution.  Without -p it becomes a small
  * stdin protocol: announce readiness on stderr, collect bytes until stdin has

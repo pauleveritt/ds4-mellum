@@ -1503,6 +1503,56 @@ static int test_full_context_save(const char *model) {
     return agent_test_failures ? 1 : 0;
 }
 
+/* A headless run ends when the worker is idle, and worker_is_idle counts AGENT_WORKER_ERROR as
+ * idle.  The loop's status snapshot is taken earlier in the iteration, so an abnormal end that
+ * lands between the snapshot and the idle check must still exit 1 with the error on stderr
+ * (the old port's ladder run2 r4s2 exited 0 with no line; r5s2 and r5s3, the same cut, exited 1).
+ * Step 38. */
+static void test_noninteractive_exit_after_late_error(void) {
+    agent_worker w;
+    memset(&w, 0, sizeof(w));
+    AGENT_TEST_ASSERT(pthread_mutex_init(&w.mu, NULL) == 0);
+    AGENT_TEST_ASSERT(pipe(w.wake_fd) == 0);
+    w.initialized = true;
+    w.status.state = AGENT_WORKER_GENERATING;
+
+    pthread_mutex_lock(&w.mu);
+    agent_status snapshot = w.status;                 /* the loop's worker_consume */
+    pthread_mutex_unlock(&w.mu);
+    agent_set_error(&w, "turn cut off by the token cap after 2048 tokens, before the end-of-turn token");
+    AGENT_TEST_ASSERT(snapshot.state != AGENT_WORKER_ERROR);
+    AGENT_TEST_ASSERT(worker_is_idle(&w));            /* the loop breaks here */
+
+    FILE *err = tmpfile();
+    AGENT_TEST_ASSERT(err != NULL);
+    AGENT_TEST_ASSERT(agent_noninteractive_exit_code(&w, 0, err) == 1);
+    char line[512] = {0};
+    rewind(err);
+    AGENT_TEST_ASSERT(fgets(line, sizeof(line), err) != NULL);
+    AGENT_TEST_ASSERT(!strcmp(line, "ds4-agent: turn cut off by the token cap after 2048 tokens, "
+                                    "before the end-of-turn token\n"));
+    fclose(err);
+
+    /* sibling: the loop already reported the error it saw (rc 1); nothing is printed twice */
+    err = tmpfile();
+    AGENT_TEST_ASSERT(agent_noninteractive_exit_code(&w, 1, err) == 1);
+    AGENT_TEST_ASSERT(ftell(err) == 0);
+    fclose(err);
+
+    /* sibling: a run that ended idle without an error exits 0 and prints nothing */
+    w.status.state = AGENT_WORKER_IDLE;
+    w.status.error[0] = '\0';
+    err = tmpfile();
+    AGENT_TEST_ASSERT(agent_noninteractive_exit_code(&w, 0, err) == 0);
+    AGENT_TEST_ASSERT(ftell(err) == 0);
+    fclose(err);
+
+    close(w.wake_fd[0]);
+    close(w.wake_fd[1]);
+    pthread_mutex_destroy(&w.mu);
+}
+
+
 int main(int argc, char **argv) {
     if (argc == 3 && !strcmp(argv[1], "--full-context-save")) return test_full_context_save(argv[2]);
     if (argc == 3 && !strcmp(argv[1], "--think-fixture")) return test_v41_thinking(argv[2]);
@@ -1517,6 +1567,7 @@ int main(int argc, char **argv) {
     test_v41_tool_syntax();
     test_qwen_tool_syntax();
     test_hermes_tool_syntax();
+    test_noninteractive_exit_after_late_error();
     test_compaction_boundaries();
     test_observation_error_is_not_context_exhaustion();
     test_atomic_file_tools();
