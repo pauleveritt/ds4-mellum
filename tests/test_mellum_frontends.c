@@ -418,6 +418,15 @@ static void check_pi_bash(void) {
     puts("ok   agent: Pi's bash for Mellum (merged output, Pi's status lines, timeout, the tail cut)");
 }
 
+/* the four are all a Mellum engine is offered: any other name, the agent's own tools included, gets the answer Pi's
+ * agent loop gives (pi-agent-core, agent-loop.js) */
+static void check_pi_unknown(void) {
+    PI_EXPECT(pi_run("grep", "pattern", "x", NULL), "Tool grep not found");
+    PI_EXPECT(pi_run("list", "path", ".", NULL), "Tool list not found");
+    PI_EXPECT(pi_run("view_image", "path", "a.png", NULL), "Tool view_image not found");
+    puts("ok   agent: Mellum is offered Pi's four tools only; another name is Pi's \"Tool X not found\"");
+}
+
 static void check_pi_tools(void) {
     char dir[] = "/tmp/ds4-mellum-pi-XXXXXX";
     CHECK(mkdtemp(dir) != NULL);
@@ -425,6 +434,7 @@ static void check_pi_tools(void) {
     check_pi_write(dir);
     check_pi_edit(dir);
     check_pi_bash();
+    check_pi_unknown();
     char cmd[PATH_MAX + 16];
     snprintf(cmd, sizeof(cmd), "rm -rf %s", dir);
     CHECK(system(cmd) == 0);
@@ -440,21 +450,20 @@ static void check_engine_selection(void) {}
 #elif defined(MELLUM_FRONTEND_AGENT)
 /* Mellum is also a qwen4 engine, so a check of ds4_engine_is_qwen4 alone would
  * speak it Flash Next's Qwen3-coder XML: Mellum gets the Hermes syntax, ahead of
- * that check.  Until the agent runs Pi's tools it still refuses the engine by
- * name; the other qwen4 models keep their syntax. */
+ * that check, and with Pi's tools the agent runs it; the other qwen4 models keep
+ * their syntax. */
 static void check_engine_selection(void) {
     static ds4_engine e;
     g_ds4_shape = DS4_SHAPE_MELLUM;
     CHECK(ds4_engine_is_mellum(&e) && ds4_engine_is_qwen4(&e));
     CHECK(agent_tool_syntax_for_engine(&e) == AGENT_TOOL_SYNTAX_HERMES);
-    const char *why = agent_engine_refusal(&e);
-    CHECK(why && strstr(why, "Mellum 2.1"));
+    CHECK(agent_engine_refusal(&e) == NULL);
 
     g_ds4_shape = DS4_SHAPE_QWEN4_EXP;
     CHECK(!ds4_engine_is_mellum(&e));
     CHECK(agent_engine_refusal(&e) == NULL);
     CHECK(agent_tool_syntax_for_engine(&e) == AGENT_TOOL_SYNTAX_QWEN);
-    puts("ok   agent: Mellum gets the Hermes syntax and is still refused by name; Flash Next keeps its syntax");
+    puts("ok   agent: Mellum gets the Hermes syntax and is not refused; Flash Next keeps its syntax");
 }
 #else
 /* The server names a Mellum engine as Mellum and refuses to serve it until it
