@@ -41,7 +41,8 @@ static inline void ds4_prompt_prefix_append(ds4_engine *engine,
         ds4_chat_append_message(engine, tokens,
                                 assistant ? "assistant" : "user",
                                 turn->content);
-        if (assistant && !ds4_engine_is_glm_dsa(engine))
+        /* Mellum's ds4_chat_append_message already closed the turn with <|im_end|>\n */
+        if (assistant && !ds4_engine_is_glm_dsa(engine) && !ds4_engine_is_mellum(engine))
             ds4_tokens_push(tokens, ds4_token_eos(engine));
     }
 }
