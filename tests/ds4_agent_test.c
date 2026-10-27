@@ -1028,6 +1028,49 @@ static void test_hermes_errors(void) {
     agent_dsml_parser_free(&p);
 }
 
+/* Step 44 (ds4-engine pathology 140): a write whose content holds bare quotes fails the strict parse.  The error
+ * waits for </tool_call> instead of ending the turn, and the call's shape is unambiguous, so the bare quotes are
+ * escaped and the call runs.  Siblings: a strict call parses as before; a bare quote in the path is not repaired (a
+ * wrong path is another file); a content that has folded another member into itself is refused; a turn that ends
+ * before </tool_call> reports the strict parse's error. */
+static void test_hermes_quote_repair_write(void) {
+    const char *text = "<tool_call>\n{\"name\": \"write\", \"arguments\": {\"path\": \"a.py\", "
+                       "\"content\": \"print(\"hi\")\nx = \",\".join(r)\n\"}}\n</tool_call>";
+    agent_dsml_parser p = hermes_parser();
+    for (size_t i = 0; text[i]; i++) {
+        agent_dsml_feed(&p, text + i, 1);
+        AGENT_TEST_ASSERT(p.state != AGENT_DSML_ERROR);   /* the turn goes on to </tool_call> */
+        if (p.state == AGENT_DSML_ERROR) break;
+    }
+    agent_dsml_finish(&p);
+    AGENT_TEST_ASSERT(p.state == AGENT_DSML_DONE && p.calls.len == 1);
+    if (p.calls.len == 1) {
+        AGENT_TEST_ASSERT(!strcmp(p.calls.v[0].name, "write"));
+        AGENT_TEST_ASSERT(!strcmp(agent_tool_arg_value(&p.calls.v[0], "path"), "a.py"));
+        AGENT_TEST_ASSERT(!strcmp(agent_tool_arg_value(&p.calls.v[0], "content"), "print(\"hi\")\nx = \",\".join(r)\n"));
+    }
+    agent_dsml_parser_free(&p);
+
+    char err[160];
+    int n = -1;
+    AGENT_TEST_ASSERT(hermes_parse_all("{\"name\": \"write\", \"arguments\": {\"path\": \"a.py\", "
+                                       "\"content\": \"print(\\\"hi\\\")\"}}\n</tool_call>",
+                                       err, sizeof(err), &n) == AGENT_DSML_DONE && n == 1);
+    AGENT_TEST_ASSERT(hermes_parse_all("{\"name\": \"write\", \"arguments\": {\"path\": \"a\"b.py\", "
+                                       "\"content\": \"x\"}}\n</tool_call>", err, sizeof(err), &n) == AGENT_DSML_ERROR);
+    AGENT_TEST_ASSERT(hermes_parse_all("{\"name\": \"write\", \"arguments\": {\"path\": \"a.py\", "
+                                       "\"content\": \"x\", \"path\": \"b.py\", \"content\": \"say \"y\"\"}}\n</tool_call>",
+                                       err, sizeof(err), &n) == AGENT_DSML_ERROR);
+    /* cut off inside the broken value: the strict parse's own error */
+    p = hermes_parser();
+    const char *cut = "<tool_call>\n{\"name\": \"write\", \"arguments\": {\"path\": \"a.py\", \"content\": \"print(\"hi";
+    agent_dsml_feed(&p, cut, strlen(cut));
+    agent_dsml_finish(&p);
+    AGENT_TEST_ASSERT(p.state == AGENT_DSML_ERROR && p.calls.len == 0);
+    AGENT_TEST_ASSERT(strstr(p.error, "expected ',' or '}'") != NULL);
+    agent_dsml_parser_free(&p);
+}
+
 /* greedy while the call's grammar is being written, sampled inside a string */
 static void test_hermes_greedy_boundaries(void) {
     agent_tail_capture tail = {.cap = 4096};
@@ -1387,6 +1430,7 @@ static void test_hermes_tool_syntax(void) {
     test_hermes_strings_and_two_calls();
     test_hermes_markers_inside_strings();
     test_hermes_errors();
+    test_hermes_quote_repair_write();
     test_hermes_greedy_boundaries();
     test_hermes_raw_values();
     test_hermes_json_loads();
