@@ -1,6 +1,7 @@
 """Independent manifest/reservation over real tiny uniform range artifacts."""
 from contextlib import contextmanager, ExitStack
 import importlib.util
+import io
 from pathlib import Path
 import tempfile
 import unittest
@@ -47,6 +48,30 @@ def test_escaping_plan_or_forged_jobs_refused():
         value['plans']['uniform-original']['wire']='../escape'
         (prior/'manifest.json').unlink();api.common.write_json(prior/'manifest.json',value)
         refused(lambda:api.prepare(prior,ROOT/'tools/mellum_read_bench',root/'observation'))
+
+def test_forecast_covers_pre_and_post_checks_before_payload_read():
+    api=module()
+    with tiny(api) as (root,prior):
+        output=api.prepare(prior,ROOT/'tools/mellum_read_bench',root/'observation')
+        value=api.common.load_json(output/'manifest.json')
+        forecast=api.forecast(value)
+        assert forecast['payload_base_bytes']==188  # 2 * (64 + 3*10)
+        assert forecast['total_python_upper_bytes'] < 128*2**30
+        api.reserve(output,api.batches.binding(output/'manifest.json'))
+        refused(lambda:api.reserve(output,api.batches.binding(output/'manifest.json')))
+        value['inputs']['model']['size']=128*2**30
+        refused(lambda:api.forecast(value))
+    source=io.BytesIO(b'0123456789')
+    with api.common.read_budget(5):
+        refused(lambda:api.common.read(source,10))
+    assert source.tell()==0
+
+def test_source_reads_participate_in_strict_budget():
+    api=module()
+    with tempfile.TemporaryDirectory() as directory:
+        path=Path(directory)/'file';path.write_bytes(b'x'*65536)
+        with api.common.read_budget(65535):
+            refused(lambda:api.common.file_identity(path))
 
 def load_tests(loader,tests,pattern):
     return unittest.TestSuite(unittest.FunctionTestCase(v) for k,v in globals().items() if k.startswith('test_'))
