@@ -1619,3 +1619,10 @@ test-mellum-capture-receipt: tests/test_mellum_capture_receipt
 .PHONY: test-mellum-capture-publish
 test-mellum-capture-publish:
 	python3 -I tests/test_mellum_capture_publish.py
+
+.PHONY: test-mellum-workload-source
+test-mellum-workload-source:
+	python3 -I tests/test_mellum_artifact.py
+	python3 -I tests/test_mellum_workload_bundle.py
+
+test-mellum: test-mellum-workload-source
