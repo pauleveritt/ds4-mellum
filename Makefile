@@ -916,6 +916,11 @@ test-mellum-trace: tests/mellum_trace
 	./tests/test_mellum_trace.sh
 
 # The ds4 CLI with Mellum (DS4_TEST_MELLUM_MODEL).
+# The release prefill's fast paths at chunk and window edges (DS4_TEST_MELLUM_MODEL; about 60 model runs).
+.PHONY: test-mellum-fastpath
+test-mellum-fastpath: tests/mellum_trace
+	./tests/test_mellum_fastpath.sh
+
 .PHONY: test-mellum-cli
 test-mellum-cli: ds4
 	./tests/test_mellum_cli.sh
