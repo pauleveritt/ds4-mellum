@@ -10038,6 +10038,16 @@ static void agent_tool_observation_puts(agent_tool_observation *obs,
     part->text[part->len] = '\0';
 }
 
+/* Start a new, empty text part: after an image, or for the next tool result. */
+static void agent_tool_observation_next_part(agent_tool_observation *obs) {
+    if (obs->part_count == obs->part_cap) {
+        size_t cap = obs->part_cap ? obs->part_cap * 2 : 2;
+        obs->parts = xrealloc(obs->parts, cap * sizeof(obs->parts[0]));
+        obs->part_cap = cap;
+    }
+    memset(&obs->parts[obs->part_count++], 0, sizeof(obs->parts[0]));
+}
+
 static void agent_tool_observation_add_image(agent_tool_observation *obs,
                                              ds4_vision_embedding *embedding) {
     if (obs->image_count == obs->image_cap) {
@@ -10047,12 +10057,7 @@ static void agent_tool_observation_add_image(agent_tool_observation *obs,
     }
     obs->images[obs->image_count++] = *embedding;
     memset(embedding, 0, sizeof(*embedding));
-    if (obs->part_count == obs->part_cap) {
-        size_t cap = obs->part_cap ? obs->part_cap * 2 : 2;
-        obs->parts = xrealloc(obs->parts, cap * sizeof(obs->parts[0]));
-        obs->part_cap = cap;
-    }
-    memset(&obs->parts[obs->part_count++], 0, sizeof(obs->parts[0]));
+    agent_tool_observation_next_part(obs);
 }
 
 static void agent_tool_observation_free(agent_tool_observation *obs) {
@@ -10169,6 +10174,19 @@ static agent_tool_observation agent_execute_tool_observation(
         agent_worker *w, const agent_tool_calls *calls) {
     agent_tool_observation obs;
     agent_tool_observation_init(&obs);
+    if (agent_tool_syntax_for_engine(w->engine) == AGENT_TOOL_SYNTAX_HERMES) {
+        /* Mellum's template wraps each result in its own <tool_response>: one part per call, the
+         * text as the tool returned it, and no images (agent_tool_observation_build). */
+        for (int i = 0; i < calls->len; i++) {
+            if (i > 0) agent_tool_observation_next_part(&obs);
+            char *res = agent_execute_tool_call(w, &calls->v[i]);
+            agent_tool_observation_puts(&obs, res);
+            free(res);
+        }
+        if (calls->len == 0)
+            agent_tool_observation_puts(&obs, "Tool error: empty tool call block\n");
+        return obs;
+    }
     for (int i = 0; i < calls->len; i++) {
         char hdr[128];
         snprintf(hdr, sizeof(hdr), "Tool result %d (%s):\n", i + 1,
@@ -10204,6 +10222,19 @@ static bool agent_tool_observation_build(agent_worker *w,
     const char **parts = xmalloc(obs->part_count * sizeof(parts[0]));
     for (size_t i = 0; i < obs->part_count; i++)
         parts[i] = obs->parts[i].text ? obs->parts[i].text : "";
+    if (agent_tool_syntax_for_engine(w->engine) == AGENT_TOOL_SYNTAX_HERMES && !obs->image_count) {
+        /* Mellum: every part is one call's result, and the round is one user turn */
+        ds4_tokens_copy(tokens, &w->transcript);
+        const bool ok = ds4_chat_append_tool_results(w->engine, tokens, parts, obs->part_count) != 0;
+        free(parts);
+        if (!ok) {
+            snprintf(err, err_len, "cannot render the tool results");
+            ds4_tokens_free(tokens);
+            return false;
+        }
+        *spans_out = NULL;
+        return true;
+    }
     ds4_vision_embedding *images = NULL;
     ds4_vision_span *spans = NULL;
     if (obs->image_count) {
