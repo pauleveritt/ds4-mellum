@@ -17,4 +17,9 @@ bool mellum_capture_begin_eval(mellum_capture_state*, uint64_t position, uint32_
 int mellum_capture_end_operation(mellum_capture_state*, mellum_profile_scope*, int status);
 void mellum_capture_abort(mellum_capture_state*, mellum_profile_scope*);
 bool mellum_capture_has_logits(const mellum_capture_state*);
+bool mellum_capture_forward_begin(mellum_capture_state*, mellum_profile_scope*, uint64_t position, uint32_t rows, bool head);
+bool mellum_capture_layer(mellum_capture_state*, uint32_t layer);
+bool mellum_capture_forward_end(mellum_capture_state*, mellum_profile_scope*, bool gpu_success,
+    const uint32_t *tokens, size_t token_count, const uint32_t *selected, size_t selected_count);
+bool mellum_capture_finish(mellum_capture_state*, mellum_profile_sink, void*);
 #endif

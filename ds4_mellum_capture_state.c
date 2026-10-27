@@ -69,3 +69,18 @@ int mellum_capture_end_operation(mellum_capture_state *c, mellum_profile_scope *
 bool mellum_capture_has_logits(const mellum_capture_state *c) {
     return c && (c->state==MELLUM_CAPTURE_READY || c->state==MELLUM_CAPTURE_FINISHED) && c->logits;
 }
+
+bool mellum_capture_forward_begin(mellum_capture_state *c, mellum_profile_scope *s,
+                                  uint64_t p, uint32_t r, bool h) {
+    (void)c;(void)s;(void)p;(void)r;(void)h;return false;
+}
+bool mellum_capture_layer(mellum_capture_state *c, uint32_t l) {
+    (void)c;(void)l;return false;
+}
+bool mellum_capture_forward_end(mellum_capture_state *c, mellum_profile_scope *s, bool ok,
+    const uint32_t *t, size_t nt, const uint32_t *ids, size_t ni) {
+    (void)c;(void)s;(void)ok;(void)t;(void)nt;(void)ids;(void)ni;return false;
+}
+bool mellum_capture_finish(mellum_capture_state *c, mellum_profile_sink sink, void *ctx) {
+    (void)c;(void)sink;(void)ctx;return false;
+}
