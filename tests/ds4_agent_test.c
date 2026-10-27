@@ -1324,6 +1324,19 @@ static void test_hermes_turn_cut_off(void) {
     AGENT_TEST_ASSERT(!agent_turn_cut_off(AGENT_TOOL_SYNTAX_DSML, false, false, false, false, false, 512, 512));
 }
 
+/* step 39: the compaction summary is a generation too; for Mellum only EOS ends it, id 0 and the protocol ids are an
+ * abnormal end that keeps the previous conversation */
+static void test_hermes_compaction_stop(void) {
+    const agent_tool_syntax H = AGENT_TOOL_SYNTAX_HERMES;
+    AGENT_TEST_ASSERT(agent_compaction_stop_is_clean(H, DS4_STOP_EOS, false));
+    AGENT_TEST_ASSERT(!agent_compaction_stop_is_clean(H, DS4_STOP_EOS_ALT, false));
+    AGENT_TEST_ASSERT(!agent_compaction_stop_is_clean(H, DS4_STOP_PROTOCOL, false));
+    /* siblings: the other syntaxes end the summary on any stop, and on the DSML marker */
+    AGENT_TEST_ASSERT(agent_compaction_stop_is_clean(AGENT_TOOL_SYNTAX_QWEN, DS4_STOP_EOS_ALT, false));
+    AGENT_TEST_ASSERT(agent_compaction_stop_is_clean(AGENT_TOOL_SYNTAX_DSML, DS4_STOP_NONE, true));
+    AGENT_TEST_ASSERT(agent_compaction_stop_is_clean(AGENT_TOOL_SYNTAX_QWEN, DS4_STOP_PROTOCOL, false));
+}
+
 /* the [upto] forcer rewrites an edit's old text; Pi's edit has no place for it, so it stays off */
 static void test_hermes_upto_forcer_off(void) {
     AGENT_TEST_ASSERT(!agent_edit_upto_enabled(true, AGENT_TOOL_SYNTAX_HERMES));
@@ -1373,6 +1386,7 @@ static void test_hermes_tool_syntax(void) {
     test_hermes_upto_forcer_off();
     test_hermes_visualizer_decodes();
     test_hermes_turn_cut_off();
+    test_hermes_compaction_stop();
 }
 
 static void test_v41_tool_syntax(void) {

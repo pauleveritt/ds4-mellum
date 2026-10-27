@@ -492,6 +492,12 @@ static bool agent_stop_is_clean_end(agent_tool_syntax syntax, int stop_class) {
     return true;
 }
 
+/* Does the compaction summary's stop end the summary (step 39; a stub until its fix)? */
+static bool agent_compaction_stop_is_clean(agent_tool_syntax syntax, int stop_class, bool dsml_marker) {
+    (void)syntax; (void)stop_class; (void)dsml_marker;
+    return true;
+}
+
 /* A Mellum turn that the token cap ended (no stop token, no call, not interrupted) is a truncated
  * turn, scored 0 in training, not a final answer.  The other syntaxes accept it, as before. */
 static bool agent_turn_cut_off(agent_tool_syntax syntax, bool model_stopped, bool got_tool,
