@@ -7349,9 +7349,22 @@ typedef struct {
     openai_tool_stream tool;
 } openai_stream;
 
+/* A thinking stream may start with the open tag the model repeats (or, for Mellum, always
+ * writes, followed by a newline the template's strip('\n') drops): skip it.  False while the
+ * text so far could still be that tag. */
+static bool stream_skip_think_open(const request *r, const char *raw, size_t raw_len, bool final,
+                                   size_t *emit_pos) {
+    const char *open = r && r->model_syntax == SERVER_MODEL_SYNTAX_HERMES ? "<think>\n" : "<think>";
+    const size_t open_len = strlen(open);
+    if (raw_len < open_len && !strncmp(raw, open, raw_len) && !final) return false;
+    if (raw_len >= open_len && !strncmp(raw, open, open_len)) *emit_pos = open_len;
+    else if (raw_len >= 7 && !strncmp(raw, "<think>", 7)) *emit_pos = 7;
+    return true;
+}
+
 static bool stream_needs_second_reasoning_guard(const request *r) {
     return ds4_think_mode_enabled(r->think_mode) && r->has_tools &&
-           r->model_syntax != SERVER_MODEL_SYNTAX_QWEN;
+           r->model_syntax != SERVER_MODEL_SYNTAX_QWEN && r->model_syntax != SERVER_MODEL_SYNTAX_HERMES;
 }
 
 static void openai_stream_start(const request *r, openai_stream *st) {
@@ -8180,14 +8193,7 @@ static bool openai_sse_stream_update(int fd, server *s, const request *r, const 
 
     if (st->mode == OPENAI_STREAM_THINKING) {
         if (!st->checked_think_prefix) {
-            const char *open = "<think>";
-            const size_t open_len = strlen(open);
-            if (raw_len < open_len && !strncmp(raw, open, raw_len) && !final) {
-                return true;
-            }
-            if (raw_len >= open_len && !strncmp(raw, open, open_len)) {
-                st->emit_pos = open_len;
-            }
+            if (!stream_skip_think_open(r, raw, raw_len, final, &st->emit_pos)) return true;
             st->checked_think_prefix = true;
         }
 
@@ -8913,14 +8919,7 @@ static bool responses_sse_stream_update(int fd, const request *r,
              * regular output_text because the model was already inside the
              * think block when it produced its first token. The actual
              * mode change to TEXT happens only when `</think>` is observed. */
-            const char *open = "<think>";
-            const size_t open_len = strlen(open);
-            if (raw_len < open_len && !strncmp(raw, open, raw_len) && !final) {
-                return true;
-            }
-            if (raw_len >= open_len && !strncmp(raw, open, open_len)) {
-                st->emit_pos = open_len;
-            }
+            if (!stream_skip_think_open(r, raw, raw_len, final, &st->emit_pos)) return true;
             st->checked_think_prefix = true;
         }
 
@@ -9807,14 +9806,7 @@ static bool anthropic_sse_stream_update(int fd, server *s, const request *r, con
 
     if (st->mode == ANTH_STREAM_THINKING) {
         if (!st->checked_think_prefix) {
-            const char *open = "<think>";
-            const size_t open_len = strlen(open);
-            if (raw_len < open_len && !strncmp(raw, open, raw_len) && !final) {
-                return true;
-            }
-            if (raw_len >= open_len && !strncmp(raw, open, open_len)) {
-                st->emit_pos = open_len;
-            }
+            if (!stream_skip_think_open(r, raw, raw_len, final, &st->emit_pos)) return true;
             st->checked_think_prefix = true;
         }
 

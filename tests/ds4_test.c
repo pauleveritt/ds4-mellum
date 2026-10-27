@@ -8159,7 +8159,8 @@ static void test_mellum_server_stream(void) {
     char *out = read_socket_text(sv[1]);
     TEST_ASSERT(out && strstr(out, "\"reasoning_content\":\"need a tool") != NULL);
     TEST_ASSERT(out && strstr(out, "\"reasoning_content\":\"\\n") == NULL);
-    TEST_ASSERT(out && strstr(out, "\"tool_calls\"") != NULL && strstr(out, "\\\"command\\\": \\\"ls\\\"") != NULL);
+    /* the arguments go out minified, as for every model */
+    TEST_ASSERT(out && strstr(out, "\"tool_calls\"") != NULL && strstr(out, "\\\"command\\\":\\\"ls\\\"") != NULL);
     TEST_ASSERT(out && strstr(out, "<tool_call>") == NULL);
     free(out);
     free(content); free(reasoning); tool_calls_free(&calls);
