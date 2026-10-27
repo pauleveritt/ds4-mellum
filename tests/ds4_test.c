@@ -8006,6 +8006,25 @@ static void test_mellum_server_parse(void) {
     TEST_ASSERT(calls.len == 2 && !strcmp(calls.v[0].arguments, "{\"path\": \"a\", \"content\": \"x </tool_call> y\"}") &&
                 !strcmp(calls.v[1].name, "bash"));
     free(content); free(reasoning); tool_calls_free(&calls);
+    {   /* P6-R5: a protocol marker inside a JSON string argument is text: the call is still found, whole */
+        static const char *const markers[] = {"</think>", "<think>", "<tool_call>", "</tool_call>", "<|im_end|>",
+                                              "<|im_start|>", "<tool_response>", "</tool_response>"};
+        for (size_t k = 0; k < sizeof(markers) / sizeof(markers[0]); k++) {
+            buf text = {0}, args = {0};
+            buf_printf(&args, "{\"path\": \"a\", \"content\": \"x %s y\"}", markers[k]);
+            buf_printf(&text, "<think>\nwrite it\n</think>\n\n<tool_call>\n{\"name\": \"write\", \"arguments\": %s}\n</tool_call>",
+                       args.ptr);
+            content = reasoning = NULL;
+            memset(&calls, 0, sizeof(calls));
+            const bool ok = parse_generated_message_ex_for_syntax(SERVER_MODEL_SYNTAX_HERMES, text.ptr, true,
+                                                                  &content, &reasoning, &calls);
+            if (!ok || calls.len != 1 || strcmp(calls.v[0].arguments, args.ptr) || !reasoning || strcmp(reasoning, "write it"))
+                fprintf(stderr, "mellum-server: a call holding %s in a string was not parsed whole\n", markers[k]);
+            TEST_ASSERT(ok && calls.len == 1 && !strcmp(calls.v[0].arguments, args.ptr));
+            free(content); free(reasoning); tool_calls_free(&calls);
+            buf_free(&text); buf_free(&args);
+        }
+    }
     /* arguments sent as a JSON string, as json.loads would take them; an unknown key is skipped */
     mellum_parse("<think>\nx\n</think>\n\n<tool_call>\n{\"name\": \"bash\", \"id\": 7, \"arguments\": \"{\\\"command\\\": \\\"ls\\\"}\"}\n</tool_call>",
                  true, &content, &reasoning, &calls);
