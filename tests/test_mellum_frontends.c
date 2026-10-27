@@ -654,6 +654,88 @@ static void check_pi_edit_fuzzy(const char *dir) {
     puts("ok   agent: Pi's edit for Mellum, fuzzy (quotes, dashes, spaces, trailing whitespace; other lines kept)");
 }
 
+/* one call as Mellum writes it, parsed by the agent's Hermes parser and run when it parses: the tool's text, or
+ * "refused: " and the parser's error */
+static char *pi_hermes_run(const char *call_json) {
+    agent_buf text = {0};
+    agent_buf_append(&text, "<tool_call>\n", 12);
+    agent_buf_append(&text, call_json, strlen(call_json));
+    agent_buf_append(&text, "\n</tool_call>", 13);
+    agent_dsml_parser p = {.syntax = AGENT_TOOL_SYNTAX_HERMES, .state = AGENT_DSML_SEARCH};
+    agent_dsml_feed(&p, text.ptr, text.len);
+    agent_dsml_finish(&p);
+    free(text.ptr);
+    char *r;
+    if (p.state == AGENT_DSML_DONE && p.calls.len == 1) {
+        r = agent_execute_tool_call(pi_worker(), &p.calls.v[0]);
+    } else {
+        r = xmalloc(strlen(p.error) + 16);
+        sprintf(r, "refused: %s", p.error);
+    }
+    agent_dsml_parser_free(&p);
+    return r;
+}
+
+/* arguments sent as a JSON string, as their JSON text: the string Mellum writes for them */
+static char *pi_stringify(const char *json) {
+    agent_buf b = {0};
+    agent_buf_append(&b, "\"", 1);
+    for (const char *c = json; *c; c++) {
+        if (*c == '"' || *c == '\\') agent_buf_append(&b, "\\", 1);
+        agent_buf_append(&b, c, 1);
+    }
+    agent_buf_append(&b, "\"", 1);
+    return agent_buf_take(&b);
+}
+
+#define PI_REFUSED(got) do { char *g_ = (got); CHECK(!strncmp(g_, "refused: ", 9)); free(g_); } while (0)
+
+/* P6-R9: \u0000 would end a C string, so a call holding one anywhere (a string-encoded argument or key, a nested
+ * edit's field or key) is refused whole and nothing is written; an escaped backslash before u0000 is no NUL */
+static void check_pi_nul(const char *dir) {
+    char *f = pi_fixture(dir, "nul.txt", "abc def\n");
+    char inner[PATH_MAX + 160], call[2 * PATH_MAX + 400];
+    static const char *const string_args[] = {
+        "{\"path\": \"%s\", \"content\": \"a\\u0000b\"}",
+        "{\"path\": \"%s\", \"content\": \"x\", \"pa\\u0000th\": \"y\"}",
+        "{\"path\": \"%s\", \"edits\": [{\"oldText\": \"abc\\u0000TAIL\", \"newText\": \"XYZ\"}]}",
+    };
+    for (size_t k = 0; k < sizeof(string_args) / sizeof(string_args[0]); k++) {
+        snprintf(inner, sizeof(inner), string_args[k], f);
+        char *quoted = pi_stringify(inner);
+        snprintf(call, sizeof(call), "{\"name\": \"%s\", \"arguments\": %s}", k == 2 ? "edit" : "write", quoted);
+        free(quoted);
+        PI_REFUSED(pi_hermes_run(call));
+    }
+    static const char *const nested[] = {
+        "{\"name\": \"edit\", \"arguments\": {\"path\": \"%s\", \"edits\": [{\"oldText\": \"abc\\u0000TAIL\", \"newText\": \"XYZ\"}]}}",
+        "{\"name\": \"edit\", \"arguments\": {\"path\": \"%s\", \"edits\": [{\"oldText\": \"abc\", \"newText\": \"X\\u0000Y\"}]}}",
+        "{\"name\": \"edit\", \"arguments\": {\"path\": \"%s\", \"edits\": [{\"old\\u0000Text\": \"abc\", \"newText\": \"X\"}]}}",
+        "{\"name\": \"edit\", \"arguments\": {\"path\": \"%s\", \"edits\": \"[{\\\"oldText\\\": \\\"abc\\\\u0000T\\\", \\\"newText\\\": \\\"X\\\"}]\"}}",
+    };
+    for (size_t k = 0; k < sizeof(nested) / sizeof(nested[0]); k++) {
+        snprintf(call, sizeof(call), nested[k], f);
+        PI_REFUSED(pi_hermes_run(call));
+    }
+    char *back = pi_slurp(f);
+    CHECK(!strcmp(back, "abc def\n"));
+    free(back);
+    /* the success siblings: an escaped backslash, then u0000, is text, in a string-encoded content and a nested edit */
+    snprintf(inner, sizeof(inner), "{\"path\": \"%s\", \"content\": \"a\\\\u0000b\\n\"}", f);
+    char *quoted = pi_stringify(inner);
+    snprintf(call, sizeof(call), "{\"name\": \"write\", \"arguments\": %s}", quoted);
+    free(quoted);
+    PI_EXPECT_PREFIX(pi_hermes_run(call), "Successfully wrote 9 bytes to ");
+    snprintf(call, sizeof(call), "{\"name\": \"edit\", \"arguments\": {\"path\": \"%s\", \"edits\": "
+             "[{\"oldText\": \"a\\\\u0000b\", \"newText\": \"ok\"}]}}", f);
+    PI_EXPECT_PREFIX(pi_hermes_run(call), "Successfully replaced 1 block(s) in ");
+    back = pi_slurp(f);
+    CHECK(!strcmp(back, "ok\n"));
+    free(back);
+    free(f);
+    puts("ok   agent: a Mellum call holding \\u0000 anywhere is refused and writes nothing");
+}
+
 static void check_pi_tools(void) {
     char dir[] = "/tmp/ds4-mellum-pi-XXXXXX";
     CHECK(mkdtemp(dir) != NULL);
@@ -661,6 +743,7 @@ static void check_pi_tools(void) {
     check_pi_write(dir);
     check_pi_edit(dir);
     check_pi_edit_fuzzy(dir);
+    check_pi_nul(dir);
     check_pi_bash();
     check_pi_unknown();
     char cmd[PATH_MAX + 16];
