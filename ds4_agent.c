@@ -463,10 +463,40 @@ static bool agent_syntax_is_xml_tool_call(agent_tool_syntax syntax) {
            syntax == AGENT_TOOL_SYNTAX_HERMES;
 }
 
+/* What the template writes after the end-of-turn token.  Mellum's is <|im_end|>\n; the transcript
+ * the model reads back must carry the newline, or the next message sits against the end token. */
+static const char *agent_turn_end_suffix(agent_tool_syntax syntax) {
+    return syntax == AGENT_TOOL_SYNTAX_HERMES ? "\n" : "";
+}
+
+/* Mellum's thinking-on assistant prefix is just <|im_start|>assistant\n and the model writes
+ * <think> itself (its off prefix carries a closed empty block), so a Hermes turn starts outside
+ * thinking either way.  The other models' prefixes open the block when thinking is on. */
+static bool agent_turn_starts_in_think(agent_tool_syntax syntax, ds4_think_mode mode) {
+    return syntax != AGENT_TOOL_SYNTAX_HERMES && ds4_think_mode_enabled(mode);
+}
+
+/* Does a generation stopped by a token of this class end the turn cleanly?  Mellum ends a turn on
+ * one token, <|im_end|> (the EOS class); a stop on id 0 or a protocol id is an abnormal end to be
+ * traced and reported, not an answer.  The other models treat every stop as the end of the reply
+ * (a think tag stops a --nothink generation with class NONE; that was always a clean end). */
+static bool agent_stop_is_clean_end(agent_tool_syntax syntax, int stop_class) {
+    if (syntax == AGENT_TOOL_SYNTAX_HERMES) return stop_class == DS4_STOP_EOS;
+    return true;
+}
+
+/* The [upto] forcer rewrites an edit's old text; Pi's edit takes edits[{oldText,newText}], which it
+ * has no place in. */
+static bool agent_edit_upto_enabled(bool cfg_edit_upto, agent_tool_syntax syntax) {
+    return cfg_edit_upto && syntax != AGENT_TOOL_SYNTAX_HERMES;
+}
+
 static void agent_worker_append_assistant_turn_end(agent_worker *w) {
-    if (agent_tool_syntax_assistant_turn_uses_eos(
-            agent_tool_syntax_for_engine(w->engine)))
+    const agent_tool_syntax syntax = agent_tool_syntax_for_engine(w->engine);
+    if (agent_tool_syntax_assistant_turn_uses_eos(syntax))
         ds4_tokens_push(&w->transcript, ds4_token_eos(w->engine));
+    const char *suffix = agent_turn_end_suffix(syntax);
+    if (suffix[0]) ds4_tokenize_rendered_chat(w->engine, suffix, &w->transcript);
 }
 
 static int agent_worker_effective_ctx_size(const agent_worker *w) {
@@ -1578,6 +1608,10 @@ static const char agent_qwen_syntax_reminder[] =
     "Tool-call syntax reminder:\n"
     "<tool_call>\n<function=$TOOL_NAME>\n<parameter=$PARAMETER_NAME>\n$PARAMETER_VALUE\n</parameter>\n"
     "</function>\n</tool_call>\n";
+
+static const char agent_hermes_syntax_reminder[] =
+    "Tool-call syntax reminder:\n"
+    "<tool_call>\n{\"name\": <function-name>, \"arguments\": <args-json-object>}\n</tool_call>\n";
 
 #define AGENT_SYSTEM_PROMPT_REMINDER_TOKENS 50000
 
@@ -11073,7 +11107,9 @@ static int worker_run_turn(agent_worker *w, const char *user_text) {
         }
 
         bool use_color = isatty(STDOUT_FILENO) != 0;
-        bool in_think = resume_assistant ? resume_in_think : ds4_think_mode_enabled(think_mode);
+        agent_tool_syntax tool_syntax = agent_tool_syntax_for_engine(w->engine);
+        bool in_think = resume_assistant ? resume_in_think :
+                        agent_turn_starts_in_think(tool_syntax, think_mode);
         resume_assistant = false;
         agent_token_renderer renderer = {
             .engine = w->engine,
@@ -11084,7 +11120,6 @@ static int worker_run_turn(agent_worker *w, const char *user_text) {
             .use_color = use_color,
             .last_output_newline = true,
         };
-        agent_tool_syntax tool_syntax = agent_tool_syntax_for_engine(w->engine);
         agent_dsml_parser dsml = {
             .syntax = tool_syntax,
             .state = AGENT_DSML_SEARCH,
@@ -11100,6 +11135,7 @@ static int worker_run_turn(agent_worker *w, const char *user_text) {
         bool malformed_tool = false;
         bool early_tool_error = false;
         bool model_stopped = false;
+        int stop_token = -1;
         int generated = 0;
         int compaction_lookahead = 0;
         double t0 = now_sec();
@@ -11121,6 +11157,7 @@ static int worker_run_turn(agent_worker *w, const char *user_text) {
             int token = worker_sample_with_mode(w, cfg, greedy_sampling, &rng);
             if (ds4_token_is_stop_for_think_mode(w->engine, token, think_mode)) {
                 model_stopped = true;
+                stop_token = token;
                 if (tool_syntax == AGENT_TOOL_SYNTAX_GLM &&
                     token != ds4_token_eos(w->engine)) {
                     agent_trace(w, "glm assistant generation stopped before control token id=%d", token);
@@ -11170,6 +11207,7 @@ static int worker_run_turn(agent_worker *w, const char *user_text) {
                                                      token,
                                                      think_mode)) {
                     model_stopped = true;
+                    stop_token = token;
                     ds4_session_rewind(w->session, block_start + ti);
                     stop_block = true;
                     break;
@@ -11177,7 +11215,7 @@ static int worker_run_turn(agent_worker *w, const char *user_text) {
 
                 size_t text_len = 0;
                 char *text = ds4_token_text(w->engine, token, &text_len);
-                if (cfg->edit_upto &&
+                if (agent_edit_upto_enabled(cfg->edit_upto, tool_syntax) &&
                     agent_edit_upto_forcer_should_replace(&upto_forcer,
                                                            &dsml,
                                                            text,
@@ -11339,9 +11377,27 @@ static int worker_run_turn(agent_worker *w, const char *user_text) {
         {
             malformed_tool = true;
             snprintf(dsml.error, sizeof(dsml.error),
+                     tool_syntax == AGENT_TOOL_SYNTAX_HERMES ? "incomplete Hermes tool call" :
                      tool_syntax == AGENT_TOOL_SYNTAX_QWEN ? "incomplete Qwen tool call" :
                      tool_syntax == AGENT_TOOL_SYNTAX_GLM ? "incomplete GLM tool call" :
                      "incomplete DSML tool call");
+        }
+
+        if (model_stopped && stop_token >= 0 &&
+            !agent_stop_is_clean_end(tool_syntax, ds4_token_stop_class(w->engine, stop_token))) {
+            /* Mellum ends a turn on one token.  Any other stop (id 0, a protocol id) leaves the
+             * template's contract: record it, and neither run a call nor accept an answer that
+             * ended that way. */
+            char msg[200];
+            snprintf(msg, sizeof(msg),
+                     "model stopped on token %d (stop class %d), not the end-of-turn token",
+                     stop_token, ds4_token_stop_class(w->engine, stop_token));
+            agent_trace(w, "abnormal stop: %s", msg);
+            agent_publish_system_status(w, msg);
+            agent_dsml_parser_free(&dsml);
+            agent_worker_append_assistant_turn_end(w);
+            agent_set_error(w, msg);
+            return 1;
         }
 
         agent_worker_append_assistant_turn_end(w);
@@ -11364,6 +11420,7 @@ static int worker_run_turn(agent_worker *w, const char *user_text) {
         } else if (malformed_tool) {
             agent_tool_observation_puts(
                 &observation,
+                tool_syntax == AGENT_TOOL_SYNTAX_HERMES ? "Tool error: invalid tool call: " :
                 tool_syntax == AGENT_TOOL_SYNTAX_QWEN ? "Tool error: invalid Qwen tool call: " :
                 tool_syntax == AGENT_TOOL_SYNTAX_GLM ? "Tool error: invalid GLM tool call: " :
                 "Tool error: invalid DSML tool call: ");
@@ -11371,7 +11428,8 @@ static int worker_run_turn(agent_worker *w, const char *user_text) {
                 &observation, dsml.error[0] ? dsml.error : "parse error");
             agent_tool_observation_puts(&observation, "\n");
             agent_tool_observation_puts(
-                &observation, tool_syntax == AGENT_TOOL_SYNTAX_QWEN ?
+                &observation, tool_syntax == AGENT_TOOL_SYNTAX_HERMES ?
+                agent_hermes_syntax_reminder : tool_syntax == AGENT_TOOL_SYNTAX_QWEN ?
                 agent_qwen_syntax_reminder : tool_syntax == AGENT_TOOL_SYNTAX_GLM ?
                 agent_glm_syntax_reminder : tool_syntax == AGENT_TOOL_SYNTAX_DSML41 ?
                 agent_dsml41_syntax_reminder : agent_dsml_syntax_reminder);
