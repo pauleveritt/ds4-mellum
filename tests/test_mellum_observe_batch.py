@@ -53,6 +53,8 @@ def test_budget_or_active_process_refuses_before_go():
         else:raise AssertionError('busy process ignored')
         failure=api.common.load_json(root/'run.failure/artifact/failure.json')
         assert failure['completed_logical_bytes']==0 and failure['started_cells']==[]
+        assert failure['batch_path']==str(prepared)
+        assert failure['cumulative_python_read_bytes']==failure['prepare_python_read_bytes']+failure['untimed_python_read_bytes']
         assert not (prepared.parent/'execution-reservation.json').exists()
 
 def test_failure_never_retries_or_publishes_success():
