@@ -8030,6 +8030,23 @@ static void test_mellum_server_parse(void) {
                  true, &content, &reasoning, &calls);
     TEST_ASSERT(calls.len == 1 && !strcmp(calls.v[0].arguments, "{\"command\": \"ls\"}"));
     free(content); free(reasoning); tool_calls_free(&calls);
+    {   /* P6-R8: string-encoded arguments must decode to one whole JSON object, with nothing after it */
+        static const char *const bad_args[] = {"\"oops\"", "\"{\\\"path\\\": \\\"a\\\"} trailing\"", "\"[1, 2]\"",
+                                               "\"{\\\"path\\\": \""};
+        for (size_t k = 0; k < sizeof(bad_args) / sizeof(bad_args[0]); k++) {
+            buf text = {0};
+            buf_printf(&text, "<think>\nx\n</think>\n\n<tool_call>\n{\"name\": \"write\", \"arguments\": %s}\n</tool_call>",
+                       bad_args[k]);
+            content = reasoning = NULL;
+            memset(&calls, 0, sizeof(calls));
+            const bool ok = parse_generated_message_ex_for_syntax(SERVER_MODEL_SYNTAX_HERMES, text.ptr, true,
+                                                                  &content, &reasoning, &calls);
+            if (ok) fprintf(stderr, "mellum-server: arguments %s were accepted\n", bad_args[k]);
+            TEST_ASSERT(!ok);
+            free(content); free(reasoning); tool_calls_free(&calls);
+            buf_free(&text);
+        }
+    }
     /* not JSON (single quotes): refused, as json.loads refuses it */
     content = reasoning = NULL;
     memset(&calls, 0, sizeof(calls));
