@@ -492,10 +492,11 @@ static bool agent_stop_is_clean_end(agent_tool_syntax syntax, int stop_class) {
     return true;
 }
 
-/* Does the compaction summary's stop end the summary (step 39; a stub until its fix)? */
+/* Does the compaction summary's stop end the summary, or is it an abnormal end?  The summary is a
+ * generation like any turn: for Mellum only the EOS class ends it. */
 static bool agent_compaction_stop_is_clean(agent_tool_syntax syntax, int stop_class, bool dsml_marker) {
-    (void)syntax; (void)stop_class; (void)dsml_marker;
-    return true;
+    if (dsml_marker) return true;
+    return agent_stop_is_clean_end(syntax, stop_class);
 }
 
 /* A Mellum turn that the token cap ended (no stop token, no call, not interrupted) is a truncated
@@ -11769,6 +11770,20 @@ static bool agent_worker_compact_transcript(agent_worker *w, const char *reason,
                 summary.ptr[--summary.len] = '\0';
             }
             agent_trace(w, "compaction summary stopped before control token id=%d", token);
+            const int stop_class = ds4_token_stop_class(w->engine, token);
+            if (!agent_compaction_stop_is_clean(agent_tool_syntax_for_engine(w->engine),
+                                                stop_class, token == dsml_id)) {
+                /* off the template's contract: keep the previous conversation, as on any failure */
+                snprintf(err, err_len, "compaction summary stopped on token %d (stop class %d), "
+                         "not the end-of-turn token", token, stop_class);
+                agent_trace(w, "abnormal end: %s", err);
+                ds4_session_invalidate(w->session);
+                ds4_tokens_free(&prompt);
+                ds4_tokens_free(&sys);
+                free(summary.ptr);
+                agent_publish(w, "\x1b[0m\n", 5);
+                return false;
+            }
             break;
         }
         if (ds4_session_eval(w->session, token, eval_err, sizeof(eval_err)) != 0) {
