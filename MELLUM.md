@@ -23,6 +23,9 @@ chunk under 32 rows, keep the exact arithmetic. Over 64 positions of each long
 test prompt, max |d logit| against the exact path is 2.0 (1,100 tokens) and 8.5
 (2,200), mean KL divergence 2.1e-3 and 1.7e-3, largest probability change 0.06,
 with the same top-1 token at every position (the experts alone: 0.65 and 0.87).
+Long prefills are exact only under the diagnostic `DS4_MELLUM_EXACT_PREFILL=1`
+(read at session start), which sends every chunk back through the exact paths;
+that is what the oracle uses to check long prefills byte for byte.
 
 Speed on the M5 Max (Q8_0, Metal), step 29, through the CLI after a rest, n = 3
 each: a short chat prompt prefills at 440-450 t/s and generates at 132.6-133.1
@@ -108,7 +111,11 @@ Phase 4 (CLI):
 - `c5c4e57` (red), `a6c2eb0` the CLI says when a turn stops at the -n cap (step 28).
 - `907094d` what `--nothink` does with Mellum (step 28).
 - `be82f23` (red), `b9dbf42` the speed line and session errors name Mellum (step 29).
-- This commit: the step-29 speed measurement.
+- `36fe842` the step-29 speed measurement.
+
+Exact-prefill diagnostic (after Checkpoint 3, asked for with keeping step 27):
+- `5aa742c` (red), `4bdb7b5` `DS4_MELLUM_EXACT_PREFILL=1` keeps long prefills exact.
+- `9e77c2d` the oracle checks every prefill both ways; the next commit records the run.
 
 From step 28 on, commits follow smaller rules: one concern each, the failing
 test committed red on its own, at most about 150 lines of product code.
@@ -154,6 +161,8 @@ Step 22, M5 Max, Q8_0, `--temp 0`, n = 1 each:
 | step 29, 3,235-token prompt, 30 s between runs | `./ds4 -m $MODEL -c 8192 --temp 0 -n 256 --prompt-file PROMPT` (9,000 characters of promessi_sposi.txt and "Summarize the text above in three sentences.") | prefill 1,842, 1,871, 1,846 t/s; generation 116.2, 117.8, 116.6 t/s | 3 |
 | long-prompt prefill and generation | `./ds4 ... -n 256 --prompt-file` (9,000 characters of promessi_sposi.txt and a request: 3,235 tokens) | prefill 1,900 t/s, generation 119 t/s | 1 |
 | Metal 4 tensor API | the startup line of any run | "ds4: Metal 4 tensor API enabled for Tensor kernels" on the M5 Max; `tensor_matmul=off` with `DS4_METAL_DISABLE_METAL4=1`. M4: not measured (no M4 here) | 1 |
+| both prefill paths vs the old engine (after the exact-prefill switch) | `tests/mellum_oracle_compare.sh ORACLE_DIR $MODEL 64` | under `DS4_MELLUM_EXACT_PREFILL=1`: byte-equal to the old engine and to decode on 29, 1,100 and 2,200 tokens (30, 65 and 65 logits files); release path: within tolerance (2.008 / 2.1e-3 and 8.471 / 1.7e-3, top-1 65/65); decode byte-equal; 64/64 greedy equal; PASS | 1 |
+| exact-prefill switch | `DS4_TEST_MELLUM_MODEL=... ./ds4_test --mellum-exact-prefill` | 1,100-token prefill vs decode: 0 of 98,304 logit words differ with the switch, 98,303 without | 1 |
 | batched + tiled prefill vs the old engine / exact decode, 64 positions | `tests/mellum_oracle_compare.sh ORACLE_DIR $MODEL 64` (after step 27; rule: top-1 everywhere, max\|d\| <= 10, mean KL <= 0.01) | 1,100: max\|d logit\| 2.008, mean KL 2.1e-3, top-1 65/65; 2,200: 8.471, 1.7e-3, 65/65; short prompt and every decode byte-equal; 64/64 greedy equal; PASS | 1 |
 | tiled prefill vs the exact path / the old engine, logits at 64 positions | `tests/mellum_oracle_compare.sh ORACLE_DIR $MODEL 64` (after step 25) | 1,100 tokens: max\|d logit\| 0.649, top-1 65/65; 2,200: 0.874, top-1 65/65; short prompt and every decode still byte-equal; 64 of 64 greedy tokens equal; PASS | 1 |
 | MoE driver on real layers, 64 rows tiled vs double | `DS4_TEST_MELLUM_MODEL=... ./ds4_test --mellum-moe` | same experts selected; output within 1.0e-3 (16 rows exact: 3.4e-7, row 0 alone bit-equal) | 1 |
