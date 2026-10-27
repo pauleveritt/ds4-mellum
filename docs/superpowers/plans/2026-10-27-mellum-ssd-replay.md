@@ -15,7 +15,7 @@
 - No GPU, model loading, SSD benchmark, inference-code changes or upstream rebase.
 - Preserve ordered routes. Use cold caches, complete-expert identities and byte capacities.
 - Default sweep: 2, 2.5, 3 and 3.5 GiB; Mellum geometry: 28/64/8, 6,580,224 bytes/expert.
-- Another agent owns main; rebase this branch only after its integrated Mellum main is ready.
+- Another agent owns upstream integration; rebase this branch only after its integrated Mellum revision is ready.
 
 ## Review Focus
 
@@ -61,9 +61,14 @@
 
 ## Execution record
 
-User explicitly authorized proceeding with the reviewed design; execute inline without another approval gate. Final integration remains pending the other agent's main rebase. Keep the branch/worktree available for the next GPU phase.
+User explicitly authorized proceeding with the reviewed design; execute inline without another approval gate. After the user reported the other agent's completed Checkpoint 3.6, replay commits were rebased onto `59932c9e44802b7e869c1c76a7a02e72aa19c8b3`, which includes upstream `ee7e840` and the Mellum port/E1. This is local `mellum`, while local `main` remains raw upstream. Keep the branch/worktree available for the next GPU phase. No steps 34–40 or model measurements were performed here.
 
-Task commits: `1af8a82` (validation), `dc598b0` (replay), `291f7c4` (CLI/docs/Make).
+Post-rebase verification: `git range-diff` confirms all five replay-only
+commits applied unchanged. `env -u DS4_TEST_MELLUM_MODEL make -j4 test-mellum`
+passes on the new base, including 21 replay tests and 14 logits-comparison
+tests. The working tree is clean after the baseline-record update.
+
+Task commits after the rebase: `5ac4062` (validation), `a978a2f` (replay), `ab58f75` (CLI/docs/Make).
 Each task's tests failed on missing functionality before implementation and
 passed afterward. Final verification: 21 replay tests; model-free
 `make test-mellum` passed, including 14 logits-comparison tests. The documented
@@ -76,9 +81,9 @@ prefill-union test where each individual row fits (e.g. `[0,1]`, `[1,2]` with
 two slots); the current implementation already rejects the union correctly.
 
 Decisions retained: Python 3.10+ stdlib avoids new dependencies; a different
-version requirement would need a compatibility adjustment. Keep this branch
-on its original Mellum base until the other agent completes integrated main;
-the cost is a later rebase, not loss of the port. Reject oversized groups
+version requirement would need a compatibility adjustment. The original
+decision to preserve the Mellum base until upstream integration completed
+has now been fulfilled by the clean rebase onto `59932c9`. Reject oversized groups
 under the approved atomic model (tiling remains future work); cold start means
 the first full forward; provenance is producer-declared and other allocations
 remain unmodeled. GPU, storage-performance and native integration claims are

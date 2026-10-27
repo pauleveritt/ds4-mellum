@@ -20,12 +20,17 @@ Mellum routing traces or implementing Metal streaming. The development laptop
 is acceptable for this stage; it cannot establish physical 8 GB feasibility.
 
 The user supplied the feasibility brief and authorized using this laptop.
-Another agent owns rebasing `main` onto the approved upstream `ee7e840`.
-This work starts at Mellum revision `2d0756d3a355f9b99a45adc159992a9ac4221296`
+Another agent owns integrating the Mellum port onto the approved upstream
+`ee7e840`. This work originally started at Mellum revision
+`2d0756d3a355f9b99a45adc159992a9ac4221296`
 on `codex/mellum-ssd-replay` in an isolated worktree. Do not update upstream,
 edit inference code, load the GGUF, benchmark storage, or use the GPU here.
-After the upstream work lands, integrate this branch with the resulting main
-and record that revision before any model measurements.
+After the user reported Checkpoint 3.6 complete, this branch's five replay-only
+commits were rebased cleanly onto `59932c9e44802b7e869c1c76a7a02e72aa19c8b3`
+(the local `mellum` tip, descended from `ee7e840`). Local `main` still points
+at raw upstream `ee7e840`. Steps 34–40 remain outside this work's scope.
+Use `59932c9` or a deliberately recorded successor as the model-measurement
+baseline; this rebase itself performed no model measurements.
 
 The first implementation is deliberately limited to trace validation,
 causal LRU replay, a clearly labeled optimistic lower bound, and byte/miss
@@ -158,7 +163,7 @@ variable. Do not run Metal kernel tests, inference or storage benchmarks.
 
 ## Subsequent work after GPU availability
 
-Integrate the completed upstream baseline, then implement a native buffered
+The upstream baseline is integrated. Next implement a native buffered
 router recorder and verify it preserves routes/logits without per-layer host
 waits. Capture representative coding and tool-use workloads, replay real
 traces, and choose further policies from the observed miss curves. Measure
