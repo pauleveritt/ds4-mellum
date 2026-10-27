@@ -14741,11 +14741,20 @@ static int agent_read_stdin_available(agent_input_buf *in, bool *eof) {
     }
 }
 
-/* The exit status of a headless run that left its loop with rc (step 38; a stub until its fix). */
+/* The exit status of a headless run that left its loop with rc.  The loop reads the worker's
+ * status before its idle check, and worker_is_idle counts AGENT_WORKER_ERROR as idle, so an
+ * error (an abnormal end) set between the two ends the loop unreported.  Read it again here;
+ * rc != 0 means the loop already reported what it saw. */
 static int agent_noninteractive_exit_code(agent_worker *w, int rc, FILE *err) {
-    (void)w;
-    (void)err;
-    return rc;
+    if (rc != 0) return rc;
+    pthread_mutex_lock(&w->mu);
+    const bool failed = w->status.state == AGENT_WORKER_ERROR;
+    char msg[sizeof(w->status.error)];
+    snprintf(msg, sizeof(msg), "%s", w->status.error[0] ? w->status.error : "worker error");
+    pthread_mutex_unlock(&w->mu);
+    if (!failed) return 0;
+    fprintf(err, "ds4-agent: %s\n", msg);
+    return 1;
 }
 
 /* Headless mode is intentionally just another front-end for the same worker.
@@ -14896,6 +14905,7 @@ static int run_agent_non_interactive(ds4_engine *engine, agent_config *cfg) {
         fflush(stdout);
     }
     free(out);
+    rc = agent_noninteractive_exit_code(&worker, rc, stderr);
 
     if (stdin_nonblock) fcntl(STDIN_FILENO, F_SETFL, old_stdin_flags);
     agent_input_buf_free(&input);
