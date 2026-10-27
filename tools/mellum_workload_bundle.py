@@ -34,6 +34,9 @@ def check_source(repo: Path, revision: str) -> None:
         raise ValueError('repository root required')
     if git(repo, 'rev-parse', 'HEAD').decode().strip() != revision:
         raise ValueError('source HEAD differs from pinned revision')
+    flags = git(repo, 'ls-files', '-v', '-z', '--cached').split(b'\0')
+    if any(entry and (entry[:1].islower() or entry[:1] == b'S') for entry in flags):
+        raise ValueError('assume-unchanged/skip-worktree source flags are unsupported')
     if git(repo, 'status', '--porcelain=v1', '--untracked-files=no'):
         raise ValueError('tracked source changes are unsupported')
 
