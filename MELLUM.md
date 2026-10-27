@@ -58,6 +58,10 @@ and `chat_template.jinja` are byte-identical to the Hugging Face snapshot
   without partials: 60 cases) gave identical bytes before and after, and
   `make test-qwen4-kernels` passes. Flash Next's decode speed was not
   re-measured: there is no Flash Next GGUF on this machine.
+- `ds4_json.h` (step 31): the server's static JSON readers moved to a shared
+  header, word for word apart from `static inline` and a small string buffer
+  of its own (`json_sbuf`) in place of the server's `buf`; `./ds4_test
+  --server` passes unchanged.
 - `ds4_chat_append_tool_results` (step 30) is new public API for every model;
   for models other than Mellum it appends one tool message per result, exactly
   as `ds4_chat_append_message` did. Flash Next's tool messages still write
@@ -131,6 +135,15 @@ Phase 5 (tool calls in ds4-agent):
   for text-only observations.
 - `7514d1f` `ds4_chat_append_tool_results`, which takes the count.
 - `11684de` (red), `ba1c0e0` one turn's tool results are one user turn.
+- `b2134ce`, `d5cb032` the server's JSON readers move to `ds4_json.h`
+  (step 31; a refactor, `./ds4_test --server` unchanged).
+- `a81de8d` `AGENT_TOOL_SYNTAX_HERMES`, not yet selected (step 32).
+- `534ef56`, `e2958cc` (red), `a440f79` the Hermes parser: the call object
+  and string arguments.
+- `6ddb1b2` (red), `42e4717` numbers, literals and nested values kept raw,
+  through a strict JSON validator.
+- `91f5be0` (red), `53b9441` the call object read as `json.loads` reads it.
+- `aaebdde` (red), `d2d2b32` prose around calls.
 
 From step 28 on, commits follow smaller rules: one concern each, the failing
 test committed red on its own, at most about 150 lines of product code.
