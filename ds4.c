@@ -42,6 +42,7 @@
 #include <unistd.h>
 
 #include "ds4.h"
+#include "ds4_mellum_capture.h"
 #include "ds4_tool_text.h"
 #include "ds4_distributed.h"
 #include "ds4_image.h"
@@ -88919,3 +88920,22 @@ bool ds4_test_session_graph_pos(ds4_session *s, uint32_t *pos) {
     return true;
 }
 #endif
+
+/* Diagnostic capture API is separate from the general session API. */
+int ds4_mellum_capture_create(ds4_mellum_capture **out, ds4_engine *e, int ctx,
+        const ds4_mellum_capture_options *opts, char *err, size_t n) {
+    (void)out;(void)e;(void)ctx;(void)opts;(void)err;(void)n;return 1;
+}
+int ds4_mellum_capture_sync(ds4_mellum_capture *c,const ds4_tokens *p,uint32_t seg,char *err,size_t n) {
+    (void)c;(void)p;(void)seg;(void)err;(void)n;return 1;
+}
+int ds4_mellum_capture_eval(ds4_mellum_capture *c,int t,uint32_t seg,char *err,size_t n) {
+    (void)c;(void)t;(void)seg;(void)err;(void)n;return 1;
+}
+int ds4_mellum_capture_copy_logits(ds4_mellum_capture *c,float *out,int n) {
+    (void)c;(void)out;(void)n;return 0;
+}
+int ds4_mellum_capture_finish(ds4_mellum_capture *c,mellum_profile_sink sink,void *ctx,char *err,size_t n) {
+    (void)c;(void)sink;(void)ctx;(void)err;(void)n;return 1;
+}
+void ds4_mellum_capture_free(ds4_mellum_capture *c) { (void)c; }
