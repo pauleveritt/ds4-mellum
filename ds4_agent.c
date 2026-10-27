@@ -9650,6 +9650,11 @@ static void agent_bash_finalize(agent_bash_job *job, int status) {
     agent_worker_note_terminal_mode_may_have_changed(job->worker);
 }
 
+/* Has a job with this timeout run out of time after elapsed seconds? */
+static bool agent_bash_deadline_passed(double timeout_sec, double elapsed) {
+    return elapsed >= timeout_sec;
+}
+
 /* The monitor owns the descriptors and child reaping. Tool observations take
  * the job mutex; the model worker owns only the list and observation cursors. */
 static void agent_bash_poll(agent_bash_job *job) {
@@ -9681,7 +9686,8 @@ static void agent_bash_poll(agent_bash_job *job) {
         agent_bash_finalize(job, job->child_status);
         return;
     }
-    if (!job->timed_out && (job->output_error || now_sec() - job->start_time >= job->timeout_sec)) {
+    if (!job->timed_out &&
+        (job->output_error || agent_bash_deadline_passed(job->timeout_sec, now_sec() - job->start_time))) {
         job->timed_out = !job->output_error;
         kill(-job->pid, SIGKILL);
         if (!job->reaped) {
@@ -11107,13 +11113,19 @@ static size_t pi_last_line_bytes(const char *path, size_t total) {
     return line;
 }
 
-static char *pi_tool_bash(agent_worker *w, const agent_tool_call *call) {
-    const char *cmd = pi_string_arg(call, "command");
-    if (!cmd || !cmd[0]) return xstrdup("bash requires a command string.");
+/* The job's timeout in whole seconds: a positive timeout argument rounded up, at most a day. */
+static int pi_bash_timeout(const agent_tool_call *call) {
     double t = 0;
     int timeout = PI_BASH_DEFAULT_TIMEOUT_SEC;
     if (pi_number_arg(call, "timeout", &t) && t > 0)
         timeout = t > 24.0 * 3600.0 ? 24 * 3600 : (int)ceil(t);
+    return timeout;
+}
+
+static char *pi_tool_bash(agent_worker *w, const agent_tool_call *call) {
+    const char *cmd = pi_string_arg(call, "command");
+    if (!cmd || !cmd[0]) return xstrdup("bash requires a command string.");
+    const int timeout = pi_bash_timeout(call);
     char err[256] = {0};
     agent_bash_job *job = agent_bash_start(w, cmd, timeout, err, sizeof(err));
     if (!job) return xstrdup(err[0] ? err : "failed to start the command");
