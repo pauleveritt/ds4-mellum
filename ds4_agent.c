@@ -2814,36 +2814,75 @@ static bool agent_hermes_folds_member(const char *s, const char *end) {
     return false;
 }
 
-/* The call body (from its opening brace to </tool_call>) of a write whose content holds bare quotes, with them
- * escaped; NULL when the body is not exactly {"name": "write", "arguments": {"path": <a valid string>,
- * "content": "..."}} or the rewrite changes nothing.  The path is not repaired: a wrong path is another file. */
+/* A value's end in an edit's items: the quote that opens the item boundary b (" , "newText" : " or "}, {"oldText": ")
+ * at q, if any.  The boundary's end, or NULL. */
+static const char *agent_hermes_edit_boundary(const char *q, const char *end, bool to_new) {
+    return agent_hermes_eat(q, end, to_new ? "\" , \"newText\" : \"" : "\" } , { \"oldText\" : \"");
+}
+
+/* The call body (from its opening brace to </tool_call>) of a write or an edit whose string values hold bare
+ * quotes, with them escaped; NULL when the body is not exactly {"name": "write", "arguments": {"path": <a valid
+ * string>, "content": "..."}} or {"name": "edit", "arguments": {"path": <a valid string>, "edits": [{"oldText":
+ * "...", "newText": "..."}, ...]}}, when an edit's item boundaries are ambiguous, or when the rewrite changes
+ * nothing.  The path is not repaired: a wrong path is another file. */
 static char *agent_hermes_repair_quotes(const char *s, size_t n) {
     const char *end = s + n, *past = NULL;
     const char *q = agent_hermes_eat(s, end, " { \"name\" : \"write\" , \"arguments\" : { \"path\" : ");
+    const bool edit = !q;
+    if (edit) q = agent_hermes_eat(s, end, " { \"name\" : \"edit\" , \"arguments\" : { \"path\" : ");
     if (!q || q >= end || *q != '"' || !agent_hermes_string_end(q, end, &past)) return NULL;
     char *path = agent_hermes_decode_string(q);
     if (!path) return NULL;
     free(path);
-    const char *v = agent_hermes_eat(past, end, " , \"content\" : \"");
+    const char *v = agent_hermes_eat(past, end, edit ? " , \"edits\" : [ { \"oldText\" : \"" : " , \"content\" : \"");
     if (!v) return NULL;
-    /* the tail: " } } and whitespace */
+    /* the tail, read backwards: " } } for a write, " } ] } } for an edit, and whitespace */
     const char *v_end = end;
-    for (const char *lit = "}}\""; *lit; lit++) {
+    for (const char *lit = edit ? "}}]}\"" : "}}\""; *lit; lit++) {
         while (v_end > v && (v_end[-1] == ' ' || v_end[-1] == '\t' || v_end[-1] == '\r' || v_end[-1] == '\n')) v_end--;
         if (v_end <= v || v_end[-1] != *lit) return NULL;
         v_end--;
     }
-    if (agent_hermes_folds_member(v, v_end)) return NULL;
-    char *out = xmalloc(2 * n + 1), *o = out;
-    memcpy(o, s, (size_t)(v - s));
-    o += v - s;
-    for (const char *c = v; c < v_end; c++) {
-        if (agent_hermes_bare_quote(v, c)) *o++ = '\\';
-        *o++ = *c;
+    /* the values: [cut[2i], cut[2i+1]).  An edit's alternate oldText and newText, cut at each boundary; a boundary
+     * that comes out of turn, or a list that does not end in a newText, is ambiguous */
+    const char **cut = xmalloc(((size_t)(v_end - v) + 2) * sizeof(*cut));
+    size_t ncut = 0;
+    cut[ncut++] = v;
+    bool to_new = true;
+    for (const char *c = v; edit && c < v_end; c++) {
+        if (!agent_hermes_bare_quote(v, c)) continue;
+        const char *b = agent_hermes_edit_boundary(c, v_end, to_new);
+        if (b) {
+            cut[ncut++] = c;
+            cut[ncut++] = b;
+            c = b - 1;
+            to_new = !to_new;
+        } else if (agent_hermes_edit_boundary(c, v_end, !to_new)) {
+            ncut = 0;
+            break;
+        }
     }
-    const bool changed = (size_t)(o - out) != (size_t)(v_end - s);
-    memcpy(o, v_end, (size_t)(end - v_end));
-    o[end - v_end] = '\0';
+    if (edit && to_new) ncut = 0;
+    if (ncut) cut[ncut++] = v_end;
+    for (size_t i = 0; i < ncut; i += 2) {
+        if (agent_hermes_folds_member(cut[i], cut[i + 1])) ncut = 0;
+    }
+    if (!ncut) { free(cut); return NULL; }
+    char *out = xmalloc(2 * n + 1), *o = out;
+    const char *from = s;
+    bool changed = false;
+    for (size_t i = 0; i < ncut; i += 2) {
+        memcpy(o, from, (size_t)(cut[i] - from));
+        o += cut[i] - from;
+        for (const char *c = cut[i]; c < cut[i + 1]; c++) {
+            if (agent_hermes_bare_quote(cut[i], c)) { *o++ = '\\'; changed = true; }
+            *o++ = *c;
+        }
+        from = cut[i + 1];
+    }
+    memcpy(o, from, (size_t)(end - from));
+    o[end - from] = '\0';
+    free(cut);
     if (!changed) { free(out); return NULL; }
     return out;
 }
@@ -3083,6 +3122,23 @@ static void agent_dsml_finish(agent_dsml_parser *p) {
         agent_dsml_set_error(p, p->hermes_deferred_error);
         return;
     }
+    /* Hermes: an odd count of bare quotes leaves a write's or edit's value open to the turn's end, past its
+     * </tool_call>; the last one closes the call, which gets the repair a strict-parse error would have */
+    const char *name = p->current.name ? p->current.name : "";
+    if (p->syntax == AGENT_TOOL_SYNTAX_HERMES && !p->hermes_deferred &&
+        (p->state == AGENT_DSML_PARAM_VALUE || p->state == AGENT_DSML_STRUCTURAL) &&
+        (!strcmp(name, "write") || !strcmp(name, "edit"))) {
+        static const char close[] = "</tool_call>";
+        const char *last = NULL;
+        for (const char *at = p->raw + p->hermes_call_start;
+             (at = agent_memmem(at, p->raw_len - (size_t)(at - p->raw), close, sizeof(close) - 1)) != NULL;
+             at += sizeof(close) - 1)
+            last = at;
+        if (last && agent_hermes_repaired_call(p, (size_t)(last - p->raw))) {
+            p->state = AGENT_DSML_DONE;
+            return;
+        }
+    }
     /* Hermes: a call followed by prose (or half an opener) is a finished turn too */
     if (p->syntax == AGENT_TOOL_SYNTAX_HERMES && p->state == AGENT_DSML_STRUCTURAL &&
         (p->hermes_phase == AGENT_HERMES_PROSE || p->glm_after_call) && p->calls.len > 0) {
@@ -3112,7 +3168,7 @@ static void agent_dsml_parse(agent_dsml_parser *p) {
         agent_hermes_tool_parse(p);
         /* step 44: a write whose arguments fail the strict parse waits for </tool_call>, for one repair */
         const char *name = p->current.name ? p->current.name : "";
-        if (p->state == AGENT_DSML_ERROR && !p->hermes_deferred && !strcmp(name, "write")) {
+        if (p->state == AGENT_DSML_ERROR && !p->hermes_deferred && (!strcmp(name, "write") || !strcmp(name, "edit"))) {
             p->hermes_deferred = true;
             snprintf(p->hermes_deferred_error, sizeof(p->hermes_deferred_error), "%s", p->error);
             p->error[0] = '\0';
