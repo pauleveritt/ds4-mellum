@@ -191,6 +191,18 @@ Phase 5 (tool calls in ds4-agent):
   - `627672d` (red), `d3c562d` `bash`;
   - `194dbf8` (red), `5a0b4b0` other tool names get "Tool X not found",
     and the agent no longer refuses Mellum.
+- Step 35: `f9d006a` (red), `a15284c` `read` clamps absurd offsets and limits
+  (a 1e30 limit crashed); `e138b1f` (red), `6f61a9a` fuzzy `edit` (Pi's
+  normalizer without NFKC, occurrences counted on normalized text, unedited
+  lines kept).
+- Step 36: `022822a` (red), `1a75f9d` the terminal shows a Hermes call's
+  arguments JSON-decoded, and Pi's read as `path offset:limit`.
+- Step 37: `63866ed` (red), `184a0f2` a turn the token cap cut off is
+  reported, not accepted. Abnormal stops were already Hermes-only (step 33).
+- Step 38: `e8563e3` (red), `d4d6fb7` a headless run reads the worker's error
+  again after its loop, so an abnormal end exits 1 with the line.
+- Step 39: `c441f17` (red), `dc66028` a compaction summary that stops on id 0
+  or a protocol id fails the compaction.
 
 Review fixes and experiment E1 (after step 33, before step 34; the outside
 review of `5aa742c`):
@@ -274,8 +286,12 @@ Step 22, M5 Max, Q8_0, `--temp 0`, n = 1 each:
   "Successfully wrote N bytes to P", with N being JavaScript's `content.length` (UTF-16 units); 1.1.0
   says "Successfully wrote to P". `bash`'s "Command terminated without an exit code" is 1.1.0's:
   0.80.10 has no such case. An unknown tool gets Pi's agent-loop text, "Tool X not found". `edit`'s
-  texts are the same in both versions. Until step 35, `edit` matches exactly; Pi also tries a fuzzy
-  match and counts occurrences on normalized text.
+  texts are the same in both versions. Since step 35, `edit` matches as Pi does, except that its
+  fuzzy pass has no NFKC step: C has no Unicode normalization here, so compatibility forms such as
+  full-width letters and ligatures don't match their ASCII spelling.
+- `read` with an offset or limit past the file's end reads as Pi does. A negative limit reads
+  nothing and reports how many lines remain; Pi's own arithmetic would count from before the
+  start.
 
 ## Measured
 
