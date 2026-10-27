@@ -168,7 +168,7 @@ session-concurrency-bench: speed-bench/session_concurrency_bench
 tests/test_mxfp4_metal.o: tests/test_mxfp4_metal.c ds4_gpu.h
 	$(CC) $(CFLAGS) -I. -c -o $@ $<
 
-tests/test_mxfp4_metal: tests/test_mxfp4_metal.o ds4_metal.o ds4_image.o
+tests/test_mxfp4_metal: tests/test_mxfp4_metal.o ds4_metal.o ds4_image.o ds4_mellum_observer.o ds4_mellum_profile.o
 	$(CC) $(CFLAGS) -o $@ $^ $(METAL_LDLIBS)
 
 check-mxfp4-half-lut:
@@ -882,7 +882,7 @@ tests/test_image_decode: tests/test_image_decode.o ds4_image.o
 	$(CC) $(CFLAGS) -o $@ $^ -lm
 
 ifeq ($(UNAME_S),Darwin)
-$(GLM53_KDA_TEST): tests/test_glm53_kda.o ds4_metal.o ds4_image.o
+$(GLM53_KDA_TEST): tests/test_glm53_kda.o ds4_metal.o ds4_image.o ds4_mellum_observer.o ds4_mellum_profile.o
 	$(CC) $(CFLAGS) -o $@ $^ $(METAL_LDLIBS)
 else
 $(GLM53_KDA_TEST): tests/test_glm53_kda.o ds4_cuda.o ds4_image.o $(MMQ_OBJS)
@@ -897,14 +897,14 @@ ifeq ($(UNAME_S),Darwin)
 tests/test_qwen4_kernels.o: tests/test_qwen4_kernels.c ds4_gpu.h ds4.h
 	$(CC) $(CFLAGS) -I. -c -o $@ tests/test_qwen4_kernels.c
 
-$(QWEN4_KERNEL_TEST): tests/test_qwen4_kernels.o ds4_metal.o ds4_image.o
+$(QWEN4_KERNEL_TEST): tests/test_qwen4_kernels.o ds4_metal.o ds4_image.o ds4_mellum_observer.o ds4_mellum_profile.o
 	$(CC) $(CFLAGS) -o $@ $^ $(METAL_LDLIBS)
 
 # Mellum's model-free Metal kernel tests: no model, no session.
 tests/test_mellum_kernels.o: tests/test_mellum_kernels.c tests/mellum_moe_ref.inc ds4_gpu.h ds4.h
 	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -I. -c -o $@ tests/test_mellum_kernels.c
 
-$(MELLUM_KERNEL_TEST): tests/test_mellum_kernels.o ds4_metal.o ds4_image.o
+$(MELLUM_KERNEL_TEST): tests/test_mellum_kernels.o ds4_metal.o ds4_image.o ds4_mellum_observer.o ds4_mellum_profile.o
 	$(CC) $(CFLAGS) -o $@ $^ $(METAL_LDLIBS)
 
 .PHONY: test-mellum-kernels
@@ -995,7 +995,7 @@ tests/test_glm_attention.o: tests/test_glm_attention.c ds4.h ds4_gpu.h ds4_linux
 	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -I. -c -o $@ $<
 
 ifeq ($(UNAME_S),Darwin)
-tests/test_glm_attention: tests/test_glm_attention.o ds4_metal.o ds4_image.o
+tests/test_glm_attention: tests/test_glm_attention.o ds4_metal.o ds4_image.o ds4_mellum_observer.o ds4_mellum_profile.o
 	$(CC) $(CFLAGS) -o $@ $^ $(METAL_LDLIBS)
 else
 tests/test_glm_attention: tests/test_glm_attention.o ds4_cuda.o ds4_image.o $(MMQ_OBJS)
