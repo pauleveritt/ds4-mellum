@@ -758,6 +758,13 @@ static void check_mellum_chat_tiny(void) {
     push_bytes(&want, "\n42 files\n"); ds4_tokens_push(&want, 32); ds4_tokens_push(&want, 28);
     push_bytes(&want, "\n");
     expect_ids("tiny: tool message", &got, want.v, want.len);
+    {   /* the agent's text-only observation path renders the same turn */
+        const char *parts[] = {"42 files"};
+        char err[128] = "";
+        got.len = 0;
+        CHECK(ds4_chat_append_multimodal_message(&e, &got, "tool", parts, NULL, 0, NULL, err, sizeof(err)) == 1);
+        expect_ids("tiny: tool message, multimodal path", &got, want.v, want.len);
+    }
     /* sibling: Flash Next keeps its own prefix (<think> and a newline when thinking) */
     g_ds4_shape = DS4_SHAPE_QWEN4_EXP;
     want.len = got.len = 0;
