@@ -48,14 +48,14 @@ def select_diagnostic(trace) -> list[tuple[int, int]]:
 
 
 def diagnostic_ids(trace_path: Path) -> list[tuple[int, int]]:
-    before = identity.file_identity(trace_path)
+    before = common.file_identity(trace_path)
     if before['sha256'] != TRACE_SHA256:
         raise ValueError('diagnostic trace differs from approved digest')
     with common.opened(trace_path) as (source, stat):
         if stat != {key:before[key] for key in common.STAT_KEYS}:
             raise ValueError('diagnostic trace changed')
         trace = replay.load_trace(line.decode('utf-8') for line in source)
-    if identity.file_identity(trace_path) != before:
+    if common.file_identity(trace_path) != before:
         raise ValueError('diagnostic trace changed')
     return select_diagnostic(trace)
 

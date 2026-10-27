@@ -28,12 +28,12 @@ def frozen_runs() -> list[dict]:
 
 
 def binding(path: Path) -> dict:
-    return dict(path=str(path.absolute()), **identity.file_identity(path))
+    return dict(path=str(path.absolute()), **common.file_identity(path))
 
 
 def check_binding(value: dict, *, full: bool = True) -> None:
     path = Path(value['path'])
-    actual = identity.file_identity(path) if full else identity.file_stat(path)
+    actual = common.file_identity(path) if full else identity.file_stat(path)
     if any(value.get(key) != item for key,item in actual.items()):
         raise ValueError(f'frozen input changed: {path}')
 
@@ -47,7 +47,7 @@ def prepare_batch(index_path: Path, packed_dir: Path, trace_path: Path, binary: 
     inputs = dict(index=binding(index_path), packed_manifest=binding(packed_dir/'manifest.json'),
                   model=binding(Path(index['source']['path'])), payload=binding(packed_dir/'experts.bin'),
                   trace=binding(trace_path), binary=binding(binary))
-    source = identity.source_identity(common.ROOT)
+    source = common.source_identity(common.ROOT)
     def build(stage: Path) -> None:
         definitions = {}
         for name, logical_ids in ids.items():
@@ -62,8 +62,8 @@ def prepare_batch(index_path: Path, packed_dir: Path, trace_path: Path, binary: 
                         raise OSError('short wire-plan write')
                     stream.flush()
                 common.write_json(stage/f'{key}.json',dict(ids=logical_ids,jobs=jobs))
-                definitions[key] = dict(wire=wire.name,sha256=identity.file_identity(wire)['sha256'],
-                                        jobs=f'{key}.json', jobs_sha256=identity.file_identity(stage/f'{key}.json')['sha256'],
+                definitions[key] = dict(wire=wire.name,sha256=common.file_identity(wire)['sha256'],
+                                        jobs=f'{key}.json', jobs_sha256=common.file_identity(stage/f'{key}.json')['sha256'],
                                         logical_bytes=sum(sum(s['bytes'] for s in j['ranges']) for j in jobs))
         runs = frozen_runs()
         total = sum(definitions[f"{run['plan']}-{run['layout']}"]['logical_bytes'] for run in runs)
@@ -86,7 +86,7 @@ def verify_batch(batch_dir: Path) -> tuple[dict, dict]:
     if (common.integer(batch['schema_version']) != 1 or batch['kind'] != 'storage-read-batch' or
             batch['split'] != 'tuning' or batch['runs'] != frozen_runs() or batch['physical_io_verified'] is not False):
         raise ValueError('unsupported frozen batch/protocol')
-    if batch['source_identity']['source_state_id'] != identity.source_identity(common.ROOT)['source_state_id']:
+    if batch['source_identity']['source_state_id'] != common.source_identity(common.ROOT)['source_state_id']:
         raise ValueError('measurement source changed since preparation')
     for value in batch['inputs'].values():
         check_binding(value)
@@ -112,7 +112,7 @@ def verify_batch(batch_dir: Path) -> tuple[dict, dict]:
         if definition['wire'] != f'{key}.bin' or definition['jobs'] != f'{key}.json':
             raise ValueError('escaping or substituted plan path')
         for field,hash_key in (('wire','sha256'),('jobs','jobs_sha256')):
-            if identity.file_identity(batch_dir/definition[field])['sha256'] != common.digest(definition[hash_key]):
+            if common.file_identity(batch_dir/definition[field])['sha256'] != common.digest(definition[hash_key]):
                 raise ValueError('frozen plan changed')
         logical = common.load_json(batch_dir/definition['jobs'])
         jobs = plans.make_jobs(index if layout == 'original' else packed,ids[name],layout)
@@ -230,7 +230,7 @@ def run_batch(batch_dir: Path, container: Path) -> Path:
                     check_binding(value,full=False)
                 check_binding(batch['inputs']['binary'])
                 check_binding(frozen_manifest)
-                if identity.file_identity(batch_dir/definition['wire'])['sha256'] != definition['sha256']:
+                if common.file_identity(batch_dir/definition['wire'])['sha256'] != definition['sha256']:
                     raise ValueError('wire plan changed during batch')
                 for name,value in batch['source_identity']['files'].items():
                     if identity.file_stat(common.ROOT/name) != {key:value[key] for key in common.STAT_KEYS}:
@@ -252,10 +252,10 @@ def run_batch(batch_dir: Path, container: Path) -> Path:
                 common.write_json(raw/f'{number:02}.metrics.json',metrics)
                 # Raw samples and derived per-job metrics stay in separately bounded files.
                 brief = {key:value for key,value in metrics.items() if key not in ('jobs','completion_order')}
-                runs.append(dict(**run,raw_stdout=f'raw/{stdout.name}',stdout_sha256=identity.file_identity(stdout)['sha256'],
-                                 raw_stderr=f'raw/{stderr.name}',stderr_sha256=identity.file_identity(stderr)['sha256'],
+                runs.append(dict(**run,raw_stdout=f'raw/{stdout.name}',stdout_sha256=common.file_identity(stdout)['sha256'],
+                                 raw_stderr=f'raw/{stderr.name}',stderr_sha256=common.file_identity(stderr)['sha256'],
                                  metrics=brief,job_metrics=f'raw/{number:02}.metrics.json',
-                                 job_metrics_sha256=identity.file_identity(raw/f'{number:02}.metrics.json')['sha256']))
+                                 job_metrics_sha256=common.file_identity(raw/f'{number:02}.metrics.json')['sha256']))
             verify_batch(batch_dir)
             check_binding(frozen_manifest)
             completed = sum(run['metrics']['logical_bytes'] for run in runs)

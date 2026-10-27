@@ -15,6 +15,7 @@ _spec.loader.exec_module(identity)
 publication = identity.sibling('mellum_artifact')
 ROOT = Path(__file__).resolve().parents[1]
 STAT_KEYS = ('dev', 'ino', 'size', 'mtime_ns', 'ctime_ns')
+READ_BYTES = 0
 
 
 def canonical(value: object) -> bytes:
@@ -36,6 +37,7 @@ def load_json(path: Path) -> dict:
         return result
     with path.open('rb') as source:
         raw = source.read(8 * 1024**2 + 1)
+    account(len(raw))
     if len(raw) > 8 * 1024**2:
         raise ValueError('JSON exceeds 8 MiB')
     value = json.loads(raw, object_pairs_hook=pairs, parse_float=number,
@@ -70,7 +72,7 @@ def opened(path: Path):
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
     with os.fdopen(fd, 'rb') as source:
         check_open(source, path, before)
-        yield source, before
+        yield ReadCounter(source), before
         check_open(source, path, before)
 
 
@@ -79,7 +81,7 @@ def hash_stream(source: BinaryIO, length: int | None = None) -> str:
     source.seek(0)
     remaining = length
     while remaining is None or remaining:
-        block = source.read(65536 if remaining is None else min(65536, remaining))
+        block = read(source, 65536 if remaining is None else min(65536, remaining))
         if not block:
             if remaining:
                 raise ValueError('short hashing read')
@@ -100,3 +102,57 @@ def digest(value: object) -> str:
     if not isinstance(value, str) or len(value) != 64 or any(c not in '0123456789abcdef' for c in value):
         raise ValueError('SHA-256 required')
     return value
+
+
+def account(count: int) -> None:
+    global READ_BYTES
+    READ_BYTES += count
+
+
+class ReadCounter:
+    """Count successful Python input bytes, excluding seek and native reads."""
+    def __init__(self, source: BinaryIO):
+        self.source = source
+
+    def read(self, n: int = -1) -> bytes:
+        block = self.source.read(n)
+        account(len(block))
+        return block
+
+    def __iter__(self):
+        return self
+
+    def __next__(self) -> bytes:
+        block = self.source.readline()
+        account(len(block))
+        if not block:
+            raise StopIteration
+        return block
+
+    def seek(self, *args) -> int:
+        return self.source.seek(*args)
+
+    def tell(self) -> int:
+        return self.source.tell()
+
+    def fileno(self) -> int:
+        return self.source.fileno()
+
+
+def read(source: BinaryIO, size: int) -> bytes:
+    block = source.read(size)
+    if not isinstance(source, ReadCounter):
+        account(len(block))
+    return block
+
+
+def file_identity(path: Path) -> dict:
+    with opened(path) as (source, before):
+        digest = hash_stream(source)
+    return dict(sha256=digest, **before)
+
+
+def source_identity(root: Path) -> dict:
+    result = identity.source_identity(root)
+    account(sum(value['size'] for value in result['files'].values()))
+    return result

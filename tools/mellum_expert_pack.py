@@ -23,7 +23,7 @@ def chunks(source: BinaryIO, spans: list[dict]):
         source.seek(offset)
         while remaining:
             size = min(65536, remaining)
-            block = source.read(size)
+            block = common.read(source, size)
             if len(block) != size:
                 raise ValueError('short expert read')
             yield block
@@ -56,7 +56,7 @@ def verify_copy(source: BinaryIO, destination: BinaryIO, original_entries: list[
         destination.seek(packed['ranges'][0]['offset'])
         size = 0
         for block in chunks(source, original['ranges']):
-            actual = destination.read(len(block))
+            actual = common.read(destination, len(block))
             if actual != block:
                 raise ValueError('packed bytes differ from source')
             digest.update(actual)
@@ -96,7 +96,7 @@ def validate_packed(value: dict) -> dict:
 
 
 def pack(index_path: Path, container: Path) -> Path:
-    index_file = identity.file_identity(index_path)
+    index_file = common.file_identity(index_path)
     index = index_tools.validate_index(common.load_json(index_path))
     index_tools.verify_index_source(index)
     size = sum(sum(span['bytes'] for span in entry['ranges']) for entry in index['experts'])
@@ -119,14 +119,14 @@ def pack(index_path: Path, container: Path) -> Path:
                 if destination.tell() != size:
                     raise ValueError('packed size mismatch')
                 destination.flush()
-        if identity.file_identity(index_path) != index_file:
+        if common.file_identity(index_path) != index_file:
             raise ValueError('source index changed during packing')
         manifest = dict(schema_version=1, kind='packed-experts', geometry=index['geometry'],
                         model=index['source'], index=dict(path=str(index_path.absolute()), **index_file),
                         payload=dict(path='experts.bin', bytes=size, sha256=digest), experts=entries,
                         preparation_bytes=index['source']['size'] + size,
                         verification_bytes=3 * size,
-                        tool=identity.file_identity(Path(__file__)), source_identity=identity.source_identity(common.ROOT))
+                        tool=common.file_identity(Path(__file__)), source_identity=common.source_identity(common.ROOT))
         common.write_json(stage / 'manifest.json', validate_packed(manifest))
     return common.publication.publish(container, build)
 
@@ -138,7 +138,7 @@ def verify_packed(index: dict, manifest: dict, packed_dir: Path) -> None:
         raise ValueError('packed model/index mismatch')
     path = Path(manifest['index']['path'])
     expected_index = {key:manifest['index'][key] for key in (*common.STAT_KEYS, 'sha256')}
-    if identity.file_identity(path) != expected_index or common.load_json(path) != index:
+    if common.file_identity(path) != expected_index or common.load_json(path) != index:
         raise ValueError('packed index linkage differs')
     if manifest['payload']['path'] != 'experts.bin':
         raise ValueError('packed payload must remain inside artifact')

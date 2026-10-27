@@ -95,7 +95,7 @@ def build_index(model: Path) -> dict:
     result = dict(schema_version=1, geometry=dict(GEOMETRY),
                   source=dict(path=str(model), sha256=digest, **before),
                   directory=dict(data_start=directory.data_start, alignment=directory.alignment, sha256=prefix),
-                  tool=identity.file_identity(Path(__file__)), source_identity=identity.source_identity(common.ROOT),
+                  tool=common.file_identity(Path(__file__)), source_identity=common.source_identity(common.ROOT),
                   experts=entries)
     return validate_index(result)
 
