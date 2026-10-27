@@ -45385,7 +45385,10 @@ void ds4_chat_append_message(ds4_engine *e, ds4_tokens *tokens, const char *role
             const char *name = (!strcmp(role, "system") || !strcmp(role, "developer")) ? "system" :
                                !strcmp(role, "assistant") ? "assistant" : "user";
             qwen4_chat_open(vocab, name, tokens);
-            if (!strcmp(name, "assistant")) {
+            /* Mellum's system turn carries the host's tools block, whose <tool_call> and
+             * </tool_call> the template's text encodes as tokens 29 and 30.  User text stays
+             * plain BPE, as for every model. */
+            if (!strcmp(name, "assistant") || (ds4_model_is_mellum() && !strcmp(name, "system"))) {
                 tokenize_rendered_chat_vocab(vocab, content, tokens);
             } else {
                 bpe_tokenize_text(vocab, content, tokens);
