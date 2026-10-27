@@ -1252,6 +1252,70 @@ static void test_hermes_system_turn(void) {
     free(pre);
 }
 
+/* a call inside <think> is ignored; Mellum's prefix has no <think>, so a turn starts outside it */
+static void test_hermes_think_state(void) {
+    const char *inside[] = {
+        "<think>plan <tool_call>\n{\"name\": \"read\", \"arguments\": {\"path\": \"x\"}}\n</tool_call>",
+        "</think>done",
+    };
+    agent_dsml_parser p;
+    bool in_think = false;
+    char *out = agent_test_stream_capture(AGENT_TOOL_SYNTAX_HERMES, inside, 2, &p, &in_think);
+    AGENT_TEST_ASSERT(in_think);
+    AGENT_TEST_ASSERT(p.calls.len == 0);
+    AGENT_TEST_ASSERT(strstr(out, "[tool call ignored:") != NULL);
+    free(out);
+    agent_dsml_parser_free(&p);
+
+    AGENT_TEST_ASSERT(!agent_turn_starts_in_think(AGENT_TOOL_SYNTAX_HERMES, DS4_THINK_HIGH));
+    AGENT_TEST_ASSERT(!agent_turn_starts_in_think(AGENT_TOOL_SYNTAX_HERMES, DS4_THINK_NONE));
+    /* siblings: the other models' prefixes open the block when thinking is on */
+    AGENT_TEST_ASSERT(agent_turn_starts_in_think(AGENT_TOOL_SYNTAX_QWEN, DS4_THINK_HIGH));
+    AGENT_TEST_ASSERT(!agent_turn_starts_in_think(AGENT_TOOL_SYNTAX_QWEN, DS4_THINK_NONE));
+    AGENT_TEST_ASSERT(agent_turn_starts_in_think(AGENT_TOOL_SYNTAX_DSML, DS4_THINK_HIGH));
+
+    const char *direct[] = {hermes_read_call};
+    bool direct_in_think = true;
+    out = agent_test_stream_capture(AGENT_TOOL_SYNTAX_HERMES, direct, 1, &p, &direct_in_think);
+    AGENT_TEST_ASSERT(!direct_in_think);
+    AGENT_TEST_ASSERT(p.state == AGENT_DSML_DONE && p.calls.len == 1);
+    free(out);
+    agent_dsml_parser_free(&p);
+}
+
+/* the turn ends on the EOS token and then a newline, as the template writes <|im_end|>\n */
+static void test_hermes_turn_end(void) {
+    AGENT_TEST_ASSERT(agent_tool_syntax_assistant_turn_uses_eos(AGENT_TOOL_SYNTAX_HERMES));
+    AGENT_TEST_ASSERT(!strcmp(agent_turn_end_suffix(AGENT_TOOL_SYNTAX_HERMES), "\n"));
+    /* siblings: the other syntaxes' turn end is unchanged */
+    AGENT_TEST_ASSERT(!strcmp(agent_turn_end_suffix(AGENT_TOOL_SYNTAX_GLM), ""));
+    AGENT_TEST_ASSERT(!strcmp(agent_turn_end_suffix(AGENT_TOOL_SYNTAX_QWEN), ""));
+    AGENT_TEST_ASSERT(!strcmp(agent_turn_end_suffix(AGENT_TOOL_SYNTAX_DSML), ""));
+}
+
+/* only the EOS class ends a Hermes turn cleanly; id 0 and the protocol ids are abnormal */
+static void test_hermes_stop_classes(void) {
+    AGENT_TEST_ASSERT(agent_stop_is_clean_end(AGENT_TOOL_SYNTAX_HERMES, DS4_STOP_EOS));
+    AGENT_TEST_ASSERT(!agent_stop_is_clean_end(AGENT_TOOL_SYNTAX_HERMES, DS4_STOP_EOS_ALT));
+    AGENT_TEST_ASSERT(!agent_stop_is_clean_end(AGENT_TOOL_SYNTAX_HERMES, DS4_STOP_PROTOCOL));
+    AGENT_TEST_ASSERT(!agent_stop_is_clean_end(AGENT_TOOL_SYNTAX_HERMES, DS4_STOP_MARKER));
+    AGENT_TEST_ASSERT(!agent_stop_is_clean_end(AGENT_TOOL_SYNTAX_HERMES, DS4_STOP_NONE));
+    /* siblings: the other syntaxes treat every stop as the end of the reply, as before (a think
+     * tag stops a --nothink generation with class NONE) */
+    for (int c = DS4_STOP_NONE; c <= DS4_STOP_MARKER; c++) {
+        AGENT_TEST_ASSERT(agent_stop_is_clean_end(AGENT_TOOL_SYNTAX_QWEN, c));
+        AGENT_TEST_ASSERT(agent_stop_is_clean_end(AGENT_TOOL_SYNTAX_DSML, c));
+    }
+}
+
+/* the [upto] forcer rewrites an edit's old text; Pi's edit has no place for it, so it stays off */
+static void test_hermes_upto_forcer_off(void) {
+    AGENT_TEST_ASSERT(!agent_edit_upto_enabled(true, AGENT_TOOL_SYNTAX_HERMES));
+    AGENT_TEST_ASSERT(!agent_edit_upto_enabled(false, AGENT_TOOL_SYNTAX_HERMES));
+    AGENT_TEST_ASSERT(agent_edit_upto_enabled(true, AGENT_TOOL_SYNTAX_QWEN));
+    AGENT_TEST_ASSERT(!agent_edit_upto_enabled(false, AGENT_TOOL_SYNTAX_QWEN));
+}
+
 static void test_hermes_tool_syntax(void) {
     test_hermes_syntax_basics();
     test_hermes_split_points();
@@ -1263,6 +1327,10 @@ static void test_hermes_tool_syntax(void) {
     test_hermes_json_loads();
     test_hermes_prose_around_calls();
     test_hermes_system_turn();
+    test_hermes_think_state();
+    test_hermes_turn_end();
+    test_hermes_stop_classes();
+    test_hermes_upto_forcer_off();
 }
 
 static void test_v41_tool_syntax(void) {
