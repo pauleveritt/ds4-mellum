@@ -367,6 +367,11 @@ typedef struct {
     char read_whole[8];
     char tool_path[512];
     bool code_param_active;
+    /* Hermes: decoding a JSON string argument as it streams */
+    int json_state;
+    int json_hex_digits;
+    uint32_t json_cp;
+    uint32_t json_hi;
 } agent_tool_visualizer;
 
 typedef struct {
@@ -4344,7 +4349,7 @@ static agent_tool_param_kind agent_tool_param_kind_for(const char *tool, const c
         return AGENT_TOOL_PARAM_PATH;
     if (streq_any(param, "line", "start_line", "end_line", "offset") ||
         streq_any(param, "start", "end", "count", "max_lines") ||
-        streq_any(param, "timeout_sec", "refresh_sec", NULL, NULL))
+        streq_any(param, "timeout_sec", "refresh_sec", "limit", "timeout"))
         return AGENT_TOOL_PARAM_OFFSET;
     if (streq_any(param, "content", "text", NULL, NULL))
         return AGENT_TOOL_PARAM_CONTENT;
@@ -4449,9 +4454,9 @@ static void agent_tool_viz_read_value_byte(agent_stream_renderer *sr, char c) {
     if (!strcmp(v->param_name, "path")) {
         agent_tool_viz_append(v->read_path, sizeof(v->read_path), c);
         if (v->read_prefix_rendered) agent_tool_viz_write(sr, &c, 1);
-    } else if (!strcmp(v->param_name, "start_line")) {
+    } else if (!strcmp(v->param_name, "start_line") || !strcmp(v->param_name, "offset")) {
         agent_tool_viz_append(v->read_start, sizeof(v->read_start), c);
-    } else if (!strcmp(v->param_name, "max_lines")) {
+    } else if (!strcmp(v->param_name, "max_lines") || !strcmp(v->param_name, "limit")) {
         agent_tool_viz_append(v->read_max, sizeof(v->read_max), c);
     } else if (!strcmp(v->param_name, "whole")) {
         agent_tool_viz_append(v->read_whole, sizeof(v->read_whole), c);
@@ -4584,6 +4589,10 @@ static void agent_tool_viz_param_begin(agent_stream_renderer *sr, const char *na
     v->param_kind = agent_tool_param_kind_for(v->tool_name, v->param_name);
     v->param_active = true;
     v->param_end_len = 0;
+    v->json_state = 0;
+    v->json_hex_digits = 0;
+    v->json_cp = 0;
+    v->json_hi = 0;
 
     if (v->read_style) return;
 
@@ -4668,11 +4677,89 @@ static void agent_tool_viz_restore_param_color(agent_stream_renderer *sr) {
     renderer_color(sr->renderer, agent_tool_param_color(v->param_kind));
 }
 
+static void agent_tool_viz_utf8(agent_stream_renderer *sr, uint32_t cp) {
+    char b[4];
+    size_t n = 0;
+    if (cp > 0x10ffff || (cp >= 0xd800 && cp <= 0xdfff)) cp = 0xfffd;
+    if (cp <= 0x7f) b[n++] = (char)cp;
+    else if (cp <= 0x7ff) { b[n++] = (char)(0xc0 | (cp >> 6)); b[n++] = (char)(0x80 | (cp & 0x3f)); }
+    else if (cp <= 0xffff) {
+        b[n++] = (char)(0xe0 | (cp >> 12)); b[n++] = (char)(0x80 | ((cp >> 6) & 0x3f));
+        b[n++] = (char)(0x80 | (cp & 0x3f));
+    } else {
+        b[n++] = (char)(0xf0 | (cp >> 18)); b[n++] = (char)(0x80 | ((cp >> 12) & 0x3f));
+        b[n++] = (char)(0x80 | ((cp >> 6) & 0x3f)); b[n++] = (char)(0x80 | (cp & 0x3f));
+    }
+    for (size_t i = 0; i < n; i++) agent_tool_viz_param_raw_byte(sr, b[i]);
+}
+
+/* A Hermes string argument arrives JSON-escaped; show what it says: \n a line break, \" a quote,
+ * \uXXXX (with surrogate pairs) the character.  States: 0 plain, 1 after a backslash, 2 reading the
+ * hex digits of \u, 3 after a high surrogate (a backslash should follow), 4 after that backslash. */
+static void agent_tool_viz_json_byte(agent_stream_renderer *sr, char c) {
+    agent_tool_visualizer *v = &sr->viz;
+    switch (v->json_state) {
+    case 3:
+        if (c == '\\') { v->json_state = 4; return; }
+        agent_tool_viz_utf8(sr, 0xfffd);
+        v->json_state = 0;
+        break;
+    case 4:
+        if (c == 'u') { v->json_state = 2; v->json_hex_digits = 0; v->json_cp = 0; return; }
+        agent_tool_viz_utf8(sr, 0xfffd);
+        v->json_state = 1;
+        break;
+    default:
+        break;
+    }
+    if (v->json_state == 2) {
+        int h = json_hex(c);
+        if (h < 0) { agent_tool_viz_utf8(sr, 0xfffd); v->json_state = 0; v->json_hi = 0; return; }
+        v->json_cp = (v->json_cp << 4) | (uint32_t)h;
+        if (++v->json_hex_digits < 4) return;
+        uint32_t cp = v->json_cp;
+        v->json_state = 0;
+        if (v->json_hi) {
+            uint32_t hi = v->json_hi;
+            v->json_hi = 0;
+            if (cp >= 0xdc00 && cp <= 0xdfff) cp = 0x10000u + ((hi - 0xd800u) << 10) + (cp - 0xdc00u);
+            else agent_tool_viz_utf8(sr, 0xfffd);
+        } else if (cp >= 0xd800 && cp <= 0xdbff) {
+            v->json_hi = cp;
+            v->json_state = 3;
+            return;
+        }
+        agent_tool_viz_utf8(sr, cp);
+        return;
+    }
+    if (v->json_state == 1) {
+        v->json_state = 0;
+        switch (c) {
+        case 'n': agent_tool_viz_param_raw_byte(sr, '\n'); return;
+        case 't': agent_tool_viz_param_raw_byte(sr, '\t'); return;
+        case 'r': agent_tool_viz_param_raw_byte(sr, '\r'); return;
+        case 'b': agent_tool_viz_param_raw_byte(sr, '\b'); return;
+        case 'f': agent_tool_viz_param_raw_byte(sr, '\f'); return;
+        case 'u': v->json_state = 2; v->json_hex_digits = 0; v->json_cp = 0; return;
+        default: agent_tool_viz_param_raw_byte(sr, c); return;   /* \" \\ \/ */
+        }
+    }
+    if (c == '\\') { v->json_state = 1; return; }
+    agent_tool_viz_param_raw_byte(sr, c);
+}
+
 /* Stream one DSML parameter byte into the visualizer.  The visualizer must not
  * wait for the whole parameter: large write/edit contents should show progress
  * as the model emits them, while still detecting the closing parameter tag. */
 static void agent_tool_viz_param_value_byte(agent_stream_renderer *sr, char c) {
     agent_tool_visualizer *v = &sr->viz;
+
+    if (sr->parser->syntax == AGENT_TOOL_SYNTAX_HERMES) {
+        /* the parser owns where the value ends; its quote or delimiter never reaches here */
+        if (sr->parser->param_is_string) agent_tool_viz_json_byte(sr, c);
+        else agent_tool_viz_param_raw_byte(sr, c);
+        return;
+    }
 
     if (v->param_end_len || c == '<') {
         if (v->param_end_len == sizeof(v->param_end_tail)) {
@@ -4796,8 +4883,13 @@ static void agent_stream_tool_events(agent_stream_renderer *sr) {
         v->read_whole[0] = '\0';
         v->tool_announced = false;
     }
-    if (!v->param_active && p->state == AGENT_DSML_PARAM_VALUE && p->param_name)
+    if (!v->param_active && p->state == AGENT_DSML_PARAM_VALUE && p->param_name) {
         agent_tool_viz_param_begin(sr, p->param_name);
+        /* a raw Hermes value starts on its first byte, which the parser has already taken */
+        if (p->syntax == AGENT_TOOL_SYNTAX_HERMES && !p->param_is_string &&
+            p->param_value_start < p->raw_len)
+            agent_tool_viz_param_raw_byte(sr, p->raw[p->param_value_start]);
+    }
 }
 
 static void agent_stream_preflight_closed_param(agent_stream_renderer *sr) {
@@ -4828,7 +4920,18 @@ static void agent_stream_feed_dsml_byte(agent_stream_renderer *sr, char c) {
     agent_dsml_feed(sr->parser, &c, 1);
     if (!sr->dsml_ignored) {
         agent_stream_tool_events(sr);
-        if (was_param) agent_tool_viz_param_value_byte(sr, c);
+        if (was_param && sr->parser->syntax == AGENT_TOOL_SYNTAX_HERMES) {
+            /* a value's last byte is not its own: the closing quote, or the delimiter after a number,
+             * ended it; a bracketed value's closer is part of it */
+            const agent_dsml_parser *p = sr->parser;
+            const bool bracketed = p->param_value_start < p->raw_len &&
+                (p->raw[p->param_value_start] == '{' || p->raw[p->param_value_start] == '[');
+            if (p->state == AGENT_DSML_PARAM_VALUE ||
+                (!p->param_is_string && bracketed && (c == '}' || c == ']')))
+                agent_tool_viz_param_value_byte(sr, c);
+        } else if (was_param) {
+            agent_tool_viz_param_value_byte(sr, c);
+        }
         if (was_param && sr->parser->state != AGENT_DSML_PARAM_VALUE &&
             sr->viz.param_active)
         {
