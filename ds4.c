@@ -59288,6 +59288,7 @@ typedef struct ds4_qwen4_gpu_graph {
     ds4_gpu_tensor *mellum_scratch[MELLUM_SCRATCH_COUNT];
     uint64_t mellum_allocated_bytes;
     bool mellum_exact_prefill;      /* DS4_MELLUM_EXACT_PREFILL, read at allocation (mellum_graph_alloc) */
+    uint32_t mellum_moe_nax;        /* DS4_MELLUM_MOE_NAX, read there too: 2 the tensor tiles, 0 the simdgroup tiles */
     /* Arena only, grown on demand: one logit row per batch member, the
      * attention rows' cache table (one entry per row and layer) and their
      * split partials. */
@@ -59427,6 +59428,11 @@ static bool mellum_graph_alloc(ds4_qwen4_gpu_graph *g, uint32_t ctx_cap, uint32_
      * byte for byte and the oracle can check it against the old engine.  Read once, here, per session. */
     const char *exact = getenv("DS4_MELLUM_EXACT_PREFILL");
     g->mellum_exact_prefill = exact && exact[0] && strcmp(exact, "0") != 0;
+    /* The tiled experts run on the Metal 4 tensor tiles where the device has them (experiment E1: the
+     * same half operands as the simdgroup tiles, summed in another order).  DS4_MELLUM_MOE_NAX=0, a
+     * diagnostic like the one above, keeps the simdgroup tiles to compare against. */
+    const char *nax = getenv("DS4_MELLUM_MOE_NAX");
+    g->mellum_moe_nax = nax && !strcmp(nax, "0") ? 0u : 2u;
     g->ctx_cap = ctx_cap;
     g->cap_tokens = cap_tokens;
     g->n_logit_rows = 1u;
@@ -60519,7 +60525,9 @@ static bool mellum_graph_moe(ds4_qwen4_gpu_graph *g, const ds4_model *m, const d
     ds4_gpu_tensor *const *s = g->mellum_scratch;
     if (T >= mellum_tiled_min_rows(g)) {
         /* The router, top-8 and reduce as below; the experts as tiled GEMMs over each expert's
-         * token list (upstream's prefill MoE), which stage the activations as half. */
+         * token list (upstream's prefill MoE), which stage the activations as half, on the
+         * tensor tiles unless DS4_MELLUM_MOE_NAX=0 (the level is set for these calls only). */
+        ds4_gpu_qwen4_moe_q8_tiles(g->mellum_moe_nax);
         ds4_gpu_tensor *router_out[1] = { s[MELLUM_S_ROUTER_LOGITS] };
         const uint64_t router_off[1] = { p.router_offset };
         const uint32_t router_type[1] = { 0u }, router_rows[1] = { p.n_expert };
@@ -60539,6 +60547,7 @@ static bool mellum_graph_moe(ds4_qwen4_gpu_graph *g, const ds4_model *m, const d
                                              p.n_expert, T, p.n_used, p.n_used, p.ff_dim, p.n_embd, g->cap_tokens) &&
             ds4_gpu_qwen4_moe_reduce_tensor(s[MELLUM_S_MOE_OUT], s[MELLUM_S_PARTIAL], s[MELLUM_S_WEIGHTS], NULL, NULL,
                                             NULL, NULL, T, p.n_used, p.n_used, p.n_embd, 0u) != 0;
+        ds4_gpu_qwen4_moe_q8_tiles(0);
         if (!ok) fprintf(stderr, "ds4: Mellum MoE (tiled experts) failed (T=%u)\n", T);
         return ok;
     }

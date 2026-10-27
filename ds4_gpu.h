@@ -3624,6 +3624,11 @@ int ds4_gpu_qwen4_moe_reduce_tensor(
 /* Metal: nonzero when the Metal 4 tensor tiles are in use (the device has the
  * tensor API and DS4_METAL_DISABLE_METAL4 is not set). */
 int ds4_gpu_tensor_tiles_available(void);
+/* The tensor-tile level (DS4_QWEN4_MOE_MM_NAX's numbering; 0: the simdgroup
+ * tiles) for Q8_0 experts in the moe_mm calls that follow, until set again.
+ * Only Mellum sets it, around its own calls; the default 0 keeps every other
+ * model's Q8_0 experts on the simdgroup tiles. */
+void ds4_gpu_qwen4_moe_q8_tiles(uint32_t level);
 /* prefill experts: per-expert token lists, then expert-grouped tiled GEMMs
  * (q8_0/mxfp4/q4_K/q2_K/iq2_xxs) */
 int ds4_gpu_qwen4_moe_build_lists_tensor(

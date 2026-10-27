@@ -49883,7 +49883,15 @@ static uint32_t qwen4_moe_mm_nt(uint32_t n_tokens, uint32_t type, const char *en
  * tiles and its fixture NLL sits within noise of them, so the compensated
  * level stays an env-selectable accuracy option.  0 forces the simdgroup
  * tiles.  Returns the token tile width, 0 for the simdgroup path. */
+/* Mellum's routed Q8_0 experts (review experiment E1): set by mellum_graph_moe around its own tiled
+ * calls (ds4_gpu_qwen4_moe_q8_tiles), so the tensor tiles take Q8_0 experts for Mellum only and
+ * another model's Q8_0 experts keep the simdgroup tiles. */
+static uint32_t g_qwen4_moe_q8_level;
+void ds4_gpu_qwen4_moe_q8_tiles(uint32_t level) {
+    g_qwen4_moe_q8_level = level;
+}
 static long qwen4_moe_mm_nax_level(uint32_t type) {
+    if (type == 8u) return g_qwen4_moe_q8_level;
     const char *v = getenv("DS4_QWEN4_MOE_MM_NAX");
     /* default 2 for every tensor tier: level 2 matches the simdgroup tiles'
      * operand rounding and differs only by accumulation order, and its
@@ -49896,7 +49904,7 @@ static long qwen4_moe_mm_nax_level(uint32_t type) {
 }
 static uint32_t qwen4_moe_mm_nax(uint32_t type) {
     if (!ds4_gpu_mpp_available()) return 0;
-    if (!(type == 12u || type == 39u || type == 16u || type == 10u)) return 0;
+    if (!(type == 12u || type == 39u || type == 16u || type == 10u || type == 8u)) return 0;
     const long n = qwen4_moe_mm_nax_level(type);
     if (n <= 0) return 0;
     return (n == 1 || n == 4 || n == 6) ? 32u : 64u;
