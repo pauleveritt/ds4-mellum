@@ -113,8 +113,43 @@ static void check_frames(void) {
     puts("ok frames");
 }
 
+static void check_finish(void) {
+    memory_sink sink = {.limit = 8192};
+    mellum_routes_writer w;
+    uint32_t ids[452];
+    padded_ids(ids);
+    CHECK(mellum_routes_begin(&w, 2, append_bytes, &sink) && emit_fixture(&w, ids));
+    CHECK(mellum_routes_finish(&w));
+    const char footer[] = "END1" "\x01\0\0\0\0\0\0\0" "\x01\0\0\0\0\0\0\0";
+    CHECK(sink.n == 980 && memcmp(sink.bytes + 960, footer, 20) == 0);
+    CHECK(!mellum_routes_finish(&w) && !emit_fixture(&w, ids) && sink.n == 980);
+    sink.n = 0;
+    CHECK(mellum_routes_begin(&w, 2, append_bytes, &sink));
+    CHECK(!mellum_routes_finish(&w) && !emit_fixture(&w, ids) && sink.n == 24);
+    sink.n = 0;
+    CHECK(mellum_routes_begin(&w, 2, append_bytes, &sink) && emit_fixture(&w, ids));
+    const uint32_t token = 1235;
+    CHECK(mellum_routes_forward(&w, 1, 43, 1, 1, 8, 12, &token, 1, ids, 452));
+    CHECK(mellum_routes_finish(&w));
+    const char twice[] = "END1" "\x02\0\0\0\0\0\0\0" "\x02\0\0\0\0\0\0\0";
+    CHECK(sink.n == 1916 && memcmp(sink.bytes + 1896, twice, 20) == 0);
+    for (size_t limit = 0; limit < 980; limit++) {
+        sink.n = 0;
+        sink.limit = limit;
+        bool began = mellum_routes_begin(&w, 2, append_bytes, &sink);
+        bool framed = emit_fixture(&w, ids);
+        CHECK(began == (limit >= 24) && framed == (limit >= 960));
+        CHECK(w.forwards == (framed ? 1u : 0u));
+        CHECK(!mellum_routes_finish(&w) && sink.n == limit);
+        CHECK(!emit_fixture(&w, ids) && !mellum_routes_finish(&w) && sink.n == limit);
+    }
+    CHECK(!mellum_routes_finish(NULL));
+    puts("ok finish and short writes");
+}
+
 int main(void) {
     check_layout();
     check_frames();
+    check_finish();
     return 0;
 }
