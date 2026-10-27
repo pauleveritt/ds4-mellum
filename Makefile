@@ -1680,3 +1680,13 @@ test-mellum-read-bench: tools/mellum_read_bench tests/mellum_read_bench_fault
 clean-mellum-read-bench:
 	rm -f tests/mellum_read_bench_fault
 clean: clean-mellum-read-bench
+
+.PHONY: test-mellum-storage
+test-mellum-storage: test-mellum-read-plan test-mellum-read-io test-mellum-read-run test-mellum-read-bench
+	python3 -I tests/test_mellum_gguf_reader.py
+	python3 -I tests/test_mellum_expert_index.py
+	python3 -I tests/test_mellum_expert_pack.py
+	python3 -I tests/test_mellum_read_plan.py
+	python3 -I tests/test_mellum_read_batch.py
+
+test-mellum: test-mellum-storage
