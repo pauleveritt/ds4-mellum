@@ -17471,6 +17471,9 @@ typedef enum {
     MELLUM_REQ_TAG,         /* index = sliding layer: int32 position tag per ring slot (K and V rows share it) */
     MELLUM_REQ_SCRATCH,     /* index = mellum_scratch_id */
     MELLUM_REQ_LOGITS,
+    MELLUM_REQ_FRONTIER_K,  /* index = sliding layer: the ring's K, V and tags as the last sync left them */
+    MELLUM_REQ_FRONTIER_V,
+    MELLUM_REQ_FRONTIER_TAG,
 } mellum_req_kind;
 
 typedef enum {
@@ -17495,7 +17498,7 @@ typedef struct {
     uint64_t bytes;
 } mellum_req;
 
-#define MELLUM_MAX_REQS (3u * DS4_MAX_LAYER + MELLUM_SCRATCH_COUNT + 1u)
+#define MELLUM_MAX_REQS (6u * DS4_MAX_LAYER + MELLUM_SCRATCH_COUNT + 1u)
 
 /* Full attention's rows kernels work in slices of 64 rows and split each row's keys
  * into at most 64 parts (QWEN4_ATTN_MAX_SPLITS, ds4_metal.m; mellum_graph_alloc checks
@@ -17587,6 +17590,13 @@ static uint32_t mellum_requests(uint32_t ctx, uint32_t cap_tokens, mellum_req *o
     MELLUM_SCRATCH(MELLUM_S_MOE_COUNTS, MELLUM_CLASS_MOE, n_exp * sizeof(int32_t));
 #undef MELLUM_SCRATCH
     MELLUM_ADD(MELLUM_REQ_LOGITS, MELLUM_CLASS_LOGITS, 0, (uint64_t)DS4_N_VOCAB * sizeof(float));
+    /* the rewind frontier (mellum_graph_frontier_copy): a copy of every ring, KV state like the rings */
+    for (uint32_t il = 0; il < DS4_N_LAYER; il++) {
+        if (!ds4_mellum_layer_is_sliding(il)) continue;
+        MELLUM_ADD(MELLUM_REQ_FRONTIER_K, MELLUM_CLASS_KV, il, window * kv_dim * sizeof(uint16_t));
+        MELLUM_ADD(MELLUM_REQ_FRONTIER_V, MELLUM_CLASS_KV, il, window * kv_dim * sizeof(uint16_t));
+        MELLUM_ADD(MELLUM_REQ_FRONTIER_TAG, MELLUM_CLASS_KV, il, window * sizeof(int32_t));
+    }
 #undef MELLUM_ADD
     return n;
 }
@@ -59286,6 +59296,14 @@ typedef struct ds4_qwen4_gpu_graph {
      * transients, and the bytes the allocator took. */
     ds4_gpu_tensor *mellum_tag[DS4_MAX_LAYER];
     ds4_gpu_tensor *mellum_scratch[MELLUM_SCRATCH_COUNT];
+    /* The rewind frontier: the rings, their tags and the logits where the last sync ended (at
+     * mellum_frontier_pos).  A full layer's rows below it never change while it is valid, so a rewind to
+     * exactly there restores the session at any length; a reset or a rewind below it makes it stale. */
+    ds4_gpu_tensor *mellum_frontier_k[DS4_MAX_LAYER], *mellum_frontier_v[DS4_MAX_LAYER];
+    ds4_gpu_tensor *mellum_frontier_tag[DS4_MAX_LAYER];
+    float *mellum_frontier_logits;
+    uint32_t mellum_frontier_pos;
+    bool mellum_frontier_valid;
     uint64_t mellum_allocated_bytes;
     bool mellum_exact_prefill;      /* DS4_MELLUM_EXACT_PREFILL, read at allocation (mellum_graph_alloc) */
     uint32_t mellum_moe_nax;        /* DS4_MELLUM_MOE_NAX, read there too: 2 the tensor tiles, 0 the simdgroup tiles */
@@ -59452,8 +59470,13 @@ static bool mellum_graph_alloc(ds4_qwen4_gpu_graph *g, uint32_t ctx_cap, uint32_
         case MELLUM_REQ_TAG: g->mellum_tag[x] = t; break;
         case MELLUM_REQ_SCRATCH: g->mellum_scratch[x] = t; break;
         case MELLUM_REQ_LOGITS: g->logits = t; break;
+        case MELLUM_REQ_FRONTIER_K: g->mellum_frontier_k[x] = t; break;
+        case MELLUM_REQ_FRONTIER_V: g->mellum_frontier_v[x] = t; break;
+        case MELLUM_REQ_FRONTIER_TAG: g->mellum_frontier_tag[x] = t; break;
         }
     }
+    g->mellum_frontier_logits = ok ? malloc((size_t)DS4_N_VOCAB * sizeof(float)) : NULL;
+    ok = ok && g->mellum_frontier_logits;
     ok = ok && mellum_graph_forget_ring(g);
 #if defined(__APPLE__)
     /* the table's partials are MELLUM_ATTN_MAX_SPLITS wide; the kernels' own count decides what they need */
@@ -59602,7 +59625,11 @@ static void qwen4_graph_free(ds4_qwen4_gpu_graph *g) {
         ds4_gpu_tensor_free(g->snap0_lin_state[il]);
         ds4_gpu_tensor_free(g->snap0_lin_hist[il]);
         ds4_gpu_tensor_free(g->mellum_tag[il]);
+        ds4_gpu_tensor_free(g->mellum_frontier_k[il]);
+        ds4_gpu_tensor_free(g->mellum_frontier_v[il]);
+        ds4_gpu_tensor_free(g->mellum_frontier_tag[il]);
     }
+    free(g->mellum_frontier_logits);
     for (uint32_t i = 0; i < MELLUM_SCRATCH_COUNT; i++) ds4_gpu_tensor_free(g->mellum_scratch[i]);
     free(g->host_logits);
     memset(g, 0, sizeof(*g));
@@ -59942,6 +59969,7 @@ static void qwen4_graph_reset(ds4_qwen4_gpu_graph *g) {
     g->snap0_valid = false;
     g->snap_after_first = false;
     g->snap_after_second = false;
+    g->mellum_frontier_valid = false;
     if (ds4_model_is_mellum()) (void)mellum_graph_forget_ring(g);
 }
 
@@ -61109,6 +61137,33 @@ static bool qwen4_graph_state_copy0(ds4_qwen4_gpu_graph *g, bool save) {
     return qwen4_graph_state_copy_set(g, save, g->snap0_lin_state, g->snap0_lin_hist,
                                       &g->snap0_ple_hist, g->snap0_ple_prev,
                                       &g->snap0_pos, &g->snap0_mrope_delta);
+}
+
+/* Mellum's rewind frontier: save copies every ring (K, V and tags) to the frontier at the graph's position, restore
+ * copies them back and returns the graph there.  The logits are the session's, copied by the caller. */
+static bool mellum_graph_frontier_copy(ds4_qwen4_gpu_graph *g, bool save) {
+    const uint64_t ring_bytes = (uint64_t)DS4_N_SWA * DS4_N_HEAD_KV * DS4_N_HEAD_DIM * sizeof(uint16_t);
+    const uint64_t tag_bytes = (uint64_t)DS4_N_SWA * sizeof(int32_t);
+    if (!glm_graph_begin_commands_if_needed()) return false;
+    bool ok = true;
+    for (uint32_t il = 0; il < DS4_N_LAYER && ok; il++) {
+        if (!ds4_mellum_layer_is_sliding(il)) continue;
+        ds4_gpu_tensor *live[3] = { g->layer_k_cache[il], g->layer_v_cache[il], g->mellum_tag[il] };
+        ds4_gpu_tensor *copy[3] = { g->mellum_frontier_k[il], g->mellum_frontier_v[il], g->mellum_frontier_tag[il] };
+        for (int i = 0; i < 3 && ok; i++)
+            ok = ds4_gpu_tensor_copy(save ? copy[i] : live[i], 0, save ? live[i] : copy[i], 0,
+                                     i < 2 ? ring_bytes : tag_bytes) != 0;
+    }
+    if (!ds4_gpu_end_commands()) ok = false;
+    if (save) {
+        g->mellum_frontier_pos = g->pos;
+        g->mellum_frontier_valid = ok;
+    } else if (ok) {
+        g->pos = g->mellum_frontier_pos;
+    } else {
+        g->mellum_frontier_valid = false;
+    }
+    return ok;
 }
 
 /* A rejected draft returns to the state the verify snapshotted after row 0,
@@ -62451,6 +62506,7 @@ struct ds4_session {
     token_vec checkpoint;
     ds4_vision_identity *checkpoint_images;
     size_t checkpoint_image_count;
+    int test_rewind_frontier;   /* ds4_session_set_test_rewind_frontier; 0 on a real session */
     const ds4_vision_span *sync_images;
     size_t sync_image_count;
     token_vec greedy_splitkv_segment;
@@ -78090,6 +78146,9 @@ static int ds4_session_sync_internal(ds4_session *s, const ds4_tokens *prompt, c
         if (prefill_rc != 0) return prefill_rc;
         s->checkpoint_valid = true;
         s->mtp_draft_valid = false;
+        /* Mellum: where a sync ends is where a next request diverges from this one's answer */
+        if (ds4_model_is_mellum() && mellum_graph_frontier_copy(&s->qwen4_graph, true))
+            memcpy(s->qwen4_graph.mellum_frontier_logits, s->logits, (size_t)DS4_N_VOCAB * sizeof(float));
         return 0;
     }
 #endif
@@ -88697,7 +88756,8 @@ void ds4_session_rewind(ds4_session *s, int pos) {
          * read before the dropped row was committed to it, so the slot that row
          * overwrote held position pos - window, which no query at pos or later
          * reads.  Further back the ring has lost positions the next query needs:
-         * reset, and the next eval prefills the kept tokens again.  Its logits are
+         * unless pos is where the last sync ended (the rewind frontier, whose rings
+         * are restored), reset, and the next eval prefills the kept tokens again.  Its logits are
          * then a fresh session's synced to the kept tokens, byte for byte; they
          * equal the ones before the rewind only if the kept tokens went in the same
          * way the first time, since a chunk of MELLUM_TILED_MIN_ROWS rows or more is
@@ -88706,10 +88766,17 @@ void ds4_session_rewind(ds4_session *s, int pos) {
         if (g->pos == (uint32_t)s->checkpoint.len && pos + 1 == s->checkpoint.len) {
             g->pos = (uint32_t)pos;
             s->qwen4_rewound = false;
+        } else if (g->pos == (uint32_t)s->checkpoint.len && g->mellum_frontier_valid &&
+                   (uint32_t)pos == g->mellum_frontier_pos && mellum_graph_frontier_copy(g, false)) {
+            /* where the last sync ended: the rings and logits saved there (mellum_graph_frontier_copy) */
+            memcpy(s->logits, g->mellum_frontier_logits, (size_t)DS4_N_VOCAB * sizeof(float));
+            s->qwen4_rewound = false;
         } else {
             qwen4_graph_reset(g);
             s->qwen4_rewound = true;
         }
+        /* below the frontier the kept rows may be replaced: its rings no longer describe them */
+        if ((uint32_t)pos < g->mellum_frontier_pos) g->mellum_frontier_valid = false;
         state_ok = true;
     } else if (s->checkpoint_valid && ds4_session_is_qwen4(s)) {
         /* a verify snapshot can restore the verified block's start (the
@@ -88772,6 +88839,21 @@ ds4_session *ds4_session_new_test_checkpoint(const int *tokens, int n) {
     for (int i = 0; i < n; i++) token_vec_push(&s->checkpoint, tokens[i]);
     s->checkpoint_valid = true;
     return s;
+}
+
+void ds4_session_set_test_rewind_frontier(ds4_session *s, int pos) {
+    if (s) s->test_rewind_frontier = pos;
+}
+
+int ds4_session_rewind_frontier(const ds4_session *s) {
+    if (!s || !s->checkpoint_valid) return -1;
+    if (s->test_rewind_frontier > 0) return s->test_rewind_frontier;
+#ifdef DS4_HAS_QWEN4_GPU
+    const ds4_qwen4_gpu_graph *g = &s->qwen4_graph;
+    if (s->qwen4_graph_ready && g->mellum_frontier_valid && g->mellum_frontier_pos <= (uint32_t)s->checkpoint.len)
+        return (int)g->mellum_frontier_pos;
+#endif
+    return -1;
 }
 
 void ds4_session_free_test_checkpoint(ds4_session *s) {

@@ -508,6 +508,8 @@ void ds4_session_free_test_checkpoint(ds4_session *s);
  * token_start/row-count/fingerprint per span).  Not usable for inference. */
 void ds4_session_set_test_images(ds4_session *s,
                                  const ds4_vision_span *images, size_t n);
+/* Give a test checkpoint a rewind frontier (ds4_session_rewind_frontier). */
+void ds4_session_set_test_rewind_frontier(ds4_session *s, int pos);
 int ds4_session_argmax(ds4_session *s);
 int ds4_session_argmax_excluding(ds4_session *s, int excluded_id);
 int ds4_session_argmax_ignoring_eos(ds4_session *s,
@@ -630,6 +632,9 @@ bool ds4_session_rewind_speculative(ds4_session *s, int pos);
  * Otherwise the checkpoint becomes invalid: sync the retained prefix before eval.
  * Callers retaining images must use sync_multimodal for that rebuild. */
 void ds4_session_rewind(ds4_session *s, int pos);
+/* The position a rewind to which restores the session exactly whatever its depth
+ * (Mellum: where the last sync ended), or -1 when there is none. */
+int ds4_session_rewind_frontier(const ds4_session *s);
 int ds4_session_pos(ds4_session *s);
 int ds4_session_ctx(ds4_session *s);
 int ds4_session_prefill_cap(ds4_session *s);
