@@ -1,14 +1,19 @@
 #!/usr/bin/env python3
 """Convert complete native Mellum routing spools without using a model or GPU."""
+import argparse
+from contextlib import ExitStack
 from copy import deepcopy
 from dataclasses import asdict, dataclass
 from functools import cache
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
+import shutil
 import struct
 import sys
+import tempfile
 from typing import BinaryIO
 
 U64_MAX = 2**64 - 1
@@ -193,3 +198,64 @@ def complete_metadata(header: dict, summary: dict, profiles: dict[int, str],
         return result
     except (ValueError, RecursionError) as exc:
         raise RouteCaptureError(f"invalid metadata: {exc}") from exc
+
+
+def export_trace(spool: Path, metadata: Path, output: Path) -> None:
+    header, segments, profiles = read_metadata(metadata)
+    replay = replay_module()
+    manifest = replay.object_value(header.get("capture_manifest"), 1, "capture_manifest")
+    execution = replay.object_value(manifest.get("execution"), 1, "capture_manifest.execution")
+    context = replay.integer(execution.get("context_tokens"), 1, "execution.context_tokens", 1)
+    chunk = replay.integer(execution.get("prefill_chunk_tokens"), 1, "execution.prefill_chunk_tokens", 1)
+    counts = {}
+    with ExitStack() as cleanup, spool.open("rb") as source:
+        def temporary():
+            file = cleanup.enter_context(tempfile.NamedTemporaryFile(
+                mode="w+", encoding="utf-8", newline="\n", prefix=".mellum-routes-",
+                dir=output.parent, delete=False))
+            cleanup.callback(Path(file.name).unlink, missing_ok=True)
+            return file
+
+        body = temporary()
+        reader = SpoolReader(source)
+        while (item := reader.read_forward()) is not None:
+            if item.segment_id not in segments or item.execution_id not in profiles:
+                raise RouteCaptureError(f"byte {reader.offset}: unknown segment or execution ID")
+            if item.first_position + item.rows > context:
+                raise RouteCaptureError(f"byte {reader.offset}: context_tokens exceeded")
+            if item.phase == 1 and item.rows > chunk:
+                raise RouteCaptureError(f"byte {reader.offset}: prefill_chunk_tokens exceeded")
+            counts[item.execution_id] = counts.get(item.execution_id, 0) + 1
+            positions = list(range(item.first_position, item.first_position + item.rows))
+            for layer in range(28):
+                start = layer * item.rows * 8 * 4
+                rows = [list(row) for row in struct.iter_unpack("<8I", item.selected[start:start + item.rows * 32])]
+                record = dict(forward=item.forward, segment=segments[item.segment_id],
+                              phase="prefill" if item.phase == 1 else "decode", layer=layer,
+                              positions=positions, experts=rows)
+                body.write(json.dumps(record, ensure_ascii=False, allow_nan=False) + "\n")
+        completed = complete_metadata(header, reader.summary(), profiles, counts)
+        final = temporary()
+        final.write(json.dumps(completed, ensure_ascii=False, allow_nan=False) + "\n")
+        body.flush()
+        body.seek(0)
+        shutil.copyfileobj(body, final, length=65536)
+        body.close()
+        final.close()  # Flush/close the whole artifact before it can acquire its public name.
+        os.link(final.name, output)  # Atomic no-overwrite, even if a name raced in or is a symlink.
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("spool", type=Path)
+    parser.add_argument("--metadata", type=Path, required=True)
+    parser.add_argument("--output", type=Path, required=True)
+    args = parser.parse_args()
+    try:
+        export_trace(args.spool, args.metadata, args.output)
+    except (OSError, ValueError) as exc:
+        parser.error(str(exc))
+
+
+if __name__ == "__main__":
+    main()

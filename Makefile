@@ -90,6 +90,7 @@ help:
 	@echo "  make test-mxfp4-metal  Check the MXFP4 half LUT, then run Metal MXFP4 exactness tests"
 	@echo "  make test-qwen4-kernels  Run the Qwen3.8 Metal kernel tests"
 	@echo "  make test-mellum      Run the Mellum 2.1 model-free tests"
+	@echo "  make test-mellum-routes  Run CPU-only native route capture/export tests"
 	@echo "  make test-mellum-ssd-replay  Run CPU-only synthetic expert-cache replay tests"
 	@echo "  make test-mellum-kernels  Run the Mellum 2.1 Metal kernel tests (macOS)"
 	@echo "  make test-qwen4-q2       Check exact low-bit decode and prefill tile parity"
