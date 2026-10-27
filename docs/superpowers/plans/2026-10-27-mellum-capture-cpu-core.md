@@ -88,9 +88,52 @@ Begin requires BUSY, no pending forward, contiguous position and valid S2a layou
 
 - [x] Run `env -u DS4_TEST_MELLUM_MODEL make -j4 test-mellum` and explicit C99 builds for new modules: expect all model-free checks pass. No GPU target/build required.
 - [x] Record the approved design status, CPU-core completion and remaining owned-session adapter/Metal observation/live gates in roadmap/usage. Do not claim S2b complete.
-- [ ] Independent final review of `a97a1a2..HEAD`, including Review Focus and ledger decisions; fix important findings with RED/GREEN, defer minors.
-- [ ] Keep branch/worktree; no integration. General `make test` remains unavailable without default DeepSeek model and GPU authorization; report it rather than launch it.
+- [x] Independent final review of `a97a1a2..HEAD`, including Review Focus and ledger decisions; fix important findings with RED/GREEN, defer minors.
+- [x] Keep branch/worktree; no integration. General `make test` remains unavailable without default DeepSeek model and GPU authorization; report it rather than launch it.
 
 ## Self-review
 
 This deliberately plans the independently testable CPU subsystem first, not the whole approved S2b adapter. Remaining requirements (private session ownership, actual encoding sites/source provenance, adapter cleanup and live parity) have no CPU-only substitute and remain visible in the roadmap. Registry and controller share one validated catalog, profile-sink signature and scope-owner contract; no unspecified helper is consumed. Constructors are fresh-storage-only; low-level CPU fixtures do not claim GPU observations.
+
+## Completion record
+
+Completed 2026-10-27. CPU subsystem only; S2b remains open.
+Independent whole-change review of `a97a1a2..6453b63` found no Critical,
+Important or Minor issues. The reviewer independently ran both C suites with
+C99, warnings-as-errors and address/undefined sanitizers, plus both Python
+controller/export tests and diff checks. No review fixes were needed.
+
+The final model-free `env -u DS4_TEST_MELLUM_MODEL make -j4 test-mellum`
+gate passed: native config/tokenizer/frontend/layout/profile/controller checks
+and 61 Python tests. Real-model cases explicitly skipped. General `make test`
+was not repeated: the default DeepSeek model is missing and GPU use is not
+authorized. No model/GPU experiments or inference changes were made in this stage.
+Separate RED and GREEN commits preserve the lifecycle regression evidence.
+Branch/worktree are kept; nothing pushed or merged.
+
+### Rulings and accepted boundaries
+
+| Decision | Reason | Cost if wrong |
+| --- | --- | --- |
+| Execute CPU core as a separate plan | Independently testable under approved design | Interfaces may need adapter changes |
+| Require expected operation frontier | Reject empty eval and incomplete sync | Adjust adapter frontier accounting |
+| Borrow active scope until end/abort | Clear actual owned scope on wrong-argument errors | Caller must keep scope alive |
+| Defer private sessions/public API/platform stubs | Accepted scope is CPU core | Adapter still required before use |
+| Treat synthetic descriptors as declarations | Actual Metal observation is later | Production catalog/observer may need changes |
+| Adapter establishes GPU copy/completion order | CPU cannot prove device ordering | Live tests must detect ordering bugs |
+| Adapter supplies actual committed/forward tokens | No duplicate token-history storage | Adapter bugs can mislabel tokens |
+| CPU tracks logits availability only | Contents require live inference | Numerical mismatches wait for live gates |
+| Adapter drains GPU work on cancellation | Core owns no device resources | Adapter cleanup must be validated |
+| Serialized, non-reentrant calls only | Approved caller contract | Future scheduler needs guards/redesign |
+| Fresh initialization and borrowed storage lifetimes | Adapter will own these objects | Caller violations can corrupt/access invalid storage |
+| Caller checks sink flush/close; exporter publishes | Core cannot certify external durability | Unchecked I/O can lose completed artifacts |
+| Defer runtime source/catalog provenance | Synthetic identities are declared | Qualified captures wait for actual provenance |
+| Logical bounds are not measured allocation/peak/overhead | Physical measurements require live runs | Measured usage may exceed budget |
+| Profiles omit dispatch order/counts/per-layer attribution | Canonical specialization sets are intended | Richer provenance may require schema changes |
+| Do not run broad or live-model/Metal tests now | Missing default model and no GPU authorization | Model-dependent regressions remain untested |
+
+These cover every behavior set aside by the reviewer. Deferred minors: none.
+Next stage: plan/implement the owned-session adapter and immutable production
+catalog/Metal observation sites; then perform cleanup, parity and source
+provenance gates in an authorized GPU window. Host integration and SSD streaming
+remain later roadmap stages.
