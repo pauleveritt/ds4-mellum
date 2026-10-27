@@ -235,6 +235,67 @@ Phase 6, ds4-server (steps 41-43), a red test before each fix:
   text, which fixed a KV cache miss; `521e72a`, `462574c` `/v1/models` lists
   `mellum-2.1`.
 
+Phase 6 review fixes (the outside review of `9bc817a`, P6-R1 to P6-R13), a red
+test before each fix; nothing Mellum-only changes another model's behavior:
+
+- P6-R1: `bcccc19` the Responses visible key in its own function;
+  `ab59a5e` (red), `ad051f0` a Mellum visible key is the KV's own text, or
+  none, so a reused prompt keeps the sampled `<|im_end|>`.
+- P6-R2: `98fbc30` (red), `3960896` a developer message is the system turn.
+- P6-R4: `eff00cc` (red), `13a8830` an Anthropic `system` is the initial
+  system message.
+- P6-R12: `fcb7600` (red), `ad59ad0` the generation prompt after a history
+  that ends in an assistant turn.
+- P6-R3: `70a5e85` (red), `fcc07b3` Anthropic tool results are `<tool_response>`
+  turns, with the cycle's reasoning kept.
+- P6-R5: `dc86d84` (red), `db349e5` reasoning ends at the first `</think>`.
+- P6-R8: `ab616d2` (red), `a48921e` string-encoded arguments are one whole
+  object.
+- P6-R6: `8949e9a` (red), `d65e370` the generation tracker follows Hermes
+  calls, so a malformed call is recovered.
+- P6-R7: `e694f27` (red), `8a3eae0` restored call text only for the exact
+  calls.
+- P6-R9: `2857b54` (red), `6e3895f` `\u0000` refused anywhere in a call.
+- P6-R10: `bde5001` (red), `bc62016` Pi's string arguments must be strings.
+- P6-R11: `eaade46` the deadline test and Pi's timeout named; `1f3cb77` (red),
+  `0b2bc9b` Pi's bash has no deadline without a timeout, as in Pi.
+- P6-R13: `eecd799` (red), `d0629bc` a repeated `arguments` replaces the
+  earlier one.
+
+Upstream cases these fixes leave as they are (recorded, not changed):
+
+- P6-R1, Qwen: `build_thinking_visible_text` and the Responses visible
+  suffix still build Qwen's key as the rendered turn closed by
+  `<|im_end|>\n`, while generation stops before evaluating the sampled stop
+  token. A reuse at those tiers would continue from a KV that lacks it.
+  Mellum's keys are now the KV's own text; Qwen's were not probed on a Qwen
+  model here.
+- P6-R7: `tool_memory_attach_to_messages` predates Mellum and restores a
+  sampled block whenever every call id in the request maps to it. The DSML
+  and Qwen renderers still trust that block when the client sends a subset
+  of its calls or edits one. Only the Hermes renderer now checks the block
+  against the sent calls.
+- P6-R11: the change is in the shared watchdog, but only Pi's bash passes a
+  timeout of 0. The agent's own bash tool always passes at least a second,
+  so its behavior is unchanged.
+
+Live re-check after these fixes (`ds4-server -c 16384`, Q8_0, 2026-10-27):
+
+- A plain thinking chat: "What is 17 + 25?" gave `42`. The second user turn,
+  "Now multiply that by 2", gave `84`, with 0 cached tokens out of 49.
+- The same on Responses: `Paris`, then `Rome`, with 0 cached tokens out
+  of 36.
+- The bash tool round trip: a `wc -l hello.py` call, then "The file hello.py
+  has 6 lines.", with 480 of 499 tokens cached.
+
+The plain second turns miss the cache by design now. The KV holds the first
+answer's reasoning, which the template drops from the next render (the log
+shows `common=24`, the whole first prompt). Mellum has no tier that rewinds
+the KV to a common prefix (upstream rewinds only for GLM), so the server
+prefills the template's render. Before P6-R1 it continued from a KV that
+lacked the `<|im_end|>`. Each new user turn after a thinking answer now
+prefills the whole history.
+
 Review fixes and experiment E1 (after step 33, before step 34; the outside
 review of `5aa742c`):
 
