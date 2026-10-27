@@ -123,3 +123,5 @@ __pycache__/
 /tests/test_q8_prefill_variants
 
 /tests/test_mellum_routes
+
+/tests/mellum_routes_gpu

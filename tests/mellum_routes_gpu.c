@@ -1,6 +1,6 @@
 /* Dedicated diagnostic translation unit. Hooks do not exist in shipping builds.
  * Usage: mellum_routes_gpu MODEL TOKENS FIRST_PREFILL OUTPUT_DIRECTORY
- * Every remaining token is decoded except the last, which is a tool append.
+ * Every remaining token is decoded except the last, which is a one-token prompt append.
  * Spools are experimental until actual kernel provenance is implemented. */
 #include "../ds4_gpu.h"
 #include "../ds4_mellum_routes.h"
@@ -141,7 +141,11 @@ int main(int argc, char **argv) {
             else if (ok) ok = fread(expected, sizeof(expected), 1, gold) == 1 &&
                               memcmp(logits, expected, sizeof(logits)) == 0;
         }
-        if (ok && capture.mode) ok = mellum_routes_finish(&capture.writer);
+        if (ok && capture.mode) {
+            const uint64_t expected_forwards = ((uint64_t)first + capture.cap - 1) / capture.cap + tokens.len - first;
+            ok = capture.writer.positions == (uint64_t)tokens.len &&
+                 capture.writer.forwards == expected_forwards && mellum_routes_finish(&capture.writer);
+        }
         if (spool && fclose(spool) != 0) ok = false;
         printf("run=%zu mode=%d ok=%d cap=%u forwards=%llu positions=%llu bytes=%llu copies=%llu added_waits=%llu total=%.6f prefill=%.6f decode=%.6f append=%.6f error=%s\n",
             run, capture.mode, ok, capture.cap, (unsigned long long)capture.writer.forwards,
