@@ -178,3 +178,102 @@ def validate_native(report: dict, jobs: list[dict], run: dict, expected_file: di
                     physical_io_verified=False)
     except (KeyError,TypeError,IndexError) as exc:
         raise ValueError('malformed native report') from exc
+
+
+def host_metadata(inputs: dict) -> dict:
+    result = dict(platform=platform.platform(),python=sys.version,cpu=platform.processor(),
+                  ram_bytes=os.sysconf('SC_PHYS_PAGES')*os.sysconf('SC_PAGE_SIZE') if sys.platform != 'darwin' else None,
+                  storage={},device_observations='physical read traffic unavailable')
+    if sys.platform == 'darwin':
+        value = subprocess.run(['/usr/sbin/sysctl','-n','hw.memsize'],capture_output=True,check=False)
+        if value.returncode == 0:
+            result['ram_bytes'] = int(value.stdout)
+    for name in ('model','payload'):
+        path = Path(inputs[name]['path'])
+        volume = os.statvfs(path)
+        device = dict(st_dev=path.stat().st_dev,block_bytes=volume.f_bsize,fragment_bytes=volume.f_frsize,
+                      free_bytes=volume.f_bavail*volume.f_frsize,diskutil='unavailable')
+        if sys.platform == 'darwin':
+            value = subprocess.run(['/usr/sbin/diskutil','info','-plist',str(path.parent)],capture_output=True,check=False)
+            if value.returncode == 0:
+                info = plistlib.loads(value.stdout)
+                device['diskutil'] = {key:info[key] for key in ('DeviceIdentifier','DeviceNode','FilesystemType','VolumeName','BusProtocol','SolidState','MountPoint') if key in info}
+        result['storage'][name] = device
+    return result
+
+
+def run_batch(batch_dir: Path, container: Path) -> Path:
+    failure_path = container.with_name(container.name+'.failure')
+    if failure_path.exists() or failure_path.is_symlink():
+        raise FileExistsError(failure_path)
+    def build(stage: Path) -> None:
+        try:
+            batch,jobs_by_key = verify_batch(batch_dir)
+            frozen_manifest = binding(batch_dir/'manifest.json')
+            reservation = batch_dir.parent/'execution-reservation.json'
+            common.write_json(reservation,dict(batch=frozen_manifest,timed_bytes_reserved=batch['timed_logical_bytes'],
+                                              retry_permitted=False))
+            raw = stage/'raw'; raw.mkdir()
+            host = host_metadata(batch['inputs'])
+            runs = []
+            for number,run in enumerate(batch['runs']):
+                key = f"{run['plan']}-{run['layout']}"
+                definition = batch['plans'][key]
+                input_key = 'model' if run['layout'] == 'original' else 'payload'
+                for value in batch['inputs'].values():
+                    check_binding(value,full=False)
+                check_binding(batch['inputs']['binary'])
+                check_binding(frozen_manifest)
+                if identity.file_identity(batch_dir/definition['wire'])['sha256'] != definition['sha256']:
+                    raise ValueError('wire plan changed during batch')
+                for name,value in batch['source_identity']['files'].items():
+                    if identity.file_stat(common.ROOT/name) != {key:value[key] for key in common.STAT_KEYS}:
+                        raise ValueError('measurement source changed during batch')
+                argv = [batch['inputs']['binary']['path'],'--input',batch['inputs'][input_key]['path'],
+                        '--plan',str(batch_dir/definition['wire']),'--workers',str(run['workers']),'--mode',run['mode']]
+                stdout,stderr = raw/f'{number:02}.stdout',raw/f'{number:02}.stderr'
+                with stdout.open('xb') as output,stderr.open('xb') as errors:
+                    process = subprocess.run(argv,stdout=output,stderr=errors,check=False)
+                    output.flush(); errors.flush()
+                common.write_json(raw/f'{number:02}.exit.json',dict(argv=argv,returncode=process.returncode))
+                if process.returncode:
+                    raise ValueError(f'native run {number} failed with exit {process.returncode}')
+                for value in batch['inputs'].values():
+                    check_binding(value,full=False)
+                native = common.load_json(stdout)
+                expected = {key:batch['inputs'][input_key][key] for key in common.STAT_KEYS}
+                metrics = validate_native(native,jobs_by_key[key],run,expected)
+                common.write_json(raw/f'{number:02}.metrics.json',metrics)
+                # Raw samples and derived per-job metrics stay in separately bounded files.
+                brief = {key:value for key,value in metrics.items() if key not in ('jobs','completion_order')}
+                runs.append(dict(**run,raw_stdout=f'raw/{stdout.name}',stdout_sha256=identity.file_identity(stdout)['sha256'],
+                                 raw_stderr=f'raw/{stderr.name}',stderr_sha256=identity.file_identity(stderr)['sha256'],
+                                 metrics=brief,job_metrics=f'raw/{number:02}.metrics.json',
+                                 job_metrics_sha256=identity.file_identity(raw/f'{number:02}.metrics.json')['sha256']))
+            verify_batch(batch_dir)
+            check_binding(frozen_manifest)
+            completed = sum(run['metrics']['logical_bytes'] for run in runs)
+            if completed != batch['timed_logical_bytes']:
+                raise ValueError('completed bytes differ from frozen batch')
+            ranges = {key:[dict(job_id=j['job_id'],bytes=s['bytes'],offset=s['offset'],
+                               filesystem_alignment=s['offset'] % host['storage']['model' if key.endswith('original') else 'payload']['block_bytes'],
+                               alignment_16k=s['offset'] % 16384) for j in jobs for s in j['ranges']]
+                      for key,jobs in jobs_by_key.items()}
+            common.write_json(stage/'report.json',dict(schema_version=1,kind='storage-read-report',batch=frozen_manifest,
+                frozen=batch,runs=runs,completed_logical_bytes=completed,physical_io_verified=False,host=host,ranges=ranges,
+                prewarm_bytes=sum(batch['plans'][f"{r['plan']}-{r['layout']}"]['logical_bytes'] for r in runs if r['mode']=='buffered'),
+                memory=dict(max_worker_buffers=4*max(sum(s['bytes'] for s in j['ranges']) for jobs in jobs_by_key.values() for j in jobs),
+                            excluded=['runtime','thread stacks','OS caches']),
+                limits=['open-loop storage jobs; no inference tok/s conversion','cache avoidance requested; physical traffic unverified',
+                        'all hashing, source/payload verification and prewarming excluded from timing']))
+        except BaseException as exc:
+            def retain(failed: Path) -> None:
+                shutil.copytree(stage,failed,dirs_exist_ok=True)
+                common.write_json(failed/'failure.json',dict(schema_version=1,kind='failed-storage-read-batch',
+                                                            complete=False,error=str(exc),batch=str(batch_dir)))
+            try:
+                common.publication.publish(failure_path,retain)
+            except OSError as failure:
+                exc.add_note(f'failure evidence publication failed: {failure}')
+            raise
+    return common.publication.publish(container,build)
