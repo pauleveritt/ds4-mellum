@@ -660,6 +660,23 @@ def test_cli_invalid_utf8_emits_no_report():
     assert result.stderr and "Traceback" not in result.stderr
 
 
+def test_cli_preserves_unicode_separators_inside_json_strings():
+    for char in ("\u2028", "\u2029", "\u0085"):
+        for version in (1, 2):
+            items = records()
+            text = "before" + char + "after"
+            items[0].update(schema_version=version, workload_id=text)
+            if version == 2:
+                items[0]["capture_manifest"] = manifest_fixture(items[0])
+                items[0]["capture_manifest"]["extension"] = {"nested": [text]}
+            raw = ("\n".join(json.dumps(item, ensure_ascii=False) for item in items) + "\n").encode("utf-8")
+            result = cli_bytes(raw)
+            assert result.returncode == 0, (version, hex(ord(char)), result.stderr)
+            report = json.loads(result.stdout)
+            assert report["trace"] == items[0]
+            assert report["evidence"]["trace_sha256"] == hashlib.sha256(raw).hexdigest()
+
+
 def load_tests(loader, tests, pattern):
     return unittest.TestSuite(
         unittest.FunctionTestCase(value)
