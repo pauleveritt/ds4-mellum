@@ -10345,6 +10345,16 @@ static bool pi_read_all(const char *path, agent_buf *out) {
     return true;
 }
 
+/* An argument Pi's schema makes a string: NULL when it is absent or was another JSON type, which
+ * the tools refuse before touching a file or starting a shell. */
+static const char *pi_string_arg(const agent_tool_call *call, const char *name) {
+    for (int i = 0; i < call->argc; i++) {
+        if (call->args[i].name && !strcmp(call->args[i].name, name))
+            return call->args[i].is_string ? (call->args[i].value ? call->args[i].value : "") : NULL;
+    }
+    return NULL;
+}
+
 /* Parse an optional number argument.  Returns false when it is absent. */
 static bool pi_number_arg(const agent_tool_call *call, const char *name, double *out) {
     const char *v = agent_tool_arg_value(call, name);
@@ -10421,7 +10431,7 @@ static size_t pi_line_start(const char *s, size_t n, size_t k) {
 }
 
 static char *pi_tool_read(const agent_tool_call *call) {
-    const char *path_arg = agent_tool_arg_value(call, "path");
+    const char *path_arg = pi_string_arg(call, "path");
     if (!path_arg || !path_arg[0]) return xstrdup("read requires a path string.");
     char *path = pi_resolve_path(path_arg);
     agent_buf file = {0};
@@ -10546,8 +10556,8 @@ static bool pi_mkdir_parents(const char *path) {
 }
 
 static char *pi_tool_write(const agent_tool_call *call) {
-    const char *path_arg = agent_tool_arg_value(call, "path");
-    const char *content = agent_tool_arg_value(call, "content");
+    const char *path_arg = pi_string_arg(call, "path");
+    const char *content = pi_string_arg(call, "content");
     if (!path_arg || !path_arg[0]) return xstrdup("write requires a path string.");
     if (!content) return xstrdup("write requires a content string.");
     char *path = pi_resolve_path(path_arg);
@@ -10989,16 +10999,18 @@ done:
 }
 
 static char *pi_tool_edit(const agent_tool_call *call) {
-    const char *path_arg = agent_tool_arg_value(call, "path");
+    const char *path_arg = pi_string_arg(call, "path");
     if (!path_arg || !path_arg[0]) return xstrdup("edit requires a path string.");
+    const char *legacy_old = agent_tool_arg_value(call, "oldText");
+    const char *legacy_new = agent_tool_arg_value(call, "newText");
+    if ((legacy_old && !pi_string_arg(call, "oldText")) || (legacy_new && !pi_string_arg(call, "newText")))
+        return xstrdup("Edit tool input is invalid. oldText and newText must be strings.");
     pi_edits edits = {0};
     bool parsed = true;
     const char *edits_arg = agent_tool_arg_value(call, "edits");
     /* edits sent as a JSON string were not validated as the call was parsed */
     if (edits_arg) parsed = agent_hermes_valid_json(edits_arg, strlen(edits_arg)) && pi_parse_edits_json(edits_arg, &edits);
     /* the legacy single-edit form: top-level oldText and newText */
-    const char *legacy_old = agent_tool_arg_value(call, "oldText");
-    const char *legacy_new = agent_tool_arg_value(call, "newText");
     if (parsed && legacy_old && legacy_new) pi_edits_add(&edits, xstrdup(legacy_old), xstrdup(legacy_new));
     if (!parsed) {
         pi_edits_free(&edits);
@@ -11096,7 +11108,7 @@ static size_t pi_last_line_bytes(const char *path, size_t total) {
 }
 
 static char *pi_tool_bash(agent_worker *w, const agent_tool_call *call) {
-    const char *cmd = agent_tool_arg_value(call, "command");
+    const char *cmd = pi_string_arg(call, "command");
     if (!cmd || !cmd[0]) return xstrdup("bash requires a command string.");
     double t = 0;
     int timeout = PI_BASH_DEFAULT_TIMEOUT_SEC;
