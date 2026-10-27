@@ -2391,9 +2391,13 @@ enum {
     AGENT_HERMES_ARGS_VALUE,
     AGENT_HERMES_ARGS_AFTER,
     AGENT_HERMES_CLOSE,       /* the call object is closed; </tool_call> is next */
+    AGENT_HERMES_PROSE,       /* after a call: prose, skipped until the next <tool_call> */
 };
 
 #define AGENT_HERMES_MAX_DEPTH 256
+
+static const char *agent_memmem(const char *hay, size_t hay_len,
+                                const char *needle, size_t needle_len);
 
 /* Is the JSON string at s (which starts with a quote) complete?  Gives the offset just past its
  * closing quote.  A backslash makes the next byte inert, which is all that matters to find the end. */
@@ -2660,12 +2664,26 @@ static void agent_hermes_tool_parse(agent_dsml_parser *p) {
                 continue;
             }
             if (agent_bytes_partial_prefix_at(cur, end, start)) return;
+            /* prose after a call is tolerated, as in training; the turn ends when the model stops,
+             * and a later <tool_call> is still a call */
             p->glm_after_call = false;
-            p->state = AGENT_DSML_DONE;
-            return;
+            p->hermes_phase = AGENT_HERMES_PROSE;
+            continue;
         }
 
         switch (p->hermes_phase) {
+        case AGENT_HERMES_PROSE: {
+            const char *at = agent_memmem(cur, (size_t)(end - cur), start, sizeof(start) - 1);
+            if (at) {
+                p->parse_pos = (size_t)(at - raw) + sizeof(start) - 1;
+                p->hermes_phase = AGENT_HERMES_OPEN;
+                break;
+            }
+            /* keep a possible half-written opener for the next byte */
+            size_t keep = sizeof(start) - 2 < (size_t)(end - cur) ? sizeof(start) - 2 : (size_t)(end - cur);
+            p->parse_pos = (size_t)(end - raw) - keep;
+            return;
+        }
         case AGENT_HERMES_OPEN:
             if (*cur != '{') {
                 agent_dsml_set_error(p, "expected a JSON object after <tool_call>");
@@ -2804,6 +2822,13 @@ static void agent_hermes_tool_parse(agent_dsml_parser *p) {
 static void agent_dsml_finish(agent_dsml_parser *p) {
     if (!p || p->state == AGENT_DSML_DONE || p->state == AGENT_DSML_ERROR)
         return;
+    /* Hermes: a call followed by prose (or half an opener) is a finished turn too */
+    if (p->syntax == AGENT_TOOL_SYNTAX_HERMES && p->state == AGENT_DSML_STRUCTURAL &&
+        (p->hermes_phase == AGENT_HERMES_PROSE || p->glm_after_call) && p->calls.len > 0) {
+        p->glm_after_call = false;
+        p->state = AGENT_DSML_DONE;
+        return;
+    }
     if (!agent_syntax_is_xml_tool_call(p->syntax) || !p->glm_after_call)
         return;
 
@@ -10765,7 +10790,9 @@ static bool agent_stream_wants_greedy_sampling(const agent_stream_renderer *sr) 
     if (!sr->dsml_active) return false;
 
     if (sr->parser->state == AGENT_DSML_STRUCTURAL)
-        return true;
+        /* Hermes prose after a call is the model talking, not grammar */
+        return !(sr->parser->syntax == AGENT_TOOL_SYNTAX_HERMES &&
+                 sr->parser->hermes_phase == AGENT_HERMES_PROSE);
     if (sr->parser->state != AGENT_DSML_PARAM_VALUE)
         return false;
 
