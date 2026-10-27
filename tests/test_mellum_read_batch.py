@@ -178,6 +178,31 @@ def test_partial_process_output_or_close_error_never_publishes():
             refuse(lambda:api.run_batch(batch,root/'retry'))
 
 
+def test_transient_native_plan_substitution_never_publishes():
+    api = module()
+    with tiny_batch(api) as (root,batch):
+        real = api.subprocess.run
+        changed = False
+        def substitute(argv, **kwargs):
+            nonlocal changed
+            if argv[0] != str(BINARY) or changed:
+                return real(argv, **kwargs)
+            changed = True
+            path = Path(argv[argv.index('--plan') + 1])
+            original = path.read_bytes()
+            altered = bytearray(original)
+            altered[72:80] = (1).to_bytes(8, 'little')
+            path.write_bytes(altered)
+            try:
+                return real(argv, **kwargs)
+            finally:
+                path.write_bytes(original)
+        with patch.object(api.subprocess, 'run', side_effect=substitute):
+            refuse(lambda: api.run_batch(batch, root/'output'))
+        assert changed and not (root/'output/artifact').exists()
+        assert (root/'output.failure/artifact/failure.json').is_file()
+
+
 def test_distributions_have_known_nearest_rank_values():
     api=module()
     assert api.distribution([1,2,3,4,5,6,7,8,9,10])==dict(p50=5,p95=10,p99=10,max=10)
