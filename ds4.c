@@ -88586,7 +88586,24 @@ void ds4_session_rewind(ds4_session *s, int pos) {
     bool state_ok = false;
 #ifndef DS4_NO_GPU
 #ifdef DS4_HAS_QWEN4_GPU
-    if (s->checkpoint_valid && ds4_session_is_qwen4(s)) {
+    if (s->checkpoint_valid && ds4_model_is_mellum()) {
+        /* Mellum: one token back keeps both caches.  A full layer's rows past
+         * pos are simply rewritten by the next eval; a sliding layer's ring was
+         * read before the dropped row was committed to it, so the slot that row
+         * overwrote held position pos - window, which no query at pos or later
+         * reads.  Further back the ring has lost positions the next query needs:
+         * reset, and the next eval replays the kept tokens, which gives the same
+         * bytes because a prefill chunk equals its decode steps. */
+        ds4_qwen4_gpu_graph *g = &s->qwen4_graph;
+        if (g->pos == (uint32_t)s->checkpoint.len && pos + 1 == s->checkpoint.len) {
+            g->pos = (uint32_t)pos;
+            s->qwen4_rewound = false;
+        } else {
+            qwen4_graph_reset(g);
+            s->qwen4_rewound = true;
+        }
+        state_ok = true;
+    } else if (s->checkpoint_valid && ds4_session_is_qwen4(s)) {
         /* a verify snapshot can restore the verified block's start (the
          * pre-verify snap0 set, kept for exact-sampling resample rewinds),
          * its row-0 state (one token back), or its row-1 state (two back
@@ -88778,5 +88795,11 @@ bool ds4_test_mellum_moe(ds4_engine *engine, uint32_t layer, const float *x, uin
     (void)engine; (void)layer; (void)x; (void)T; (void)out; (void)out1; (void)selected; (void)weights;
     return false;
 #endif
+}
+/* For tests/ds4_test.c --mellum-rewind: where a qwen4-family session's graph stands (its next position). */
+bool ds4_test_session_graph_pos(ds4_session *s, uint32_t *pos) {
+    if (!s || !pos || !ds4_session_is_qwen4(s)) return false;
+    *pos = s->qwen4_graph.pos;
+    return true;
 }
 #endif
