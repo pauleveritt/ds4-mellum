@@ -144,6 +144,15 @@ Phase 5 (tool calls in ds4-agent):
   through a strict JSON validator.
 - `91f5be0` (red), `53b9441` the call object read as `json.loads` reads it.
 - `aaebdde` (red), `d2d2b32` prose around calls.
+- `9b6aa77` (red), `c98441c` Pi's four tools in the system turn render as
+  2.1's template does: a Mellum system message matches special-token text
+  (step 33); `a59b281` (red), `0cc60c9` the CLI's `-sys` path the same.
+- `80ae163` (red), `5482d43` ds4-agent's one Hermes system turn (intro, -sys,
+  date, working directory, tools block).
+- `24e2ce5` (red), `285cfdf` think state, turn end, stop classes, `[upto]` off.
+- `3ad12c3` (red), `5ffbfe3` a Mellum engine gets the Hermes syntax; the agent
+  still refuses it until step 34.
+- `e38b18d`, `7c44f0c` the earlier-reasoning divergence, at the code.
 
 From step 28 on, commits follow smaller rules: one concern each, the failing
 test committed red on its own, at most about 150 lines of product code.
@@ -171,6 +180,16 @@ Step 22, M5 Max, Q8_0, `--temp 0`, n = 1 each:
   the template's; this is the model's own behavior, handled as for other
   families: the CLI prints it as it comes (`tests/test_mellum_cli.sh` checks a
   direct answer on the simple question).
+
+- Earlier reasoning in ds4-agent: 2.1's template drops the reasoning of the
+  assistant turns before the last user turn when it renders a new one. The
+  agent's transcript is its KV cache and keeps every turn as generated;
+  dropping the reasoning would mean prefilling the conversation again at every
+  user message. Within one user turn (a tool loop) the two agree.
+- Special-token text in user turns: the HF tokenizer would encode a
+  `<tool_call>` typed in a user message as token 29; ds4 keeps user text plain
+  BPE, as for every model. System text (the tools block, `-sys`) and assistant
+  text match special tokens, as the template's tokenizer does.
 
 ## Measured
 
