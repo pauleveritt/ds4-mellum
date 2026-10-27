@@ -1513,3 +1513,10 @@ gguf-tools/quality-testing/score_official_verify.o: gguf-tools/quality-testing/s
 
 gguf-tools/quality-testing/score_official_verify: gguf-tools/quality-testing/score_official_verify.o ds4_verify_test_hooks.o $(filter-out ds4.o,$(CORE_OBJS)) rax.o ds4_gpu_args.o
 	$(if $(filter Darwin,$(UNAME_S)),$(CC) $(CFLAGS),$(DS4_LINK)) -o $@ $^ $(if $(filter Darwin,$(UNAME_S)),$(METAL_LDLIBS),$(DS4_LINK_LIBS))
+
+# Isolated GPU route proof: engine hooks are compiled only into this test.
+tests/mellum_routes_gpu.o: tests/mellum_routes_gpu.c tests/mellum_trace.c ds4.c ds4.h ds4_gpu.h ds4_mellum_routes.h
+	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -I. -c -o $@ $<
+
+tests/mellum_routes_gpu: tests/mellum_routes_gpu.o ds4_mellum_routes.c $(filter-out ds4.o,$(CORE_OBJS))
+	$(CC) $(CFLAGS) -I. -o $@ $^ $(METAL_LDLIBS)
