@@ -3621,6 +3621,9 @@ int ds4_gpu_qwen4_moe_reduce_tensor(
         ds4_gpu_tensor *out, const ds4_gpu_tensor *part, const ds4_gpu_tensor *weights,
         const ds4_gpu_tensor *shared_gate, const ds4_gpu_tensor *shared, ds4_gpu_tensor *R, const ds4_gpu_tensor *inj,
         uint32_t n_tokens, uint32_t n_slots, uint32_t part_stride, uint32_t dim, uint32_t n_hc);
+/* Metal: nonzero when the Metal 4 tensor tiles are in use (the device has the
+ * tensor API and DS4_METAL_DISABLE_METAL4 is not set). */
+int ds4_gpu_tensor_tiles_available(void);
 /* prefill experts: per-expert token lists, then expert-grouped tiled GEMMs
  * (q8_0/mxfp4/q4_K/q2_K/iq2_xxs) */
 int ds4_gpu_qwen4_moe_build_lists_tensor(

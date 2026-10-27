@@ -3561,6 +3561,13 @@ static inline qwen4_raw16 qwen4_load_raw16(device const char *row, uint b, uint 
         r.h.y = blk[g];                            /* scale | min nibbles */
         device const uint *qs = (device const uint *)(blk + 16 + 32u * (g / 8u) + 16u * (g & 1u));
         r.q.x = qs[0]; r.q.y = qs[1]; r.q.z = qs[2]; r.q.w = qs[3];
+    } else if (type == 8) {
+        /* Q8_0: d, then the 16 quants of quarters q0 and q0 + 1 (2-byte aligned, read as ushorts) */
+        device const ushort *blk = (device const ushort *)(row + (uint64_t)b * 34);
+        r.h.x = blk[0];
+        device const ushort *qs = blk + 1 + q0 * 4;
+        r.q.x = (uint)qs[0] | ((uint)qs[1] << 16); r.q.y = (uint)qs[2] | ((uint)qs[3] << 16);
+        r.q.z = (uint)qs[4] | ((uint)qs[5] << 16); r.q.w = (uint)qs[6] | ((uint)qs[7] << 16);
     } else if (type == 16) {
         const uint sb = b / 8, ib32 = b % 8;
         device const uchar *blk = (device const uchar *)(row + (uint64_t)sb * 66);
@@ -3603,6 +3610,12 @@ static inline void qwen4_dequant_raw16(qwen4_raw16 r, uint b, uint q0, uint type
             const uint byte = (r.q[i >> 2] >> (8u * (i & 3u))) & 0xFFu;
             dst[i] = (half)(ds * (float)((byte >> shift) & 3u) - dm);
         }
+        return;
+    }
+    if (type == 8) {
+        /* as qwen4_mm_stage8 stages it: half(d * q) */
+        const float d = (float)as_type<half>((ushort)(r.h.x & 0xFFFFu));
+        for (uint i = 0; i < 16; i++) dst[i] = (half)(d * (float)(char)((r.q[i >> 2] >> (8u * (i & 3u))) & 0xFFu));
         return;
     }
     if (type == 16) {

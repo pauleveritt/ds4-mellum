@@ -2757,6 +2757,10 @@ static int ds4_gpu_mpp_available(void) {
     return g_metal4_tensor_api_enabled && !g_quality_mode;
 }
 
+int ds4_gpu_tensor_tiles_available(void) {
+    return ds4_gpu_mpp_available();
+}
+
 /*
  * Retained Metal4 defaults live here instead of behind user-visible options.
  * The public runtime has one automatic accelerated path plus the global
