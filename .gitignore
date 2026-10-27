@@ -136,3 +136,4 @@ __pycache__/
 /tests/test_mellum_capture_receipt
 /tests/test_mellum_read_plan
 /tools/mellum_read_bench
+/tests/test_mellum_read_io
