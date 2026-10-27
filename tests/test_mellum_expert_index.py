@@ -194,6 +194,18 @@ def test_source_changes_during_inspection_fail():
         assert not (output / 'artifact').exists()
 
 
+def test_bounded_json_refuses_duplicates_nonfinite_and_oversize():
+    api = module('mellum_storage_common')
+    with tempfile.TemporaryDirectory() as directory:
+        path = Path(directory) / 'value.json'
+        for raw in (b'{"a":1,"a":2}', b'{"a":NaN}', b'{"a":1e999}', b' ' * (8 * 1024**2 + 1)):
+            path.write_bytes(raw)
+            with rejected():
+                api.load_json(path)
+        path.write_bytes(b'{"a":1}')
+        assert api.load_json(path) == {'a': 1}
+
+
 def load_tests(loader, tests, pattern):
     return unittest.TestSuite(unittest.FunctionTestCase(value) for name, value in globals().items()
                               if name.startswith('test_'))
