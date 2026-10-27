@@ -28,7 +28,7 @@ def module(name):
 @contextmanager
 def repository():
     with tempfile.TemporaryDirectory() as directory:
-        root = Path(directory)
+        root = Path(directory).resolve()
         subprocess.run(['git', 'init', '-q', str(root)], check=True)
         (root / 'ds4.c').write_bytes(b'initial source\n')
         (root / 'metal').mkdir()
@@ -111,6 +111,7 @@ def publication(change=None):
             header.pop(key)
         for key in ('build', 'execution', 'generation'):
             header['capture_manifest'].pop(key)
+        header['capture_manifest']['execution'] = {'device': 'caller-declared synthetic test host'}
         metadata.write_text(json.dumps({'header': header}))
         calls = []
         def run(command, *, cwd, env, log):
@@ -151,7 +152,8 @@ def test_publication_derives_identity_and_observed_profiles():
         with arguments['output'].open() as source:
             replay = module('mellum_routes_to_trace').replay_module()
             trace = replay.load_trace(source)
-        header = json.loads(arguments['output'].read_text().splitlines()[0])
+        with arguments['output'].open() as source:
+            header = json.loads(source.readline())
         manifest = header['capture_manifest']
         assert header['capture_kind'] == 'measured'
         assert manifest['generation'] == {'mode': 'teacher-forced', 'settings': {}}

@@ -1,9 +1,20 @@
 """Source consistency checks for diagnostic capture; never initializes a GPU."""
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
 import stat
 import subprocess
+import sys
+
+
+def sibling(name: str):
+    if name not in sys.modules:
+        spec = importlib.util.spec_from_file_location(name, Path(__file__).with_name(f'{name}.py'))
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[name] = module
+        spec.loader.exec_module(module)
+    return sys.modules[name]
 
 
 def file_stat(path: Path) -> dict:
