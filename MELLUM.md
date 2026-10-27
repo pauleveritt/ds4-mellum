@@ -320,6 +320,44 @@ Metal 4 stays on. The absolute medians are about 4-5% below the review's. Runs w
 slow down (the fourth process's first run was 1,942 against the first process's 2,006), and the A/B/B/A
 order balances that drift between the arms but not its level.
 
+### E1: routed Q8_0 experts on the tensor tiles (reverted)
+
+`qwen4_moe_mm_nax` admits Q4_K, MXFP4, IQ2_XXS and Q2_K experts to the Metal 4 tensor tiles, not Mellum's Q8_0
+experts. A scratch probe added Q8_0 raw words to the tensor kernels' weight fetch (`qwen4_load_raw16` and
+`qwen4_dequant_raw16`), staged as half(d * q) exactly as the simdgroup tiles stage them, and admitted type
+8 at level 2, the half-operand tiles. The operands keep their precision and only the summation order
+changes, so this is a scheduling change. No precision variant (levels 3-6) was tried. The A/B/B/A runs were
+on the same scratch build, with `DS4_QWEN4_MOE_MM_NAX=2` as arm B. AC power, Automatic, 45 s between
+processes, no thermal or performance warning before or after any process:
+
+| prompt | design | simdgroup tiles (now) | tensor tiles | per forward |
+|---|---|---|---|---|
+| `mellum_oracle_2200` (2,200 ids, prose) | 6 runs per process, first dropped, n = 10 per arm | median 1,933 t/s (1,772-1,941) | median 2,707 t/s (2,649-2,712) | +40%: 1.14 s to 0.81 s |
+| `mellum_heldout_long` (6,000 ids, code) | 4 runs per process, first dropped, n = 6 per arm | median 1,505 t/s (1,444-1,604) | median 1,992 t/s (1,913-2,145) | +32%: 3.99 s to 3.01 s |
+
+Only the routed expert GEMMs changed (the mid and down kernels), so the 0.33 s and 1.0 s saved are
+expert time. At 2,200 tokens that is about half of the review's 53.8% MoE share, so the experts run about
+twice as fast. The gain is smaller at 6,000 tokens, where attention takes a larger share. Each arm's two
+processes gave byte-identical logits.
+
+Numbers with the tensor tiles on:
+- `ds4_test --mellum-moe`: every selection equals the double reference on random and real rows. Real
+  rows are within 7.7e-5 of the staged reference, against the simdgroup tiles' 1.1e-4.
+- `make test-mellum-fastpath`: 45 of 45 pass, including 32 of 32 greedy tokens equal to the exact path's.
+- Against the exact prefill on the seven held-out and oracle files, mean KL is lower on five and worst
+  KL lower on four. The tool prompt's one top-1 change goes away. The Unicode prompt keeps its four
+  router-flip changes (worst KL 0.480 against 0.467).
+- `tests/mellum_oracle_compare.sh` **fails**. At 1,100 and 2,200 tokens the release prefill changes the top-1 at one of
+  65 positions: p1082, where the exact path's top token has p = 0.139 and KL is 2.5e-4, and p1675,
+  where it has p = 0.043 and KL is 3.8e-3. Means and maxima improve: 1,100 tokens mean KL 1.6e-3
+  against 2.1e-3; 2,200 tokens 1.3e-3 against 1.7e-3, with max |d logit| 1.5 against 8.5. Exact
+  prefill, decode and the 64 greedy tokens stay byte-equal.
+
+Reverted. The two changes are near-ties of the kind "Oracle caps" shows the current path making on
+held-out prompts, but the gate is the oracle's top-1 rule, and changing that rule is Paul's decision.
+The patches (Q8_0 raw words, a Mellum-only opt-in through `DS4_MELLUM_MOE_NAX`, a red test) and the
+runner are in the session notes folder, `e1-q8-tensor-tiles/`, with a README.
+
 ## Backends covered
 
 Metal only, on Apple Silicon. CUDA, ROCm, the CPU reference path and
