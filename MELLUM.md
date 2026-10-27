@@ -38,7 +38,11 @@ Max was not measured. Session save/load refuses by name. Since step 34,
 ds4-agent runs Mellum with the Hermes syntax and Pi's four tools. Since phase
 6 (steps 41-43), ds4-server serves Mellum as `mellum-2.1`, with the Hermes
 syntax and one session: `--batched-session` above 1 and `--kv-disk-dir` are
-refused at startup by name.
+refused at startup by name. Since phase 7 (steps 44-47), the agent repairs bare
+quotes in `write` and `edit` values, reports backtick-delimited values, says
+where a missed edit departs, and caps one tool result at a quarter of the
+context. The next user turn after a thinking answer reuses the live KV (the
+rewind frontier).
 
 Model-free tests: `make test-mellum`. With `DS4_TEST_MELLUM_MODEL` set,
 `./tests/test_mellum_config` also validates, binds and renders against the real
@@ -332,6 +336,43 @@ Live check with the frontier (same server and requests, 2026-10-27):
   code word for item 12?" gave `w444`. The second user turn, "And for item
   40?", gave `w480` with 2,953 of 2,980 cached (rewound from 3,066 to 2,953).
   Both answers are correct.
+
+Phase 7, hardening (steps 44-47, 2026-10-27), each a red test and its fix.
+The evidence is ds4-engine's pathologies 140 and 148 (Mellum 2.1 on that
+host: unescaped quotes break a call's JSON, and backtick-delimited values).
+
+- Step 44, quote repair. `ef5e1fa` red, `2bf606a` fix: a `write` whose
+  arguments fail the strict parse no longer ends the turn at the first bad
+  byte. The error waits for `</tool_call>`, and when the body is exactly
+  `{"name": "write", "arguments": {"path": <a valid string>, "content":
+  "..."}}`, the bare quotes in the content are escaped and the result parsed
+  strictly again. Otherwise the strict parse's error stands: a bare quote in
+  the path, a content that folded another member into itself, a turn cut off
+  before `</tool_call>`. `0a45b7d` red, `6661089` fix: the same for `edit`'s
+  `edits[].oldText` and `newText`, cut at the boundaries between them, which
+  must alternate and end in a `newText`. `edits` is a raw JSON value, so an
+  odd count of bare quotes kept it open past `</tool_call>` with no error at
+  all; at the turn's end such a call gets the same repair. The legacy
+  top-level `oldText`/`newText` form is not repaired. `0e90f56` red, `e9f5afb`
+  fix: a value delimited with backticks is reported at once, naming the
+  argument and saying how a JSON string is written; it is not repaired.
+- Step 45, `6fcc9ab` red, `82dfeb2` fix: after Pi's own message, a missed
+  edit names the longest start of its `oldText` the file holds, the line and
+  column where it departs, and what each side has there. The search runs on
+  the exact text, so a miss that only the fuzzy pass would bridge (smart
+  quotes) departs at the first such character.
+- Step 46, `57da1dc` red, `646829e` fix: in the Mellum round, a result
+  longer than a quarter of the context in tokens keeps its head and tail,
+  with a note between them (how many tokens were cut, the cap, how to ask for
+  less). Other models' rounds are unchanged.
+- Step 47: antirez `main` is still `ee7e840` (`git ls-remote`, 2026-10-27),
+  which `mellum` already sits on, so there was nothing to rebase: no new
+  upstream commits, no conflicts, no SHA changes, and no tag or SHA map
+  needed. On the head the full gate passes with the CPU build, and the
+  oracle passes: exact prefill, decode and the 64 greedy tokens byte-equal to
+  the old engine; the release prefill within tolerance (1,100 tokens: mean KL
+  1.6e-3, top-1 64/65 with the one change at a near-tie; 2,200: 1.3e-3,
+  64/65).
 
 Review fixes and experiment E1 (after step 33, before step 34; the outside
 review of `5aa742c`):
