@@ -115,13 +115,14 @@ def pack(index_path: Path, container: Path) -> Path:
             with payload.open('x+b') as destination:
                 entries = copy_entries(source, destination, index['experts'])
                 destination.flush()
+                packed_stat = common.stat_value(os.fstat(destination.fileno()))
+                common.check_open(destination, payload, packed_stat)
                 verify_copy(source, destination, index['experts'], entries)
                 digest = common.hash_stream(destination)
                 destination.seek(0, 2)
                 if destination.tell() != size:
                     raise ValueError('packed size mismatch')
                 destination.flush()
-                packed_stat = common.stat_value(os.fstat(destination.fileno()))
                 common.check_open(destination, payload, packed_stat)
             if identity.file_stat(payload) != packed_stat:
                 raise ValueError('packed payload path changed during close')
