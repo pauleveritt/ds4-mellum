@@ -33,6 +33,11 @@ CASES = [
     ("system+user, think off", False,
      [("system", "You are a helpful assistant."), ("user", "Hello, world!")]),
     ("user only, think on", True, [("user", "Write a haiku about autumn.")]),
+    # a tool message is a user turn holding one <tool_response> block
+    ("system, user, assistant, tool, think on", True,
+     [("system", "You are a coding agent."), ("user", "How many files are here?"),
+      ("assistant", "Let me check."), ("tool", "42 files\nin 3 directories")]),
+    ("tool only, think on", True, [("tool", "42 files")]),
 ]
 # the generation prompt alone, as the template's last block writes it
 PREFIXES = [

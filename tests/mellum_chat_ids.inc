@@ -16,12 +16,25 @@ static const fx_msg fx_msgs_2[] = {
     {"user", "Write a haiku about autumn."},
 };
 static const int fx_ids_2[] = {27, 1397, 233, 3969, 255, 99, 66776, 12619, 901, 27764, 48, 28, 233, 27, 8091, 233};
+static const fx_msg fx_msgs_3[] = {
+    {"system", "You are a coding agent."},
+    {"user", "How many files are here?"},
+    {"assistant", "Let me check."},
+    {"tool", "42 files\nin 3 directories"},
+};
+static const int fx_ids_3[] = {27, 5217, 233, 2591, 445, 255, 99, 9680, 8755, 48, 28, 233, 27, 1397, 233, 2869, 1248, 2617, 445, 2075, 65, 28, 233, 27, 8091, 233, 3616, 776, 1483, 48, 28, 233, 27, 1397, 233, 31, 233, 54, 52, 2617, 233, 107, 112, 255, 53, 15701, 233, 32, 28, 233, 27, 8091, 233};
+static const fx_msg fx_msgs_4[] = {
+    {"tool", "42 files"},
+};
+static const int fx_ids_4[] = {27, 1397, 233, 31, 233, 54, 52, 2617, 233, 32, 28, 233, 27, 8091, 233};
 static const int fx_prefix_ids_0[] = {27, 8091, 233};
 static const int fx_prefix_ids_1[] = {27, 8091, 233, 23, 233, 233, 24, 233, 233};
 static const fx_case fx_cases[] = {
     {"system+user, think on", true, 2, fx_msgs_0, (int)(sizeof(fx_ids_0) / sizeof(int)), fx_ids_0},
     {"system+user, think off", false, 2, fx_msgs_1, (int)(sizeof(fx_ids_1) / sizeof(int)), fx_ids_1},
     {"user only, think on", true, 1, fx_msgs_2, (int)(sizeof(fx_ids_2) / sizeof(int)), fx_ids_2},
+    {"system, user, assistant, tool, think on", true, 4, fx_msgs_3, (int)(sizeof(fx_ids_3) / sizeof(int)), fx_ids_3},
+    {"tool only, think on", true, 1, fx_msgs_4, (int)(sizeof(fx_ids_4) / sizeof(int)), fx_ids_4},
 };
 static const fx_prefix fx_prefixes[] = {
     {"assistant prefix, think on", true, (int)(sizeof(fx_prefix_ids_0) / sizeof(int)), fx_prefix_ids_0},

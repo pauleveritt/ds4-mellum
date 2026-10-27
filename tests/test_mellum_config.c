@@ -750,17 +750,29 @@ static void check_mellum_chat_tiny(void) {
         ds4_tokens_push(&want, 27); push_bytes(&want, "assistant\n");
         expect_ids("tiny: encode_chat_prompt think-on", &got, want.v, want.len);
     }
+    /* a tool message is a user turn whose <tool_response> wrapper is tokens 31 and 32, as the
+     * template's text encodes (tests/mellum_chat_ids.inc pins it on the real vocabulary) */
+    want.len = got.len = 0;
+    ds4_chat_append_message(&e, &got, "tool", "42 files");
+    ds4_tokens_push(&want, 27); push_bytes(&want, "user\n"); ds4_tokens_push(&want, 31);
+    push_bytes(&want, "\n42 files\n"); ds4_tokens_push(&want, 32); ds4_tokens_push(&want, 28);
+    push_bytes(&want, "\n");
+    expect_ids("tiny: tool message", &got, want.v, want.len);
     /* sibling: Flash Next keeps its own prefix (<think> and a newline when thinking) */
     g_ds4_shape = DS4_SHAPE_QWEN4_EXP;
     want.len = got.len = 0;
     ds4_tokens_push(&want, 27); push_bytes(&want, "assistant\n"); ds4_tokens_push(&want, 23); push_bytes(&want, "\n");
     ds4_chat_append_assistant_prefix(&e, &got, DS4_THINK_HIGH);
     expect_ids("tiny: Flash Next think-on prefix", &got, want.v, want.len);
+    /* sibling: Flash Next's tool message keeps its wrapper as plain text */
+    got.len = 0;
+    ds4_chat_append_message(&e, &got, "tool", "42 files");
+    CHECK(count_id(&got, 31) == 0 && count_id(&got, 32) == 0);
     ds4_tokens_free(&want); ds4_tokens_free(&got);
     vocab_free(&e.vocab);
     model_close(&m);
     unlink(path);
-    printf("ok   chat (tiny vocabulary): prefix arms, no effort turn; Flash Next keeps its prefix\n");
+    printf("ok   chat (tiny vocabulary): prefix arms, no effort turn, tool turn; Flash Next keeps its prefix and tool text\n");
 }
 
 /* The real GGUF: the renderer against ids from 2.1's own template (tests/gen_mellum_chat_ids.py). */
