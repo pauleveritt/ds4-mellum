@@ -77,7 +77,8 @@ def test_native_wire_swap_cannot_pass_restored_hash():
         real=api.process.observe
         def swap(argv,topology):
             wire=Path(argv[argv.index('--plan')+1]);saved=wire.with_suffix('.saved')
-            raw=bytearray(wire.read_bytes());raw[68:72]=(7).to_bytes(4,'little')
+            raw=bytearray(wire.read_bytes())
+            for offset in (68,100,132):raw[offset:offset+4]=(7).to_bytes(4,'little')
             wire.rename(saved);wire.write_bytes(raw)
             try:return real(argv,topology)
             finally:wire.unlink();saved.rename(wire)
