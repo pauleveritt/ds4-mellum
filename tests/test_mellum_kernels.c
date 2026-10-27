@@ -1768,6 +1768,60 @@ static void test_moe_rows_equal_singles(const moe_arena_t *a) {
     }
 }
 
+/* Experiment E1's boundary.  The tensor tiles take Q8_0 experts only at the level Mellum sets around its own tiled
+ * calls (ds4_gpu_qwen4_moe_q8_tiles); Flash Next's qwen4_graph_moe calls the same wrappers and never sets it, so its
+ * Q8_0 experts keep the simdgroup tiles, under its own DS4_QWEN4_MOE_MM_NAX too.  64 random rows, each routed to
+ * eight distinct experts, through build_lists, moe_mm_mid and moe_mm_down as such a caller runs them. */
+static void moe_q8_tiled(const moe_arena_t *a, const float *x, const int32_t *sel, float *part) {
+    enum { T = 64, K = 8 };
+    ds4_gpu_tensor *xt = upload(x, (uint64_t)T * MREF_E), *st = zeroed((uint64_t)T * K * 4u);
+    ds4_gpu_tensor *lists = zeroed((uint64_t)MREF_NEXP * T * 4u), *counts = zeroed(MREF_NEXP * 4u);
+    ds4_gpu_tensor *mid = zeroed((uint64_t)T * K * MREF_FF * 4u), *pt = zeroed((uint64_t)T * K * MREF_E * 4u);
+    require_ok(ds4_gpu_tensor_write(st, 0, sel, (uint64_t)T * K * 4u), "selected upload");
+    require_ok(ds4_gpu_qwen4_moe_build_lists_tensor(lists, counts, st, T, K, MREF_NEXP, T), "build lists");
+    require_ok(ds4_gpu_qwen4_moe_mm_mid_tensor(mid, xt, lists, counts, a->base, a->size, a->gate, a->up, 8u, MREF_NEXP, T,
+                                               K, K, MREF_E, MREF_FF, T), "moe_mm mid, Q8_0");
+    require_ok(ds4_gpu_qwen4_moe_mm_down_tensor(pt, mid, lists, counts, a->base, a->size, a->down, 8u, MREF_NEXP, T, K, K,
+                                                MREF_FF, MREF_E, T), "moe_mm down, Q8_0");
+    require_ok(ds4_gpu_tensor_read(pt, 0, part, (uint64_t)T * K * MREF_E * 4u), "part download");
+    ds4_gpu_tensor_free(xt); ds4_gpu_tensor_free(st); ds4_gpu_tensor_free(lists); ds4_gpu_tensor_free(counts);
+    ds4_gpu_tensor_free(mid); ds4_gpu_tensor_free(pt);
+}
+
+static void test_moe_q8_tiles_mellum_only(const moe_arena_t *a) {
+    enum { T = 64, K = 8 };
+    const uint64_t n = (uint64_t)T * K * MREF_E;
+    float *x = malloc((uint64_t)T * MREF_E * 4u), *plain = malloc(n * 4u), *flash = malloc(n * 4u), *tiles = malloc(n * 4u);
+    int32_t *sel = malloc((uint64_t)T * K * 4u);
+    require_ok(x && plain && flash && tiles && sel, "malloc");
+    for (uint64_t i = 0; i < (uint64_t)T * MREF_E; i++) x[i] = 1.7f * frand();
+    for (uint32_t t = 0; t < T; t++)
+        for (uint32_t k = 0; k < K; k++) sel[t * K + k] = (int32_t)((t * 7u + k * 9u) % MREF_NEXP);   /* distinct per row */
+    moe_q8_tiled(a, x, sel, plain);
+    setenv("DS4_QWEN4_MOE_MM_NAX", "2", 1);
+    moe_q8_tiled(a, x, sel, flash);
+    unsetenv("DS4_QWEN4_MOE_MM_NAX");
+    ds4_gpu_qwen4_moe_q8_tiles(2);
+    moe_q8_tiled(a, x, sel, tiles);
+    ds4_gpu_qwen4_moe_q8_tiles(0);
+    uint64_t d_flash = 0, d_tiles = 0, bad = 0;
+    for (uint64_t i = 0; i < n; i++) {
+        d_flash += memcmp(&plain[i], &flash[i], 4) != 0;
+        d_tiles += memcmp(&plain[i], &tiles[i], 4) != 0;
+        bad += !isfinite(plain[i]) || !isfinite(tiles[i]);
+    }
+    const bool avail = ds4_gpu_tensor_tiles_available() != 0;
+    printf("  Q8_0 tiled MoE without Mellum's level: %llu of %llu words differ under DS4_QWEN4_MOE_MM_NAX=2; at Mellum's "
+           "level 2 (%s): %llu differ\n", (unsigned long long)d_flash, (unsigned long long)n,
+           avail ? "tensor tiles" : "no tensor API", (unsigned long long)d_tiles);
+    CHECK(bad == 0, "non-finite output words: %llu", (unsigned long long)bad);
+    CHECK(d_flash == 0, "a caller without Mellum's level took another path under DS4_QWEN4_MOE_MM_NAX=2 (%llu words)",
+          (unsigned long long)d_flash);
+    CHECK(avail ? d_tiles > 0 : d_tiles == 0, "Mellum's level %s the tensor tiles (%llu words differ)",
+          avail ? "did not reach" : "changed the output without", (unsigned long long)d_tiles);
+    free(x); free(plain); free(flash); free(tiles); free(sel);
+}
+
 static void test_moe(void) {
     printf("Mellum MoE driver (2304 -> 64 F32 router, softmax over all, top-8, renormalized, 896-wide Q8_0 experts, no shared expert)\n");
     moe_arena_t *a = calloc(1, sizeof(*a));
@@ -1810,6 +1864,7 @@ static void test_moe(void) {
     test_moe_ties_driver(a);
     test_moe_no_shared(a);
     test_moe_refusals(a);
+    test_moe_q8_tiles_mellum_only(a);
     for (int batched = 0; batched <= 1; batched++) {
         g_batched = batched != 0;
         test_moe_rows_equal_singles(a);
