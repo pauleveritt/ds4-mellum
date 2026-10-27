@@ -11101,6 +11101,45 @@ static bool pi_apply_preserving_lines(agent_buf *out, const char *orig, size_t o
     return ok;
 }
 
+/* One side at a missed edit's departure: the rest of its line in backticks (40 bytes at most, whole UTF-8
+ * characters), or what ends it there. */
+static void pi_departure_side(const char *s, const char *end, char *out, size_t out_size) {
+    if (s >= end) { snprintf(out, out_size, "the end of the text"); return; }
+    if (*s == '\n') { snprintf(out, out_size, "the end of the line"); return; }
+    size_t n = 0;
+    while (s + n < end && s[n] != '\n' && n < 40) n++;
+    while (s + n < end && n > 0 && ((unsigned char)s[n] & 0xc0) == 0x80) n--;
+    snprintf(out, out_size, "`%.*s`", (int)n, s);
+}
+
+/* Step 45: where a missed edit's oldText departs from the file.  The longest start of oldText the file holds (a
+ * longer start can only occur where a shorter one does, so a binary search finds it), at its first place; appended
+ * to msg as a sentence.  Nothing when not even oldText's first byte is in the file. */
+static void pi_edit_departure(const char *content, size_t content_len, const char *old, size_t old_len,
+                              char *msg, size_t msg_size) {
+    size_t lo = 0, hi = old_len;
+    while (hi - lo > 1) {
+        const size_t mid = lo + (hi - lo) / 2;
+        if (agent_memmem(content, content_len, old, mid)) lo = mid;
+        else hi = mid;
+    }
+    if (lo == 0 && !(old_len && agent_memmem(content, content_len, old, 1))) return;
+    if (lo == 0) lo = 1;
+    const char *at = agent_memmem(content, content_len, old, lo) + lo;
+    int line = 1;
+    const char *line_start = content;
+    for (const char *c = content; c < at; c++) {
+        if (*c == '\n') { line++; line_start = c + 1; }
+    }
+    char old_side[64], file_side[64];
+    pi_departure_side(old + lo, old + old_len, old_side, sizeof(old_side));
+    pi_departure_side(at, content + content_len, file_side, sizeof(file_side));
+    const size_t used = strlen(msg);
+    snprintf(msg + used, msg_size - used,
+             " The file matches oldText's start up to line %d, column %d, where oldText has %s and the file has %s.",
+             line, (int)(at - line_start) + 1, old_side, file_side);
+}
+
 /* applyEditsToNormalizedContent: every edit is matched against the same original text, exactly
  * first, then fuzzily; each must be unique and none may overlap.  Returns the new text, or NULL with
  * a Pi error message in *error. */
@@ -11112,7 +11151,7 @@ static char *pi_apply_edits(const char *content, size_t content_len, const pi_ed
     pi_match *matches = xmalloc(n * sizeof(pi_match));
     char *result = NULL, *fuzzy_content = NULL;
     size_t fuzzy_len = 0;
-    char msg[PATH_MAX + 256];
+    char msg[PATH_MAX + 512];
     msg[0] = '\0';
     for (size_t i = 0; i < n; i++) { old_lf[i] = new_lf[i] = NULL; }
     for (size_t i = 0; i < n; i++) {
@@ -11168,6 +11207,7 @@ static char *pi_apply_edits(const char *content, size_t content_len, const pi_ed
                 snprintf(msg, sizeof(msg), "Could not find the exact text in %s. The old text must match exactly including all whitespace and newlines.", path);
             else
                 snprintf(msg, sizeof(msg), "Could not find edits[%zu] in %s. The oldText must match exactly including all whitespace and newlines.", i, path);
+            pi_edit_departure(content, content_len, old_lf[i], old_len[i], msg, sizeof(msg));
             goto done;
         }
         size_t fl = 0, ol = 0;

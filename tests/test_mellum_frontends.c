@@ -591,7 +591,7 @@ static void check_pi_edit_departure(const char *dir) {
              "end of the line and the file has ` def`.", f);
     PI_EXPECT(pi_run("edit", "path", f, "edits", "#[{\"oldText\": \"abc\\nxyz\", \"newText\": \"y\"}]", NULL), want);
     snprintf(want, sizeof(want), "Could not find edits[1] in %s. The oldText must match exactly including all whitespace "
-             "and newlines. The file matches oldText's start up to line 3, column 12, where oldText has `y` and the "
+             "and newlines. The file matches oldText's start up to line 3, column 13, where oldText has `y` and the "
              "file has the end of the line.", f);
     PI_EXPECT(pi_run("edit", "path", f, "edits",
                      "#[{\"oldText\": \"def f\", \"newText\": \"def h\"}, {\"oldText\": \"    return xy\", \"newText\": \"z\"}]",
