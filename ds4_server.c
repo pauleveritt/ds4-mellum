@@ -6810,7 +6810,9 @@ static bool parse_hermes_generated_message_ex(const char *text,
     const char *tool_search = text;
     bool recovered_unclosed_tool = false;
     if (require_thinking_closed) {
-        const char *think_end = find_tool_structural_text(text, "</think>", true);
+        /* the first </think>, as the template splits it: the model's own close comes before any
+         * call, and a later one is text inside a call's JSON string */
+        const char *think_end = strstr(text, "</think>");
         if (!think_end) {
             const char *candidate = strstr(text, tool_start);
             if (!candidate || !strstr(candidate, tool_end)) {
