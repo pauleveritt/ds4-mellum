@@ -173,6 +173,25 @@ def test_previous_raw_cell_is_released_before_next_capture():
             return result
         with patch.object(api.process,'observe',side_effect=checked):api.run(prepared,root/'run')
 
+def test_cancelled_cell_keeps_evidence_and_spent_reservation():
+    api=module()
+    with tiny_run(api) as (root,prepared):
+        with patch.object(api.process.time,'sleep',side_effect=KeyboardInterrupt):
+            try:api.run(prepared,root/'run')
+            except BaseException:pass
+            else:raise AssertionError('cancelled batch published success')
+        failed=root/'run.failure/artifact'
+        assert (failed/'0.failed.json').exists(),'cancelled cell evidence missing'
+        cell=api.common.load_json(failed/'0.failed.json')
+        batch=api.common.load_json(failed/'failure.json')
+        assert cell['error_type']==batch['error_type']=='KeyboardInterrupt'
+        assert batch['error'] and cell['error']
+        assert [event['token'] for event in cell['events']]==['R']
+        assert 'idle_before_0' in cell['snapshots']
+        assert batch['started_cells']==[0] and batch['unstarted_cells']==[1,2,3]
+        assert (prepared.parent/'execution-reservation.json').exists()
+        assert not (root/'run/artifact').exists()
+
 def load_tests(loader,tests,pattern):
     return unittest.TestSuite(unittest.FunctionTestCase(v) for k,v in globals().items() if k.startswith('test_'))
 if __name__=='__main__':unittest.main()

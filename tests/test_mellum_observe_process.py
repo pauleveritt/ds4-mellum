@@ -86,6 +86,28 @@ def test_capture_cap_reserves_command_copies_and_decoder():
                 assert 'memory bound' in str(exc) and not exc.evidence['snapshots']
             else:raise AssertionError('capture accepted without transient working-memory allowance')
 
+def test_idle_cancellation_keeps_ready_snapshot_and_reaps_child():
+    api=module()
+    with tempfile.TemporaryDirectory() as directory:
+        path=Path(directory)/'input';path.write_bytes(bytes(range(64)))
+        argv=[str(ROOT/'tools/mellum_read_bench'),'--input',str(path),
+              '--plan',str(ROOT/'tests/mellum_read_plan_v1.bin'),'--workers','1','--mode','buffered']
+        with patch.object(api.observer,'snapshot',side_effect=sampler(api)), \
+             patch.object(api.time,'sleep',side_effect=KeyboardInterrupt):
+            try:api.observe(argv,{})
+            except BaseException as exc:
+                assert isinstance(exc,api.ObservationFailure),'cancellation lost captured cell evidence'
+                value=exc.evidence
+                assert value['error_type']=='KeyboardInterrupt' and value['error']
+                assert [event['token'] for event in value['events']]==['R']
+                assert list(value['snapshots'])==['idle_before_0']
+                assert value['returncode'] is not None
+                assert isinstance(exc.__cause__,KeyboardInterrupt)
+                try:os.kill(value['pid'],0)
+                except ProcessLookupError:pass
+                else:raise AssertionError('cancelled child not reaped')
+            else:raise AssertionError('cancellation ignored')
+
 def load_tests(loader,tests,pattern):
     return unittest.TestSuite(unittest.FunctionTestCase(v) for k,v in globals().items() if k.startswith('test_'))
 if __name__=='__main__':unittest.main()
