@@ -23,6 +23,19 @@ def test_backend_object_override_retains_native_capture_dependencies() -> None:
         assert f"ds4_mellum_{name}.o" in links[-1], f"backend override dropped {name}"
 
 
+def test_standalone_metal_consumers_link_observer_dependencies() -> None:
+    targets = (
+        "tests/test_mellum_kernels", "tests/test_qwen4_kernels", "tests/test_glm53_kda",
+        "tests/test_glm_attention", "tests/test_mxfp4_metal",
+    )
+    commands = dry_run("-B", "UNAME_S=Darwin", *targets)
+    for target in targets:
+        links = [line for line in commands.splitlines() if f" -o {target} " in line]
+        assert links, f"dry-run did not contain the {target} link"
+        for name in ("observer", "profile"):
+            assert f"ds4_mellum_{name}.o" in links[-1], f"{target} dropped {name}"
+
+
 def load_tests(loader, tests, pattern):
     return unittest.TestSuite(unittest.FunctionTestCase(value) for name, value in sorted(globals().items())
                               if name.startswith("test_") and callable(value))
