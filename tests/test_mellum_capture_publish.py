@@ -13,6 +13,14 @@ import unittest
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
+VALID_PROFILE = (
+    'profile-v1;head=encoded;EMBED:kernel_get_rows_q8_0_f32();'
+    'PROJECTION:kernel_mul_mv_q8_0_f32(nsg=4);ROUTER:kernel_qwen4_router_topk();'
+    'MID:kernel_qwen4_moe_mid(specialized=0,type=8,shared_type=0,dim=2048,rows=2);'
+    'DOWN:kernel_qwen4_moe_down(specialized=0,type=8,shared_type=0,dim=2048,rows=2);'
+    'REDUCE:kernel_qwen4_moe_reduce();ATTENTION:kernel_mellum_attn_swa();'
+    'HEAD:kernel_mul_mv_q8_0_f32(nsg=4)'
+)
 
 
 def module(name):
@@ -102,6 +110,7 @@ def publication(change=None):
     fixture = exporter_fixture()
     with repository() as root:
         (root / 'tests').mkdir()
+        (root / 'ds4_mellum_kernels.inc').write_bytes((ROOT / 'ds4_mellum_kernels.inc').read_bytes())
         binary = root / 'tests/mellum_routes_gpu'
         binary.write_bytes(b'old binary')
         model, tokens, metadata, output = (root / name for name in ('model.gguf', 'input.tokens', 'metadata.json', 'trace.jsonl'))
@@ -132,7 +141,7 @@ def publication(change=None):
             data = fixture.spool(*frames)
             (directory / 'owned.routes').write_bytes(data)
             (directory / 'reference.routes').write_bytes(data)
-            (directory / 'owned.profiles').write_text('0 profile-v1;head=encoded;HEAD:kernel_fixture\n')
+            (directory / 'owned.profiles').write_text('0 ' + VALID_PROFILE + '\n')
             (directory / 'owned.runtime.json').write_text(json.dumps({
                 'receipt_version': 1, 'context_tokens': 128, 'cap_tokens': 2,
                 'capabilities': {'tensor_tiles_available': True, 'pre_m5_apple': False, 'm5_apple': True}}))
@@ -161,7 +170,7 @@ def test_publication_derives_identity_and_observed_profiles():
         assert manifest['build']['binary_sha256'] == hashlib.sha256(b'newly compiled binary').hexdigest()
         assert manifest['build']['source_inputs']['ds4.c'] == hashlib.sha256(b'initial source\n').hexdigest()
         assert manifest['execution']['capabilities']['tensor_tiles_available'] is True
-        assert manifest['execution']['route_capture']['profiles'] == {'0': 'profile-v1;head=encoded;HEAD:kernel_fixture'}
+        assert manifest['execution']['route_capture']['profiles'] == {'0': VALID_PROFILE}
         assert manifest['execution']['capture_schedule']['first_prefill'] == 2
         assert manifest['execution']['context_tokens'] == 128
         assert trace is not None
@@ -257,7 +266,7 @@ def test_native_receipt_and_catalog_bounds():
             path.write_text(text)
             with raises('profile'):
                 parser.read_profiles(path)
-        path.write_text(''.join(f'{i} profile-v1;head=encoded\n' for i in range(128)))
+        path.write_text(''.join(f'{i} ' + VALID_PROFILE.replace('nsg=4', f'nsg={i+1}') + '\n' for i in range(128)))
         assert len(parser.read_profiles(path)) == 128
         with path.open('a') as out:
             out.write('128 profile-v1;head=encoded\n')
@@ -284,6 +293,47 @@ def test_publication_requires_a_rebuilt_binary():
         with patch.object(publisher, '_run', no_build):
             with raises('rebuilt'):
                 publisher.publish(**arguments)
+        assert not arguments['output'].exists()
+
+
+def test_incomplete_or_noncanonical_profiles_never_publish():
+    for text in ('profile-v1;head=encoded', 'profile-v1;head=encoded;garbage', VALID_PROFILE[:-1],
+                 VALID_PROFILE.replace('head=encoded', 'head=not-encoded'),
+                 VALID_PROFILE.replace('nsg=4', 'nsg=', 1),
+                 VALID_PROFILE.replace('kernel_get_rows_q8_0_f32', 'unknown_kernel')):
+        def mutate(stage, root, directory, *, text=text):
+            if stage == 'capture':
+                (directory / 'owned.profiles').write_text('0 ' + text + '\n')
+        with publication(mutate) as (publisher, arguments, calls):
+            with raises('profile'):
+                publisher.publish(**arguments)
+            assert not arguments['output'].exists()
+
+
+def test_git_redirection_cannot_hide_tracked_source_mutation():
+    def mutate(stage, root, directory):
+        if stage == 'capture':
+            (root / 'ignored.c').write_text('changed tracked source')
+    with publication(mutate) as (publisher, arguments, calls):
+        root = arguments['root']
+        (root / '.gitignore').write_text('ignored.c\n')
+        (root / 'ignored.c').write_text('tracked despite ignore')
+        subprocess.run(['git', '-C', str(root), 'add', '-f', 'ignored.c', '.gitignore'], check=True)
+        with patch.dict(os.environ, {'GIT_INDEX_FILE': str(root / 'alternate-index')}):
+            with raises('GIT_INDEX_FILE'):
+                publisher.publish(**arguments)
+        assert not calls and not arguments['output'].exists()
+
+
+def test_primary_makefile_selection_is_explicit_and_source_changes_rejected():
+    def mutate(stage, root, directory):
+        if stage == 'capture':
+            (root / 'GNUmakefile').write_text('changed build input')
+    with publication(mutate) as (publisher, arguments, calls):
+        (arguments['root'] / 'GNUmakefile').write_text('alternate build input')
+        with raises('source'):
+            publisher.publish(**arguments)
+        assert calls[0] == ['make', '-f', 'Makefile', '-B', '-j4', 'tests/mellum_routes_gpu']
         assert not arguments['output'].exists()
 
 def load_tests(loader, tests, pattern):
