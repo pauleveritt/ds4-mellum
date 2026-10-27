@@ -103,8 +103,8 @@ Enter borrows an already-active scope. Refuse nested/foreign attempts without da
 
 - [x] Run `env -u DS4_TEST_MELLUM_MODEL make -j4 test-mellum`, explicit C99 CPU build and observer ASan/UBSan. No broad `make test`, GPU/model process or model lock bypass.
 - [x] Update roadmap/usage/spec with compiled adapter status and exact unrun live/qualified-provenance gates; keep S2b open. Persist encoding audit and decisions.
-- [ ] One fresh read-only independent review of `c9ac887..HEAD`, with this plan/spec/rulings and Review Focus. Fix Critical/Important in one RED/GREEN pass, ledger deferred minors, no second reviewer.
-- [ ] Preserve branch/worktree and commit final evidence. No push/merge.
+- [x] One fresh read-only independent review of `c9ac887..HEAD`, with this plan/spec/rulings and Review Focus. Fix Critical/Important in one RED/GREEN pass, ledger deferred minors, no second reviewer.
+- [x] Preserve branch/worktree and commit final evidence. No push/merge.
 
 ## Self-review
 
@@ -113,3 +113,10 @@ adapter/observer wiring; actual device proof and the qualified source-identity
 publisher are expressly separate later gates. No new GPU scheduling abstraction
 is introduced. Existing core tests own lifecycle rules; adapter tests own native
 boundary validation; actual backend observation requires the deferred live runs.
+
+## Completion record
+
+The CPU/build stage and one independent review are complete. Both Important
+findings were fixed with separate RED/GREEN commits. Live checks remain unrun.
+See the [retained review and execution ledger](../research/2026-10-27-mellum-owned-capture-review.md)
+for verification, all rulings and their costs, and remaining device/publisher gates.
