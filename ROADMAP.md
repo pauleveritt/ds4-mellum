@@ -115,18 +115,34 @@ block-driver read bytes in every timed bracket and adjacent idle control,
 including both cache-avoidance cells. These warm-file timings leave SSD miss
 cost unresolved; `physical_io_verified=false` remains. See
 [execution evidence](docs/superpowers/research/2026-10-27-mellum-device-observation-evidence.md).
-Next: design a separate controlled physical-read experiment. No automatic retry
-or new variant is authorized by this result. The first proposed task is Phase 1
-only; later phases require their own requests and prior-phase checkpoints.
 
-Collect the frozen workload matrix on this development laptop. Replay warm,
-post-append and whole-session demand separately, with held-out evaluation.
-Measure the actual gate/up/down read ranges and candidate contiguous layout,
-including concurrency and latency, with OS-cache effects identified.
+The next S3 work must produce two decision-making measurements. Existing
+capture/replay/storage tools are foundations; further tool qualification alone
+does not complete either measurement.
 
-Exit: measured miss curves and read performance with explicit assumptions.
-Any rejection names the scheduling class and objective it actually rules out.
-10 tok/s remains a proposed checkpoint, not a requirement or prediction.
+| Next result | Evidence needed | GPU needed? |
+|---|---|---|
+| SSD read cost | Controlled reads of exact Q8 gate/up/down ranges and candidate contiguous layout that produce observed storage traffic; latency distributions and throughput at declared concurrency, with cache state and counter uncertainty recorded | No; CPU and SSD only |
+| Representative cache locality | Frozen Phase 1 ac-demo workload captures and held-out replay at roughly 3 GiB expert cache; miss bytes and demand bursts for warm, post-append and whole-session windows | Yes for native routing captures; preparation and offline replay use CPU only |
+
+Start with the Superpowers design for controlled physical reads on this laptop.
+Include a positive control for observation and an explicit cache-state setup;
+warm-cache rates cannot satisfy the SSD-read-cost result. Before reusing the
+observer, fix the reviewed cancellation path so it retains captured cell
+evidence. No automatic rerun of the spent diagnostic or new experiment follows
+from its result. The first ac-demo task remains Phase 1 only; later phases
+require their own requests and prior-phase checkpoints.
+
+Prepare the representative workload while GPU time is unavailable, then collect
+its frozen matrix when GPU time is available. Preserve held-out evaluation;
+existing diagnostic traces do not substitute for representative locality.
+
+Exit: measured miss curves and storage-read performance, followed by an explicit
+assessment of what they permit or rule out under stated scheduling assumptions.
+These measurements inform S4/S5; they do not establish streamed generation speed
+or physical 8 GB feasibility. Any rejection names the scheduling class and
+objective it actually rules out. 10 tok/s remains a proposed checkpoint, not a
+requirement or prediction.
 
 ### S4 — Cached execution and miss recovery proof: not started
 
