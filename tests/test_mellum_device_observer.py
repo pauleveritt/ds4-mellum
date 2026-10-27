@@ -126,6 +126,14 @@ def test_discovery_failure_keeps_all_collected_commands():
         except api.CommandFailure as exc:assert len(exc.evidence['commands'])==3
         else:raise AssertionError('invalid discovery accepted')
 
+def test_diskutil_wholedisk_is_distinct_from_ioreg_whole():
+    api=module();args=fixture()
+    args[-1]['WholeDisk']=args[-1].pop('Whole')
+    result=api.parse_topology(*args)
+    assert result['disk']=='disk0' and result['media_id']==12
+    args[-1]['WholeDisk']=False
+    refused(lambda:api.parse_topology(*args))
+
 def load_tests(loader,tests,pattern):
     return unittest.TestSuite(unittest.FunctionTestCase(v) for k,v in globals().items() if k.startswith('test_'))
 if __name__=='__main__':unittest.main()
