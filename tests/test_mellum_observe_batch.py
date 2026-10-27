@@ -23,6 +23,7 @@ def tiny_run(api):
     with fixture.tiny(api.manifest) as (root,prior):
         prepared=api.manifest.prepare(prior,ROOT/'tools/mellum_read_bench',root/'observed')
         with patch.object(api,'preflight',return_value=dict(processes=[])),\
+             patch.object(api,'host_metadata',return_value=dict(model='synthetic',ram_bytes=1024)),\
              patch.object(api.observer,'discover',return_value=dict(driver_id=11,media_id=12)),\
              patch.object(api.observer,'snapshot',side_effect=process_tests.sampler(api.process)),\
              patch.object(api.process,'IDLE_SECONDS',.001):

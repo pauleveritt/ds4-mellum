@@ -29,6 +29,14 @@ def preflight() -> dict:
     return dict(processes=busy,command=result)
 
 
+def host_metadata() -> dict:
+    raw=observer.command(['/usr/sbin/sysctl','-n','hw.memsize','hw.model','machdep.cpu.brand_string'])
+    fields=raw['stdout'].decode('utf-8').splitlines()
+    if raw['returncode'] or len(fields)!=3:raise observer.CommandFailure('host identity unavailable',raw)
+    return dict(platform=platform.platform(),ram_bytes=common.integer(int(fields[0]),1),
+                model=observer.text(fields[1]),cpu=observer.text(fields[2]),command=raw)
+
+
 def serial(value: object):
     if isinstance(value,bytes):return dict(encoding='base64',bytes=len(value),data=base64.b64encode(value).decode())
     if isinstance(value,dict):return {k:serial(v) for k,v in value.items()}
@@ -54,6 +62,7 @@ def run(manifest_dir: Path,container: Path) -> Path:
             with common.read_budget(remaining):
                 if (manifest_dir.parent/'execution-reservation.json').exists():raise ValueError('observation reservation already spent')
                 progress['preflight']=preflight()
+                progress['host']=host_metadata()
                 value,jobs=manifest.verify(manifest_dir,payloads=False)
                 frozen=manifest.batches.binding(manifest_dir/'manifest.json')
                 files={k:value['inputs'][k] for k in ('model','payload')}
@@ -103,7 +112,7 @@ def run(manifest_dir: Path,container: Path) -> Path:
                 if (progress['completed_logical_bytes']!=value['timed_logical_bytes'] or
                         progress['prewarm_bytes']!=value['prewarm_bytes']):raise ValueError('incomplete observation matrix')
                 progress.update(schema_version=1,kind='device-observation-report',complete=True,batch=frozen,
-                    frozen=value,host=dict(platform=platform.platform()),physical_io_verified=False,
+                    frozen=value,physical_io_verified=False,
                     untimed_python_read_bytes=common.READ_BYTES-start,prepare_python_read_bytes=prep,
                     cumulative_python_read_bytes=common.READ_BYTES-start+prep,
                     read_accounting='logical Python input bytes; excludes Git internals, imports, metadata subprocess internals and native reads',
