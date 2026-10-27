@@ -60575,9 +60575,10 @@ static bool mellum_graph_moe(ds4_qwen4_gpu_graph *g, const ds4_model *m, const d
  * hidden state there: an MTP head takes it.  The trace's hidden file ends with that row.
  *
  * Trace (DS4_MELLUM_TRACE=<prefix>, DS4_MELLUM_TRACE_AT=<pos,...>): for every listed absolute
- * position a forward covers, three files:
+ * position a forward covers, four files:
  *   <prefix>.p<pos>.hidden.f32   n_layer x n_embd: each layer's output row
  *   <prefix>.p<pos>.qk.f32       n_layer x (q_dim + kv_dim): post-norm, post-RoPE Q then K
+ *   <prefix>.p<pos>.ffn_in.f32   n_layer x n_embd: each layer's MoE input (the FFN-normed row)
  *   <prefix>.p<pos>.logits.f32   one row of n_vocab
  * Tracing waits for the GPU after every layer to read the rows, so it is slow, and it is on only
  * when the variable is set.  Setting one of the two variables without the other is an error.
@@ -60761,10 +60762,11 @@ static bool mellum_graph_forward_tokens(ds4_qwen4_gpu_graph *g, const ds4_model 
         }
     }
     float *hid = tr_n ? malloc((size_t)tr_n * n_layer * E * sizeof(float)) : NULL;
+    float *ffn = tr_n ? malloc((size_t)tr_n * n_layer * E * sizeof(float)) : NULL;
     float *qk = tr_n ? malloc((size_t)tr_n * n_layer * qk_dim * sizeof(float)) : NULL;
     float *row_logits = tr_n ? malloc((size_t)V * sizeof(float)) : NULL;
-    if (tr_n && (!hid || !qk || !row_logits)) {
-        free(hid); free(qk); free(row_logits);
+    if (tr_n && (!hid || !ffn || !qk || !row_logits)) {
+        free(hid); free(ffn); free(qk); free(row_logits);
         return false;
     }
     ds4_gpu_tensor *const *s = g->mellum_scratch;
@@ -60778,13 +60780,16 @@ static bool mellum_graph_forward_tokens(ds4_qwen4_gpu_graph *g, const ds4_model 
         ok = mellum_graph_layer(g, m, &w->layer[il], il, full_slot, pos0, T, &rope);
         if (!ds4_mellum_layer_is_sliding(il)) full_slot++;
         if (ok && tr_n) {
-            /* the rows are on the GPU: wait, then read this layer's output row and its post-RoPE Q and K row */
+            /* the rows are on the GPU: wait, then read this layer's output row, its MoE input row and its
+             * post-RoPE Q and K row */
             ok = ds4_gpu_end_commands() != 0;
             for (uint32_t k = 0; ok && k < tr_n; k++) {
                 const uint64_t r = tr_row[k];
                 float *h = hid + ((uint64_t)k * n_layer + il) * E;
                 float *x = qk + ((uint64_t)k * n_layer + il) * qk_dim;
                 ok = ds4_gpu_tensor_read(s[MELLUM_S_HIDDEN], r * E * sizeof(float), h, (uint64_t)E * sizeof(float)) != 0 &&
+                     ds4_gpu_tensor_read(s[MELLUM_S_FFN_NORM], r * E * sizeof(float),
+                                         ffn + ((uint64_t)k * n_layer + il) * E, (uint64_t)E * sizeof(float)) != 0 &&
                      ds4_gpu_tensor_read(s[MELLUM_S_Q], r * q_dim * sizeof(float), x, (uint64_t)q_dim * sizeof(float)) != 0 &&
                      ds4_gpu_tensor_read(s[MELLUM_S_K], r * kv_dim * sizeof(float), x + q_dim,
                                          (uint64_t)kv_dim * sizeof(float)) != 0;
@@ -60801,6 +60806,7 @@ static bool mellum_graph_forward_tokens(ds4_qwen4_gpu_graph *g, const ds4_model 
         if (ok) {
             const uint32_t p = pos0 + tr_row[k];
             ok = mellum_trace_write(tc.prefix, p, "hidden", hid + (uint64_t)k * n_layer * E, (uint64_t)n_layer * E) &&
+                 mellum_trace_write(tc.prefix, p, "ffn_in", ffn + (uint64_t)k * n_layer * E, (uint64_t)n_layer * E) &&
                  mellum_trace_write(tc.prefix, p, "qk", qk + (uint64_t)k * n_layer * qk_dim, (uint64_t)n_layer * qk_dim) &&
                  mellum_trace_write(tc.prefix, p, "logits", row_logits, V);
         }
@@ -60815,7 +60821,7 @@ static bool mellum_graph_forward_tokens(ds4_qwen4_gpu_graph *g, const ds4_model 
              ds4_gpu_tensor_read(g->logits, 0, logits_out, (uint64_t)V * sizeof(float)) != 0;
     }
     if (ds4_gpu_commands_active() && !ds4_gpu_end_commands()) ok = false;
-    free(hid); free(qk); free(row_logits);
+    free(hid); free(ffn); free(qk); free(row_logits);
     if (ok) g->pos += T;
     return ok;
 #endif

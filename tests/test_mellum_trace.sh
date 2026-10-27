@@ -2,7 +2,7 @@
 # The Mellum trace driver on a 3-token file.  Model gated: it needs DS4_TEST_MELLUM_MODEL, the
 # real 2.1 GGUF, and Metal; without it the test says so and passes.  `make test-mellum-trace`.
 #
-#   1. a listed position writes its three files, each with its exact size, and an unlisted
+#   1. a listed position writes its four files, each with its exact size, and an unlisted
 #      position writes none; the session's own logits are written too (<prefix>.session.logits.f32);
 #      every listed position's logits are checked finite;
 #   2. a listed position that is not one of the tokens is an error naming it (exit 1, nothing written);
@@ -44,6 +44,7 @@ for mode in prefill decode; do
     for pos in 0 2; do
         check "$mode: p$pos hidden is 28 x 2304 f32 (258048 bytes)" size_is "$p.p$pos.hidden.f32" 258048
         check "$mode: p$pos qk is 28 x 4608 f32 (516096 bytes)" size_is "$p.p$pos.qk.f32" 516096
+        check "$mode: p$pos ffn_in is 28 x 2304 f32 (258048 bytes)" size_is "$p.p$pos.ffn_in.f32" 258048
         check "$mode: p$pos logits is 1 x 98304 f32 (393216 bytes)" size_is "$p.p$pos.logits.f32" 393216
     done
     check "$mode: the session logits are 1 x 98304 f32 (393216 bytes)" size_is "$p.session.logits.f32" 393216

@@ -6,6 +6,7 @@
  *   <prefix>.p<pos>.hidden.f32   28 x 2304 f32: each layer's output row
  *   <prefix>.p<pos>.qk.f32       28 x 4608 f32: post-norm, post-RoPE Q (4096)
  *                                then K (512), layer by layer
+ *   <prefix>.p<pos>.ffn_in.f32   28 x 2304 f32: each layer's MoE input row
  *   <prefix>.p<pos>.logits.f32   1 x 98304 f32
  *
  * The last row of a hidden file is the last layer's output before the output
@@ -225,8 +226,8 @@ int main(int argc, char **argv) {
     if (prefix) {
         char path[4096];
         for (int i = 0; i < n_pos; i++) {
-            static const char *const what[] = {"hidden", "qk", "logits"};
-            for (int w = 0; w < 3; w++) {
+            static const char *const what[] = {"hidden", "qk", "ffn_in", "logits"};
+            for (int w = 0; w < 4; w++) {
                 snprintf(path, sizeof(path), "%s.p%u.%s.f32", prefix, pos[i], what[w]);
                 if (unlink(path) != 0 && errno != ENOENT) {
                     fprintf(stderr, "mellum_trace: cannot remove %s\n", path);
@@ -342,6 +343,7 @@ int main(int argc, char **argv) {
     for (int i = 0; i < n_pos && rc == 0; i++) {
         if (!check_file(prefix, pos[i], "hidden", (uint64_t)N_LAYER * HIDDEN * 4u) ||
             !check_file(prefix, pos[i], "qk", (uint64_t)N_LAYER * QK * 4u) ||
+            !check_file(prefix, pos[i], "ffn_in", (uint64_t)N_LAYER * HIDDEN * 4u) ||
             !check_file(prefix, pos[i], "logits", (uint64_t)VOCAB * 4u)) {
             rc = 1;
         }
