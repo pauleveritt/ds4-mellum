@@ -2,6 +2,8 @@
 from contextlib import contextmanager
 import importlib.util
 import json
+import subprocess
+import sys
 from pathlib import Path
 import unittest
 from unittest.mock import patch
@@ -95,6 +97,25 @@ def test_input_or_topology_changes_prevent_success():
             except ValueError:pass
             else:raise AssertionError('changed topology accepted')
         assert not (root/'run/artifact').exists()
+
+def test_preflight_rejects_inference_executables():
+    api=module()
+    for executable in ('ds4-server','ds4-cli','test_mellum_gpu'):
+        raw=dict(stdout=f'123 /tmp/{executable} --model model'.encode(),stderr=b'',returncode=0)
+        with patch.object(api.observer,'command',return_value=raw):
+            try:api.preflight()
+            except ValueError:pass
+            else:raise AssertionError('active inference ignored')
+    raw=dict(stdout=b'123 /tmp/mellum_read_bench --input file',stderr=b'',returncode=0)
+    with patch.object(api.observer,'command',return_value=raw):assert api.preflight()['processes']==[]
+
+def test_observe_cli_exposes_commands_and_refuses_nonmac_before_io():
+    cli=ROOT/'tools/mellum_storage.py'
+    result=subprocess.run([sys.executable,'-I',str(cli),'observe-prepare','--help'],capture_output=True)
+    assert result.returncode==0 and b'--prior-batch' in result.stdout
+    code=f"import runpy,sys;sys.platform='linux';sys.argv={[str(cli),'observe-run','--batch','/missing','--output','/missing']!r};runpy.run_path({str(cli)!r},run_name='__main__')"
+    result=subprocess.run([sys.executable,'-I','-c',code],capture_output=True)
+    assert result.returncode!=0 and b'macOS required' in result.stderr
 
 def load_tests(loader,tests,pattern):
     return unittest.TestSuite(unittest.FunctionTestCase(v) for k,v in globals().items() if k.startswith('test_'))
