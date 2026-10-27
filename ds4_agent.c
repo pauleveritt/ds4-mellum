@@ -330,6 +330,8 @@ typedef struct {
     int hermes_depth;
     bool hermes_escape;
     bool hermes_in_string;
+    bool hermes_comma;      /* the last token was a comma: a closing brace now is a trailing comma */
+    bool hermes_skip;       /* the value being read belongs to a key we do not keep */
     agent_tool_calls calls;
     char error[160];
 } agent_dsml_parser;
@@ -1878,6 +1880,15 @@ static void agent_tool_call_add_arg(agent_tool_call *c, const char *name,
 /* An argument whose value is already decoded (a JSON string): takes the value. */
 static void agent_tool_call_add_arg_owned(agent_tool_call *c, const char *name,
                                           char *value, bool is_string) {
+    /* a repeated key keeps its last value, as json.loads does */
+    for (int i = 0; i < c->argc; i++) {
+        if (c->args[i].name && !strcmp(c->args[i].name, name)) {
+            free(c->args[i].value);
+            c->args[i].value = value;
+            c->args[i].is_string = is_string;
+            return;
+        }
+    }
     if (c->argc == c->argcap) {
         c->argcap = c->argcap ? c->argcap * 2 : 4;
         c->args = xrealloc(c->args, (size_t)c->argcap * sizeof(c->args[0]));
@@ -2396,8 +2407,14 @@ static bool agent_hermes_string_end(const char *s, const char *end, const char *
     return false;
 }
 
-/* Decode the complete string at s (starting at its quote); NULL when its escapes are invalid. */
+/* Decode the complete string at s (starting at its quote); NULL when its escapes are invalid, or
+ * when it spells \u0000: a C string would end there and the argument would quietly lose its tail. */
 static char *agent_hermes_decode_string(const char *s) {
+    for (const char *q = s + 1; *q && *q != '"'; q++) {
+        if (*q != '\\') continue;
+        if (q[1] == 'u' && !strncmp(q + 2, "0000", 4)) return NULL;
+        if (q[1]) q++;
+    }
     char *out = NULL;
     const char *q = s;
     if (!json_string(&q, &out)) return NULL;
@@ -2475,6 +2492,32 @@ static bool agent_hermes_valid_json(const char *s, size_t n) {
     return agent_skip_ascii_space(p, end) == end;
 }
 
+/* Arguments sent as a JSON string: the decoded text is an object; read its members as arguments. */
+static bool agent_hermes_add_args_from_json(agent_dsml_parser *p, const char *json) {
+    if (!agent_hermes_valid_json(json, strlen(json))) return false;
+    const char *q = json;
+    json_ws(&q);
+    if (*q != '{') return false;
+    q++;
+    json_ws(&q);
+    while (*q && *q != '}') {
+        char *key = NULL;
+        if (!json_string(&q, &key)) return false;
+        json_ws(&q);
+        q++;                                   /* the colon: the validator saw it */
+        json_ws(&q);
+        char *value = NULL;
+        bool is_string = *q == '"';
+        bool ok = is_string ? json_string(&q, &value) : json_raw_value(&q, &value);
+        if (!ok) { free(key); return false; }
+        agent_tool_call_add_arg_owned(&p->current, key, value, is_string);
+        free(key);
+        json_ws(&q);
+        if (*q == ',') { q++; json_ws(&q); }
+    }
+    return true;
+}
+
 /* Scan the raw (non-string) value being read since p->param_value_start.  Returns 1 when complete
  * (end set), 0 when it needs more bytes, -1 when it cannot be JSON. */
 static int agent_hermes_raw_value_end(agent_dsml_parser *p, size_t *end) {
@@ -2529,10 +2572,11 @@ static bool agent_hermes_finish_value(agent_dsml_parser *p) {
         }
         char *value = agent_hermes_decode_string(p->raw + p->param_value_start - 1);
         if (!value) {
-            agent_dsml_set_error(p, "invalid string escape in a tool call argument");
+            agent_dsml_set_error(p, "invalid string in a tool call argument (bad escape or \\u0000)");
             return false;
         }
-        agent_tool_call_add_arg_owned(&p->current, name, value, true);
+        if (p->hermes_skip) free(value);
+        else agent_tool_call_add_arg_owned(&p->current, name, value, true);
         p->parse_pos = (size_t)(past - p->raw);
     } else {
         size_t end = 0;
@@ -2548,21 +2592,24 @@ static bool agent_hermes_finish_value(agent_dsml_parser *p) {
             agent_dsml_set_error(p, "invalid JSON value in a tool call argument");
             return false;
         }
-        agent_tool_call_add_arg_owned(&p->current, name, value, false);
+        if (p->hermes_skip) free(value);
+        else agent_tool_call_add_arg_owned(&p->current, name, value, false);
         p->parse_pos = end;
     }
     free(p->param_name);
     p->param_name = NULL;
     p->param_close_prefix = false;
-    p->hermes_phase = AGENT_HERMES_ARGS_AFTER;
+    p->hermes_phase = p->hermes_skip ? AGENT_HERMES_TOP_AFTER : AGENT_HERMES_ARGS_AFTER;
+    p->hermes_skip = false;
     p->state = AGENT_DSML_STRUCTURAL;
     return true;
 }
 
-/* Start reading the argument value at cur in PARAM_VALUE. */
-static bool agent_hermes_begin_value(agent_dsml_parser *p, const char *cur) {
+/* Start reading the value at cur (an argument's, or a skipped top-level key's) in PARAM_VALUE. */
+static bool agent_hermes_begin_value(agent_dsml_parser *p, const char *cur, bool skip) {
     free(p->param_name);
-    p->param_name = xstrdup(p->hermes_key ? p->hermes_key : "");
+    p->param_name = skip ? NULL : xstrdup(p->hermes_key ? p->hermes_key : "");
+    p->hermes_skip = skip;
     p->param_close_prefix = false;
     p->hermes_scan = p->parse_pos;
     p->hermes_depth = 0;
@@ -2625,12 +2672,17 @@ static void agent_hermes_tool_parse(agent_dsml_parser *p) {
                 return;
             }
             p->parse_pos++;
+            p->hermes_comma = false;
             p->hermes_phase = AGENT_HERMES_TOP_KEY;
             break;
         case AGENT_HERMES_TOP_KEY:
         case AGENT_HERMES_ARGS_KEY: {
             const bool top = p->hermes_phase == AGENT_HERMES_TOP_KEY;
             if (*cur == '}') {
+                if (p->hermes_comma) {
+                    agent_dsml_set_error(p, "trailing comma in the tool call");
+                    return;
+                }
                 p->parse_pos++;
                 p->hermes_phase = top ? AGENT_HERMES_CLOSE : AGENT_HERMES_TOP_AFTER;
                 break;
@@ -2648,6 +2700,7 @@ static void agent_hermes_tool_parse(agent_dsml_parser *p) {
             }
             free(p->hermes_key);
             p->hermes_key = key;
+            p->hermes_comma = false;
             p->parse_pos = (size_t)(past - raw);
             p->hermes_phase = top ? AGENT_HERMES_TOP_COLON : AGENT_HERMES_ARGS_COLON;
             break;
@@ -2682,15 +2735,31 @@ static void agent_hermes_tool_parse(agent_dsml_parser *p) {
                 p->parse_pos = (size_t)(past - raw);
                 p->hermes_phase = AGENT_HERMES_TOP_AFTER;
             } else if (!strcmp(key, "arguments")) {
+                if (*cur == '"') {
+                    /* arguments as a JSON string: decode it, then read the object inside */
+                    const char *past = NULL;
+                    if (!agent_hermes_string_end(cur, end, &past)) return;
+                    char *text = agent_hermes_decode_string(cur);
+                    if (!text || !agent_hermes_add_args_from_json(p, text)) {
+                        free(text);
+                        agent_dsml_set_error(p, "tool call arguments must be an object");
+                        return;
+                    }
+                    free(text);
+                    p->parse_pos = (size_t)(past - raw);
+                    p->hermes_phase = AGENT_HERMES_TOP_AFTER;
+                    break;
+                }
                 if (*cur != '{') {
                     agent_dsml_set_error(p, "tool call arguments must be an object");
                     return;
                 }
                 p->parse_pos++;
+                p->hermes_comma = false;
                 p->hermes_phase = AGENT_HERMES_ARGS_KEY;
             } else {
-                agent_dsml_set_error(p, "unexpected key in the tool call object");
-                return;
+                /* an unknown top-level key (an id, say): its value is read and dropped */
+                if (!agent_hermes_begin_value(p, cur, true)) return;
             }
             break;
         }
@@ -2699,6 +2768,7 @@ static void agent_hermes_tool_parse(agent_dsml_parser *p) {
             const bool top = p->hermes_phase == AGENT_HERMES_TOP_AFTER;
             if (*cur == ',') {
                 p->parse_pos++;
+                p->hermes_comma = true;
                 p->hermes_phase = top ? AGENT_HERMES_TOP_KEY : AGENT_HERMES_ARGS_KEY;
             } else if (*cur == '}') {
                 p->parse_pos++;
@@ -2711,7 +2781,7 @@ static void agent_hermes_tool_parse(agent_dsml_parser *p) {
             break;
         }
         case AGENT_HERMES_ARGS_VALUE:
-            if (!agent_hermes_begin_value(p, cur)) return;
+            if (!agent_hermes_begin_value(p, cur, false)) return;
             break;
         case AGENT_HERMES_CLOSE:
             if (agent_bytes_starts_with(cur, end, close)) {
