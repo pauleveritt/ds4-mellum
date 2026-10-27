@@ -3591,8 +3591,9 @@ static void append_hermes_conversation(buf *b, const chat_msgs *msgs, int start,
     for (int i = start; i < n; i++) {
         const chat_msg *m = &msgs->v[i];
         const char *content = m->content ? m->content : "";
-        if (!strcmp(m->role, "user") || (!strcmp(m->role, "system") && i > 0)) {
-            buf_printf(b, "<|im_start|>%s\n", m->role);
+        if (!strcmp(m->role, "user") || (role_is_system(m->role) && i > 0)) {
+            /* a developer message is the system turn, as role_is_system has it */
+            buf_printf(b, "<|im_start|>%s\n", role_is_system(m->role) ? "system" : "user");
             buf_puts(b, content);
             buf_puts(b, "<|im_end|>\n");
         } else if (!strcmp(m->role, "assistant")) {
@@ -3621,7 +3622,7 @@ static char *render_hermes_chat_prompt_text(const chat_msgs *msgs, const char *t
                                             ds4_think_mode think_mode) {
     buf out = {0};
     const int n = msgs ? msgs->len : 0;
-    const bool first_system = n > 0 && !strcmp(msgs->v[0].role, "system");
+    const bool first_system = n > 0 && role_is_system(msgs->v[0].role);
     if (tool_schemas && tool_schemas[0]) {
         buf_puts(&out, "<|im_start|>system\n");
         if (first_system) {
