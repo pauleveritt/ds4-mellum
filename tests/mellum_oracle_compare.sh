@@ -18,7 +18,9 @@
 # on half-staged activations (ds4.c, MELLUM_TILED_MIN_ROWS), so a longer prefill is compared
 # within a tolerance instead: the same top-1 token at every traced position, max|d logit| <= TOL
 # (MELLUM_ORACLE_TOL, default 10) and mean KL divergence <= KLTOL (MELLUM_ORACLE_KL, default 0.01).
-# This engine's prefill against its own decode is held to the same rule.  Then GREEDY_TOKENS
+# This engine's prefill against its own decode is held to the same rule.  Every prefill also runs
+# under the exact-prefill diagnostic (DS4_MELLUM_EXACT_PREFILL=1, "prefill-exact"), which must be
+# byte-equal to the old engine and to its own decode on all three files.  Then GREEDY_TOKENS
 # (default 64) greedy tokens from the short prompt, one decode run per token in each engine: every
 # step's argmax and logits must be equal.  Every comparison prints max|d logit| and top-1 agreement.
 #
@@ -97,14 +99,26 @@ for t in short 1100 2200; do
     positions=$(python3 -I -c "n = $n; k = min(64, n); print(','.join(str(round(i * (n - 1) / (k - 1))) for i in range(k)))")
     tiled=0
     [ "$n" -ge 32 ] && tiled=1
-    for mode in prefill decode; do
-        run "$ROOT" "$tokens" "$mode" "$dir/new.$t.$mode" "$positions" > /dev/null || { fail=1; continue; }
-        run "$ORACLE" "$tokens" "$mode" "$dir/old.$t.$mode" "$positions" > /dev/null || { fail=1; continue; }
+    # this engine's prefill twice: under the exact-prefill diagnostic it must equal the old engine byte for
+    # byte; without it, the release path, within the tolerance when its chunks take the tiled paths
+    for mode in prefill-exact prefill decode; do
+        drv=$mode
+        [ "$mode" = prefill-exact ] && drv=prefill
+        if [ "$mode" = prefill-exact ]; then
+            (export DS4_MELLUM_EXACT_PREFILL=1; run "$ROOT" "$tokens" "$drv" "$dir/new.$t.$mode" "$positions") > /dev/null ||
+                { fail=1; continue; }
+        else
+            run "$ROOT" "$tokens" "$drv" "$dir/new.$t.$mode" "$positions" > /dev/null || { fail=1; continue; }
+        fi
+        [ -e "$dir/old.$t.$drv.session.logits.f32" ] ||
+            run "$ORACLE" "$tokens" "$drv" "$dir/old.$t.$drv" "$positions" > /dev/null || { fail=1; continue; }
         exact=1
         [ "$mode" = prefill ] && [ "$tiled" -eq 1 ] && exact=0
-        r=$(compare "$dir/new.$t.$mode" "$dir/old.$t.$mode" "$positions" "$exact") || fail=1
+        r=$(compare "$dir/new.$t.$mode" "$dir/old.$t.$drv" "$positions" "$exact") || fail=1
         echo "$(echo "$r" | cut -c1-4) $t $mode vs the old engine, $(echo "$r" | cut -c6-)"
     done
+    r=$(compare "$dir/new.$t.prefill-exact" "$dir/new.$t.decode" "$positions" 1) || fail=1
+    echo "$(echo "$r" | cut -c1-4) $t prefill-exact vs decode in this engine, $(echo "$r" | cut -c6-)"
     r=$(compare "$dir/new.$t.prefill" "$dir/new.$t.decode" "$positions" $((1 - tiled))) || fail=1
     echo "$(echo "$r" | cut -c1-4) $t prefill vs decode in this engine, $(echo "$r" | cut -c6-)"
 done
