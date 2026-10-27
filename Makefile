@@ -1078,6 +1078,13 @@ tests/test_mellum_frontends_server.o: tests/test_mellum_frontends.c ds4.c ds4_se
 tests/test_mellum_frontends_cli tests/test_mellum_frontends_agent tests/test_mellum_frontends_server: %: %.o $(MELLUM_FRONTEND_OBJS)
 	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -o $@ $^ $(LDLIBS)
 
+tests/test_mellum_routes: tests/test_mellum_routes.c ds4_mellum_routes.c ds4_mellum_routes.h
+	$(CC) $(QUALITY_CFLAGS) -I. -o $@ tests/test_mellum_routes.c ds4_mellum_routes.c
+
+.PHONY: test-mellum-routes-c
+test-mellum-routes-c: tests/test_mellum_routes
+	./tests/test_mellum_routes
+
 .PHONY: test-mellum-ssd-replay
 test-mellum-ssd-replay:
 	python3 -I tests/test_mellum_ssd_replay.py
