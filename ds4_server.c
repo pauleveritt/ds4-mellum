@@ -4511,9 +4511,11 @@ static bool parse_anthropic_request(ds4_engine *e, server *s, const char *body, 
         msg.content = system;
         system = NULL;
         chat_msgs_push(&msgs, msg);
-        if (r->model_syntax == SERVER_MODEL_SYNTAX_DEEPSEEK41) {
+        if (r->model_syntax == SERVER_MODEL_SYNTAX_DEEPSEEK41 ||
+            r->model_syntax == SERVER_MODEL_SYNTAX_HERMES) {
             /* This is the API's initial system prompt, not a later system
-             * turn, which V4.1 preserves at its original history position. */
+             * turn, which V4.1 and Mellum's template keep at its original
+             * history position. */
             memmove(msgs.v + 1, msgs.v, (size_t)(msgs.len - 1) * sizeof(msgs.v[0]));
             msgs.v[0] = msg;
         }
