@@ -23,6 +23,8 @@ chunk under 32 rows, keep the exact arithmetic. Over 64 positions of each long
 test prompt, max |d logit| against the exact path is 2.0 (1,100 tokens) and 8.5
 (2,200), mean KL divergence 2.1e-3 and 1.7e-3, largest probability change 0.06,
 with the same top-1 token at every position (the experts alone: 0.65 and 0.87).
+On held-out prompts the top-1 token is not always the same. Router top-8 flips at near-ties change it
+at 4 of 64 positions of a Unicode prompt and 1 of 64 of a tool-call prompt ("Oracle caps" below).
 Long prefills are exact only under the diagnostic `DS4_MELLUM_EXACT_PREFILL=1`
 (read at session start), which sends every chunk back through the exact paths;
 that is what the oracle uses to check long prefills byte for byte.
@@ -209,6 +211,7 @@ Step 22, M5 Max, Q8_0, `--temp 0`, n = 1 each:
 | long-prompt prefill and generation | `./ds4 ... -n 256 --prompt-file` (9,000 characters of promessi_sposi.txt and a request: 3,235 tokens) | prefill 1,900 t/s, generation 119 t/s | 1 |
 | Metal 4 tensor API | the startup line of any run | "ds4: Metal 4 tensor API enabled for Tensor kernels" on the M5 Max; `tensor_matmul=off` with `DS4_METAL_DISABLE_METAL4=1`. M4: not measured (no M4 here) | 1 |
 | both prefill paths vs the old engine (after the exact-prefill switch) | `tests/mellum_oracle_compare.sh ORACLE_DIR $MODEL 64` | under `DS4_MELLUM_EXACT_PREFILL=1`: byte-equal to the old engine and to decode on 29, 1,100 and 2,200 tokens (30, 65 and 65 logits files); release path: within tolerance (2.008 / 2.1e-3 and 8.471 / 1.7e-3, top-1 65/65); decode byte-equal; 64/64 greedy equal; PASS | 1 |
+| oracle with per-position caps (R2), fff47fc | `tests/mellum_oracle_compare.sh ORACLE_DIR $MODEL 64` | release prefill vs the old engine and vs decode: 1,100 tokens mean KL 2.1e-3, worst KL 4.2e-2 (p802), worst \|d log p(top-1)\| 0.268; 2,200: 1.7e-3, 2.2e-2 (p803), 0.161; top-1 65/65 both; exact prefill and decode byte-equal; 64/64 greedy equal; PASS | 1 |
 | exact-prefill switch | `DS4_TEST_MELLUM_MODEL=... ./ds4_test --mellum-exact-prefill` | 1,100-token prefill vs decode: 0 of 98,304 logit words differ with the switch, 98,303 without | 1 |
 | batched + tiled prefill vs the old engine / exact decode, 64 positions | `tests/mellum_oracle_compare.sh ORACLE_DIR $MODEL 64` (after step 27; rule: top-1 everywhere, max\|d\| <= 10, mean KL <= 0.01) | 1,100: max\|d logit\| 2.008, mean KL 2.1e-3, top-1 65/65; 2,200: 8.471, 1.7e-3, 65/65; short prompt and every decode byte-equal; 64/64 greedy equal; PASS | 1 |
 | tiled prefill vs the exact path / the old engine, logits at 64 positions | `tests/mellum_oracle_compare.sh ORACLE_DIR $MODEL 64` (after step 25) | 1,100 tokens: max\|d logit\| 0.649, top-1 65/65; 2,200: 0.874, top-1 65/65; short prompt and every decode still byte-equal; 64 of 64 greedy tokens equal; PASS | 1 |
@@ -217,6 +220,56 @@ Step 22, M5 Max, Q8_0, `--temp 0`, n = 1 each:
 | Metal kernels vs double references | `make test-mellum-kernels` | 379 checks, 0 failures | 1 |
 | MoE on real layers 0/13/27 vs double | `DS4_TEST_MELLUM_MODEL=... ./ds4_test --mellum-moe` | same experts selected; weights 1.7e-7, output 3.4e-7 | 1 |
 | session bytes allocated vs planned, Q8_0 GGUF | `DS4_TEST_MELLUM_MODEL=... ./ds4_test --mellum-session` | equal at ctx 20,000 / 65,536 / 131,072 for chunks 1,024 and 512 (601,513,984 / 1,254,318,080 / 2,193,842,176 bytes at chunk 1,024) | 1 |
+
+### Oracle caps
+
+The oracle's tolerance rule for the release prefill (`tests/mellum_logits_compare.py`) holds each traced
+position to two caps beside the mean KL over positions: KL(old || new) <= 1.0
+(`MELLUM_ORACLE_KLMAX`) and |d log p| of the old engine's top-1 token <= 1.0 (`MELLUM_ORACLE_DLOGP`).
+The session row, which is the last position's row again, is held to the per-row rules and left out of the
+mean. Every logit of both runs must be finite before anything is compared.
+
+The caps come from the release prefill against the exact prefill (`DS4_MELLUM_EXACT_PREFILL=1`, byte-equal
+to decode and to the old engine) at 64 traced positions of four held-out prompts. The positions are spread
+evenly, so they fall in earlier assistant text as well as in the prompts. The prompts are written by
+`tests/gen_mellum_heldout_tokens.py` and are unlike the oracle's own. The oracle's three files were
+measured too. Revision a3a7962, M5 Max, one process at a time; per file, `tests/mellum_trace $MODEL FILE
+prefill` with `DS4_MELLUM_TRACE_AT` set to the 64 positions, with and without the exact switch:
+
+| file | ids | n | mean KL | worst KL | worst \|d log p(top-1)\| | max \|d logit\| | top-1 equal |
+|---|---|---|---|---|---|---|---|
+| `mellum_heldout_code` | 164 | 64 | 6.2e-4 | 2.2e-2 | 0.143 | 4.6 | 64/64 |
+| `mellum_heldout_tool` (Pi's tools, a tool call) | 966 | 64 | 2.8e-3 | 9.6e-2 | 0.288 | 3.0 | 63/64 |
+| `mellum_heldout_unicode` | 199 | 64 | 1.9e-2 | 0.467 | 0.456 | 13.2 | 60/64 |
+| `mellum_heldout_long` (6,000 ids) | 6,000 | 64 | 3.2e-4 | 1.0e-2 | 0.174 | 4.2 | 64/64 |
+| `mellum_oracle_short` | 29 | 29 | 0 | 0 | 0 | 0 | 29/29 |
+| `mellum_oracle_1100` | 1,100 | 64 | 2.1e-3 | 4.2e-2 | 0.268 | 2.0 | 64/64 |
+| `mellum_oracle_2200` | 2,200 | 64 | 1.7e-3 | 2.2e-2 | 0.161 | 8.5 | 64/64 |
+
+Across the 413 rows the worst KL is 0.467 and the worst |d log p(top-1)| 0.456, both at one position of the
+Unicode prompt. The caps are about twice those.
+
+The large single-position departures are router flips, not drift that builds up gradually.
+A scratch probe (not committed) dumped the router logits and the selected experts at four Unicode positions in
+both paths. At every position whose hidden state departs from the exact path's, the layer where the
+departure jumps 10-100x (from about 1e-3 relative error to 1e-2 to 1e-1) is the first layer whose top-8
+experts differ. The exact path's gap between its 8th and 9th router logits there is 1.2e-4 (position 157,
+layer 10), 4.2e-4 (195, layer 14) and 1.5e-2 (60, layer 6). After the first flip more follow, and a
+flipped row reaches later rows through attention. A position with no flip stays near 3e-3 at every layer.
+Any arithmetic that is not bit-identical will flip near-ties like these, so per-position caps can't tell
+flips from a broken kernel. This has three consequences:
+
+- The per-position caps catch only gross errors at single positions. The review's case (one position
+  changed from 0.99/0.01 to 0.51/0.49, KL 0.618) passes them, because routing flips alone reach 0.467 on
+  held-out text.
+- The rest of the tolerance rule fails on held-out text. Top-1 equal at every position and mean KL <= 0.01
+  hold on the oracle's three prompts. They do not hold on the Unicode prompt (4 top-1 changes, mean KL
+  0.019) or the tool prompt (1 change). The rule is a regression gate set on those three files, not a
+  bound on how far the release prefill may move any prompt.
+- Per-position correctness rests on the exact path. Under `DS4_MELLUM_EXACT_PREFILL=1` the oracle checks
+  long prefills byte for byte against the old engine and decode. A change that reorders work without
+  changing arithmetic can be held to byte equality with the release path it replaces, which is a
+  stronger gate than any cap.
 
 ## Backends covered
 
