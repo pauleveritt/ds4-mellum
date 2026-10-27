@@ -1,6 +1,7 @@
 #define DS4_AGENT_TEST
 #define DS4_AGENT_TEST_NO_MAIN
 #include "../ds4_agent.c"
+#include "mellum_tool_text.h"
 #include <sys/resource.h>
 #if defined(__APPLE__) || defined(__linux__)
 #include <sys/xattr.h>
@@ -1216,6 +1217,41 @@ static void test_hermes_prose_around_calls(void) {
                                        err, sizeof(err), &n) == AGENT_DSML_DONE && n == 1);
 }
 
+/* the system turn: the agent's preamble, a blank line, then the tools block 2.1's template writes
+ * for Pi's four tools (mellum_tool_text.h, which test_mellum_config checks against jinja2) */
+static void test_hermes_system_turn(void) {
+    char *want = mtt_system_text(NULL);
+    char *got = agent_build_hermes_tools_block();
+    AGENT_TEST_ASSERT(!strcmp(got, want));
+    free(got);
+    free(want);
+
+    const char *preamble = "You are a coding agent.\n\nCurrent working directory: /testbed";
+    char *sys = agent_build_hermes_system_text(preamble);
+    char *ref = mtt_system_text(preamble);
+    AGENT_TEST_ASSERT(!strcmp(sys, ref));
+    AGENT_TEST_ASSERT(strstr(sys, "<|im_start|>") == NULL && strstr(sys, "<|im_end|>") == NULL);
+    free(sys);
+    free(ref);
+    sys = agent_build_hermes_system_text(NULL);     /* no preamble: the block alone */
+    ref = mtt_system_text(NULL);
+    AGENT_TEST_ASSERT(!strcmp(sys, ref));
+    free(sys);
+    free(ref);
+
+    /* what the agent puts ahead of the block, in order, and nothing from the tools in it */
+    char *pre = agent_build_hermes_preamble("EXTRA-SYS", "DATETIME-LINE", "/work/dir");
+    const char *extra = strstr(pre, "EXTRA-SYS");
+    const char *dt = strstr(pre, "DATETIME-LINE");
+    const char *cwd = strstr(pre, "Current working directory: /work/dir");
+    AGENT_TEST_ASSERT(extra && dt && cwd && pre < extra && extra < dt && dt < cwd);
+    AGENT_TEST_ASSERT(strstr(pre, "# Tools") == NULL && strstr(pre, "<tool_call>") == NULL);
+    free(pre);
+    pre = agent_build_hermes_preamble(NULL, NULL, NULL);
+    AGENT_TEST_ASSERT(pre[0] && strstr(pre, "Current working directory") == NULL);
+    free(pre);
+}
+
 static void test_hermes_tool_syntax(void) {
     test_hermes_syntax_basics();
     test_hermes_split_points();
@@ -1226,6 +1262,7 @@ static void test_hermes_tool_syntax(void) {
     test_hermes_raw_values();
     test_hermes_json_loads();
     test_hermes_prose_around_calls();
+    test_hermes_system_turn();
 }
 
 static void test_v41_tool_syntax(void) {
