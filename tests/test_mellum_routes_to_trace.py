@@ -7,9 +7,11 @@ import io
 import json
 from pathlib import Path
 import struct
+import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "tools/mellum_routes_to_trace.py"
@@ -261,6 +263,150 @@ def test_completed_metadata_requires_s1_contract():
         parent[path[-1]] = value
         with bad_metadata(path[-1]):
             tool().complete_metadata(broken, consume(spool())[1], {11: "fixture-exact"}, {11: 1})
+
+
+def export_inputs(directory, *, data=None, metadata=None):
+    root = Path(directory)
+    source, meta, output = root / "capture.bin", root / "metadata.json", root / "trace.jsonl"
+    source.write_bytes(spool() if data is None else data)
+    meta.write_text(json.dumps(metadata_fixture() if metadata is None else metadata, ensure_ascii=False), encoding="utf-8")
+    return source, meta, output
+
+
+def replay_output(output):
+    replay = tool().replay_module()
+    with output.open(encoding="utf-8") as source:
+        trace = replay.load_trace(source)
+    return trace, replay.run_sweep(trace)
+
+
+def test_export_round_trips_phases_unicode_and_evidence():
+    for char in ("\u2028", "\u2029", "\u0085"):
+        with tempfile.TemporaryDirectory() as directory:
+            meta = metadata_fixture()
+            meta["segments"]["7"] = "before" + char + "after"
+            meta["header"]["capture_manifest"]["extension"]["text"] = char
+            data = spool(frame(rows=2, phase=1), frame(1, 44, phase=1, segment=8, execution=12), frame(2, 45, segment=8))
+            source, metadata, output = export_inputs(directory, data=data, metadata=meta)
+            tool().export_trace(source, metadata, output)
+            trace, report = replay_output(output)
+            assert [item.phase for item in trace.requests[::28]] == ["prefill", "prefill", "decode"]
+            assert [item.positions for item in trace.requests[::28]] == [(42, 43), (44,), (45,)]
+            assert trace.requests[0].segment == "before" + char + "after"
+            assert trace.requests[0].experts == (tuple(range(7, -1, -1)),) * 2
+            assert report["evidence"]["provenance_status"] == "synthetic-declared"
+            assert report["assumptions"]["cache_starts_cold"] is True
+            assert report["trace"]["capture_manifest"]["extension"]["text"] == char
+            assert report["trace"]["capture_manifest"]["execution"]["route_capture"]["profile_forward_counts"] == {"11": 2, "12": 1}
+            assert set(Path(directory).iterdir()) == {source, metadata, output}
+            assert source.read_bytes() == data
+
+
+@contextmanager
+def export_fails():
+    try:
+        yield
+    except (ValueError, OSError):
+        pass
+    else:
+        raise AssertionError("export should fail")
+
+
+def test_export_failures_leave_no_published_or_temporary_artifact():
+    cases = [(spool()[:-1], None), (spool() + b"x", None),
+             (spool(frame(segment=99)), None), (spool(frame(execution=99)), None)]
+    for field, value in (("context_tokens", 42), ("prefill_chunk_tokens", 0), ("context_tokens", "8192")):
+        meta = metadata_fixture()
+        meta["header"]["capture_manifest"]["execution"][field] = value
+        cases.append((spool(), meta))
+    meta = metadata_fixture()
+    meta["header"]["capture_manifest"]["execution"]["prefill_chunk_tokens"] = 1
+    cases.append((spool(frame(rows=2, phase=1)), meta))
+    for data, meta in cases:
+        with tempfile.TemporaryDirectory() as directory:
+            source, metadata, output = export_inputs(directory, data=data, metadata=meta)
+            with export_fails():
+                tool().export_trace(source, metadata, output)
+            assert set(Path(directory).iterdir()) == {source, metadata}
+    with tempfile.TemporaryDirectory() as directory:
+        source, metadata, output = export_inputs(directory)
+        for missing_source, missing_meta, bad_output in (
+            (source / "missing", metadata, output), (source, metadata / "missing", output),
+            (source, metadata, output / "missing"),
+        ):
+            with export_fails():
+                tool().export_trace(missing_source, missing_meta, bad_output)
+            assert set(Path(directory).iterdir()) == {source, metadata}
+        with patch.object(tool().os, "link", side_effect=OSError("publication refused")):
+            with export_fails():
+                tool().export_trace(source, metadata, output)
+        assert set(Path(directory).iterdir()) == {source, metadata}
+
+
+def test_export_never_overwrites_existing_or_raced_in_output():
+    for kind in ("regular", "symlink", "race"):
+        with tempfile.TemporaryDirectory() as directory:
+            source, metadata, output = export_inputs(directory)
+            target = Path(directory) / "existing"
+            target.write_bytes(b"preserve existing evidence")
+            link = tool().os.link
+            if kind == "regular":
+                output.write_bytes(b"existing output")
+            elif kind == "symlink":
+                output.symlink_to(target)
+            def raced_link(src, dst):
+                if kind == "race":
+                    output.write_bytes(b"raced-in output")
+                return link(src, dst)
+            with patch.object(tool().os, "link", side_effect=raced_link):
+                with export_fails():
+                    tool().export_trace(source, metadata, output)
+            assert target.read_bytes() == b"preserve existing evidence"
+            assert output.read_bytes() == {"regular": b"existing output", "symlink": b"preserve existing evidence", "race": b"raced-in output"}[kind]
+            assert output.is_symlink() == (kind == "symlink")
+            assert set(Path(directory).iterdir()) == {source, metadata, output, target}
+
+
+def test_export_reads_source_once_with_bounded_requests():
+    data = spool(*(frame(i, 42 + i) for i in range(200)))
+    with tempfile.TemporaryDirectory() as directory:
+        source, metadata, output = export_inputs(directory, data=data)
+        original = Path.open
+        opened = 0
+        def guarded_open(path, *args, **kwargs):
+            nonlocal opened
+            if path == source:
+                opened += 1
+                assert opened == 1
+                return BoundedStream(data)
+            return original(path, *args, **kwargs)
+        with patch.object(Path, "open", guarded_open):
+            tool().export_trace(source, metadata, output)
+        assert opened == 1
+        trace, _ = replay_output(output)
+        assert len(trace.requests) == 5600
+
+
+def test_c_writer_export_cli_replay_and_clean_errors():
+    with tempfile.TemporaryDirectory() as directory:
+        source, metadata, output = export_inputs(directory)
+        subprocess.run([str(ROOT / "tests/test_mellum_routes"), "--emit-fixture", str(source)], check=True)
+        assert source.read_bytes() == spool()
+        command = [sys.executable, "-I", str(SCRIPT), str(source), "--metadata", str(metadata), "--output", str(output)]
+        result = subprocess.run(command, cwd=directory, capture_output=True, text=True)
+        assert result.returncode == 0, result.stderr
+        assert result.stdout == result.stderr == ""
+        trace, report = replay_output(output)
+        assert trace.requests[0].experts == (tuple(range(7, -1, -1)),)
+        assert report["results"][0]["totals"]["demand_loads"] == 224
+        assert report["results"][0]["totals"]["demand_bytes"] == 1473970176
+        output.unlink()
+        for corrupted in (spool()[:-1], b"bad spool"):
+            source.write_bytes(corrupted)
+            result = subprocess.run(command, cwd=directory, capture_output=True, text=True)
+            assert result.returncode != 0 and result.stdout == ""
+            assert result.stderr and "Traceback" not in result.stderr
+            assert set(Path(directory).iterdir()) == {source, metadata}
 
 
 def load_tests(loader, tests, pattern):
