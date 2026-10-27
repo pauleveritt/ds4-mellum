@@ -54,7 +54,7 @@ def parse_topology(files: dict[str,dict], volume_info: dict[str,dict], apfs: dic
         first=volumes[0]
         if any(v != first for v in volumes):
             raise ValueError('payloads require the same APFS volume and disk')
-        if disk_info['DeviceIdentifier'] != first['disk'] or disk_info['Whole'] is not True:
+        if disk_info['DeviceIdentifier'] != first['disk'] or disk_info['WholeDisk'] is not True:
             raise ValueError('whole physical disk required')
         size=uint(disk_info['TotalSize'])
         candidates=[]

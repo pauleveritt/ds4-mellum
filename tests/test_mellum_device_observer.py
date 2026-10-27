@@ -28,7 +28,7 @@ def fixture():
     media=dict(IOObjectClass='IOMedia',IORegistryEntryID=12,**{'BSD Name':'disk0','Whole':True,'Size':1000})
     registry=[dict(IORegistryEntryID=99,Statistics={'Bytes (Read)':999999}),
               dict(IORegistryEntryID=11,IORegistryEntryChildren=[media],Statistics={})]
-    disk=dict(DeviceIdentifier='disk0',TotalSize=1000,MediaName='SSD',Whole=True)
+    disk=dict(DeviceIdentifier='disk0',TotalSize=1000,MediaName='SSD',WholeDisk=True)
     return files,volumes,apfs,registry,disk
 
 def refused(call):
@@ -128,7 +128,7 @@ def test_discovery_failure_keeps_all_collected_commands():
 
 def test_diskutil_wholedisk_is_distinct_from_ioreg_whole():
     api=module();args=fixture()
-    args[-1]['WholeDisk']=args[-1].pop('Whole')
+    args[-1]['WholeDisk']=True
     result=api.parse_topology(*args)
     assert result['disk']=='disk0' and result['media_id']==12
     args[-1]['WholeDisk']=False
