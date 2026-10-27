@@ -59302,6 +59302,7 @@ typedef struct ds4_qwen4_gpu_graph {
     ds4_gpu_tensor *mellum_tag[DS4_MAX_LAYER];
     ds4_gpu_tensor *mellum_scratch[MELLUM_SCRATCH_COUNT];
     uint64_t mellum_allocated_bytes;
+    ds4_mellum_capture *mellum_capture; /* Borrowed from the opaque owned handle. */
     bool mellum_exact_prefill;      /* DS4_MELLUM_EXACT_PREFILL, read at allocation (mellum_graph_alloc) */
     uint32_t mellum_moe_nax;        /* DS4_MELLUM_MOE_NAX, read there too: 2 the tensor tiles, 0 the simdgroup tiles */
     /* Arena only, grown on demand: one logit row per batch member, the
@@ -88943,16 +88944,84 @@ int ds4_mellum_capture_create(ds4_mellum_capture **out, ds4_engine *e, int ctx,
     if (err && n) snprintf(err,n,"Mellum capture unsupported on this backend");
     return 1;
 }
+static int mellum_capture_error(ds4_mellum_capture *c,char *err,size_t n,const char *message) {
+    if (c && c->core.state!=MELLUM_CAPTURE_FINISHED) {
+        (void)mellum_observer_leave(&c->scope);
+        mellum_capture_abort(&c->core,&c->scope);
+    }
+    if (err && n) snprintf(err,n,"%s",message);
+    return 1;
+}
+static bool mellum_capture_ready(ds4_mellum_capture *c,char *err,size_t n) {
+    if (c && c->session && c->core.state==MELLUM_CAPTURE_READY) return true;
+    mellum_capture_error(c,err,n,"Mellum capture is not ready");
+    return false;
+}
+static int mellum_capture_operation_end(ds4_mellum_capture *c,int status,char *err,size_t n) {
+    if (!status && (!c->session->checkpoint_valid ||
+        (uint64_t)c->session->checkpoint.len!=c->core.writer.positions)) status=1;
+#ifdef DS4_HAS_QWEN4_METAL
+    if (!status && c->session->qwen4_graph.pos!=c->core.writer.positions) status=1;
+#endif
+    int result=mellum_capture_end_operation(&c->core,&c->scope,status);
+    if (result) {
+        (void)mellum_observer_leave(&c->scope);
+        if (err && n && !err[0]) snprintf(err,n,"Mellum capture operation failed");
+    }
+    return result;
+}
 int ds4_mellum_capture_sync(ds4_mellum_capture *c,const ds4_tokens *p,uint32_t seg,char *err,size_t n) {
-    (void)c;(void)p;(void)seg;(void)err;(void)n;return 1;
+    char scratch[512];
+    if (!err || !n) { err=scratch;n=sizeof(scratch); }
+    err[0]=0;
+    if (!mellum_capture_ready(c,err,n)) return 1;
+    ds4_session *s=c->session;
+    if (!p || !p->v || p->len<=0 || p->len>=s->ctx_size)
+        return mellum_capture_error(c,err,n,"Mellum capture prompt exceeds context or is invalid");
+    for (int i=0;i<p->len;i++)
+        if (p->v[i]<0 || p->v[i]>=(int)DS4_N_VOCAB)
+            return mellum_capture_error(c,err,n,"Mellum capture prompt token is invalid");
+    size_t committed=s->checkpoint_valid ? (size_t)s->checkpoint.len:0;
+    if (!mellum_capture_begin_sync(&c->core,(const uint32_t *)s->checkpoint.v,committed,
+                                  (const uint32_t *)p->v,(size_t)p->len,seg))
+        return mellum_capture_error(c,err,n,"Mellum capture requires an unchanged token prefix");
+    int status=ds4_session_sync(s,p,err,n);
+    return mellum_capture_operation_end(c,status,err,n);
 }
-int ds4_mellum_capture_eval(ds4_mellum_capture *c,int t,uint32_t seg,char *err,size_t n) {
-    (void)c;(void)t;(void)seg;(void)err;(void)n;return 1;
+int ds4_mellum_capture_eval(ds4_mellum_capture *c,int token,uint32_t seg,char *err,size_t n) {
+    char scratch[512];
+    if (!err || !n) { err=scratch;n=sizeof(scratch); }
+    err[0]=0;
+    if (!mellum_capture_ready(c,err,n)) return 1;
+    ds4_session *s=c->session;
+    if (token<0 || token>=(int)DS4_N_VOCAB || s->checkpoint.len<0 || s->checkpoint.len>=s->ctx_size)
+        return mellum_capture_error(c,err,n,"Mellum capture token or context is invalid");
+    if (!mellum_capture_begin_eval(&c->core,(uint64_t)s->checkpoint.len,seg))
+        return mellum_capture_error(c,err,n,"Mellum capture position is not contiguous");
+    int status=ds4_session_eval(s,token,err,n);
+    return mellum_capture_operation_end(c,status,err,n);
 }
-int ds4_mellum_capture_copy_logits(ds4_mellum_capture *c,float *out,int n) {
-    (void)c;(void)out;(void)n;return 0;
+int ds4_mellum_capture_copy_logits(ds4_mellum_capture *c,float *out,int capacity) {
+    if (!c || !mellum_capture_has_logits(&c->core)) return 0;
+    return ds4_session_copy_logits(c->session,out,capacity);
 }
 int ds4_mellum_capture_finish(ds4_mellum_capture *c,mellum_profile_sink sink,void *ctx,char *err,size_t n) {
-    (void)c;(void)sink;(void)ctx;(void)err;(void)n;return 1;
+    if (!c || !mellum_capture_finish(&c->core,sink,ctx))
+        return mellum_capture_error(c,err,n,"Mellum capture cannot finish");
+    if (err && n) err[0]=0;
+    return 0;
 }
-void ds4_mellum_capture_free(ds4_mellum_capture *c) { (void)c; }
+void ds4_mellum_capture_free(ds4_mellum_capture *c) {
+    if (!c) return;
+    (void)mellum_observer_leave(&c->scope);
+    mellum_capture_abort(&c->core,&c->scope);
+#ifdef DS4_HAS_QWEN4_METAL
+    if (c->session) c->session->qwen4_graph.mellum_capture=NULL;
+#endif
+    ds4_session_free(c->session);
+#ifdef DS4_HAS_QWEN4_METAL
+    ds4_gpu_tensor_free(c->gpu);
+#endif
+    free(c->host);
+    free(c);
+}
