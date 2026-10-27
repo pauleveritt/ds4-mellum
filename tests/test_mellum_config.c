@@ -1107,6 +1107,10 @@ int main(void) {
     expect_refused(MF_EXPERTS_128, "mellum.expert_count", "expert_count 128");
     expect_refused(MF_USED_10, "mellum.expert_used_count", "expert_used_count 10");
     expect_refused(MF_KEY_LENGTH_256, "mellum.attention.key_length", "key_length 256");
+    /* shapes the sliding attention (32 and 4 heads) and the MoE (a width in 128s) would refuse later */
+    expect_refused(MF_HEADS_16, "mellum.attention.head_count=32", "head_count 16");
+    expect_refused(MF_HEADS_KV_8, "mellum.attention.head_count_kv=4", "head_count_kv 8");
+    expect_refused(MF_EMBD_2336, "mellum.embedding_length: must be a multiple of 128", "embedding_length 2336");
     /* the '=' keeps the needle from matching ...sliding_window_pattern */
     expect_refused(MF_WINDOW_512, "mellum.attention.sliding_window=1024", "sliding_window 512");
     expect_refused(MF_YARN_FACTOR_8, "mellum.rope.scaling.factor", "yarn factor 8");

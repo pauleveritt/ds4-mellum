@@ -49,6 +49,9 @@ typedef enum {
     MF_NO_IM_START,       /* id 27 spelled something else: <|im_start|> absent */
     MF_NO_IM_END,         /* id 28 spelled something else: <|im_end|> absent */
     MF_EXTRA_CONTROL,     /* one more CONTROL token, spelled <zzz>, after the byte pieces */
+    MF_HEADS_16,          /* attention.head_count 16: a group of 4 still, which the old range check accepted */
+    MF_HEADS_KV_8,        /* attention.head_count_kv 8: a group of 4 still */
+    MF_EMBD_2336,         /* embedding_length 2336: a multiple of 32, not of 128 */
 } mf_mutation;
 
 typedef struct { char *p; size_t n, cap; } mf_buf;
@@ -118,10 +121,10 @@ static void mf_keys(mf_gguf *g, mf_mutation mu) {
     mf_kv_str(g, "general.architecture", "mellum");
     mf_kv_u32(g, "mellum.block_count", 28);
     mf_kv_u32(g, "mellum.context_length", 131072);
-    mf_kv_u32(g, "mellum.embedding_length", 2304);
+    mf_kv_u32(g, "mellum.embedding_length", mu == MF_EMBD_2336 ? 2336 : 2304);
     mf_kv_u32(g, "mellum.feed_forward_length", 7168);
-    mf_kv_u32(g, "mellum.attention.head_count", 32);
-    mf_kv_u32(g, "mellum.attention.head_count_kv", 4);
+    mf_kv_u32(g, "mellum.attention.head_count", mu == MF_HEADS_16 ? 16 : 32);
+    mf_kv_u32(g, "mellum.attention.head_count_kv", mu == MF_HEADS_KV_8 ? 8 : 4);
     mf_kv_str(g, "mellum.rope.scaling.type", mu == MF_ROPE_NOT_YARN ? "linear" : "yarn");
     mf_kv_f32(g, "mellum.rope.scaling.factor", mu == MF_YARN_FACTOR_8 ? 8.0f : 16.0f);
     mf_kv_u32(g, "mellum.rope.scaling.original_context_length", mu == MF_ORIG_CTX_4096 ? 4096 : 8192);
