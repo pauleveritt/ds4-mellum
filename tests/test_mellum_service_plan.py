@@ -60,7 +60,7 @@ def test_prepare_and_verify_are_metadata_only():
             assert path not in (root/'model',root/'packed/experts.bin'),'payload read during metadata checks'
             return real(path)
         with patch.object(api.common,'opened',side_effect=guard):
-            prepared=api.prepare(prior,ROOT/'tools/mellum_read_bench',ROOT/'tools/mellum_stage_bench',root/'prepared')
+            prepared=api.prepare(prior,ROOT/'tools/mellum_read_bench',ROOT/'tools/mellum_stage_bench',root/'service-prepared')
             value,cells=api.verify(prepared)
         assert before==(prior/'manifest.json').read_bytes()
         assert sum(c['logical_bytes'] for c in cells)==40
@@ -74,7 +74,7 @@ def test_changed_manifest_or_forecast_refuses():
     api=module()
     for field in ('caps','source','escape','binary'):
         with tiny(api) as (root,prior):
-            prepared=api.prepare(prior,ROOT/'tools/mellum_read_bench',ROOT/'tools/mellum_stage_bench',root/'prepared')
+            prepared=api.prepare(prior,ROOT/'tools/mellum_read_bench',ROOT/'tools/mellum_stage_bench',root/'service-prepared')
             value=api.common.load_json(prepared/'manifest.json')
             if field=='caps':value['caps']['python']+=1
             if field=='source':value['source_identity']['source_state_id']='0'*64
