@@ -75,6 +75,48 @@ static bool same_files(const char *a, const char *b) {
     return ok;
 }
 
+/* Live gate for the public owned handle. Compiling it does not run a GPU. */
+typedef struct { FILE *file; uint32_t count; } owned_profiles;
+static bool owned_profile(void *ctx,uint32_t id,const char *text,size_t n) {
+    owned_profiles *p=ctx;
+    const char *roles[]={";EMBED:",";PROJECTION:",";ROUTER:",";MID:",";DOWN:",";REDUCE:",";ATTENTION:"};
+    if(id!=p->count || n!=strlen(text) || strncmp(text,"profile-v1;head=",16))return false;
+    for(unsigned i=0;i<7;i++)if(!strstr(text,roles[i]))return false;
+    if(!strstr(text,";MID:kernel_qwen4_moe_") || !strstr(text,";DOWN:kernel_qwen4_moe_"))return false;
+    if(strstr(text,"head=encoded") && !strstr(text,";HEAD:"))return false;
+    p->count++;
+    return fprintf(p->file,"%u %s\n",id,text)>0;
+}
+static bool run_owned(ds4_engine *engine,int context,const ds4_tokens *tokens,int first,
+                       const char *directory,FILE *gold) {
+    char path[4096],err[512]={0};
+    snprintf(path,sizeof(path),"%s/owned.routes",directory);FILE *spool=fopen(path,"wbx");
+    snprintf(path,sizeof(path),"%s/owned.profiles",directory);FILE *profiles=fopen(path,"wbx");
+    ds4_mellum_capture *handle=NULL;
+    ds4_mellum_capture_options options={.spool_sink=file_sink,.spool_context=spool};
+    bool ok=spool && profiles && !ds4_mellum_capture_create(&handle,engine,context,&options,err,sizeof(err));
+    float logits[VOCAB],expected[VOCAB];rewind(gold);
+    for(int pos=0;ok && pos<tokens->len;) {
+        if(pos==0 || pos==tokens->len-1) {
+            ds4_tokens prompt={.v=tokens->v,.len=pos==0 ? first:tokens->len};
+            ok=!ds4_mellum_capture_sync(handle,&prompt,pos==0 ? 0:2,err,sizeof(err));pos=prompt.len;
+        } else {
+            ok=!ds4_mellum_capture_eval(handle,tokens->v[pos],1,err,sizeof(err));pos++;
+        }
+        ok=ok && ds4_mellum_capture_copy_logits(handle,logits,VOCAB)==VOCAB &&
+           fread(expected,sizeof(expected),1,gold)==1 && !memcmp(logits,expected,sizeof(logits));
+    }
+    owned_profiles out={.file=profiles};
+    if(ok)ok=!ds4_mellum_capture_finish(handle,owned_profile,&out,err,sizeof(err)) && out.count>0;
+    if(ok)ok=ds4_mellum_capture_copy_logits(handle,logits,VOCAB)==VOCAB &&
+        ds4_mellum_capture_eval(handle,0,1,err,sizeof(err))!=0 &&
+        ds4_mellum_capture_finish(handle,owned_profile,&out,err,sizeof(err))!=0;
+    ds4_mellum_capture_free(handle);
+    if(spool && fclose(spool))ok=false;if(profiles && fclose(profiles))ok=false;
+    fprintf(stderr,"owned capture logits/profile gate: %s (%s)\n",ok ? "PASS":"FAIL",err);
+    return ok;
+}
+
 int main(int argc, char **argv) {
     if (argc != 5 || getenv("DS4_MELLUM_TRACE_AT") || getenv("DS4_MELLUM_TRACE")) return 2;
     ds4_tokens tokens = {0};
@@ -157,6 +199,7 @@ int main(int argc, char **argv) {
         ds4_session_free(session);
     }
     if (ok) ok = same_files(paths[0], paths[1]);
+    if (ok) ok=run_owned(engine,opt.context_size,&tokens,(int)first,argv[4],gold);
     if (gold) fclose(gold);
     ds4_engine_close(engine); ds4_tokens_free(&tokens);
     fprintf(stderr, "routing GPU proof: %s\n", ok ? "PASS (all logits and ordered spool bytes match)" : "FAIL");
