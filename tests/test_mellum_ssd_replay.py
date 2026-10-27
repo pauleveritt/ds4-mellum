@@ -1,5 +1,6 @@
 """CPU-only synthetic tests: python3 -I tests/test_mellum_ssd_replay.py."""
 
+from copy import deepcopy
 from contextlib import contextmanager
 from functools import lru_cache
 import importlib.util
@@ -445,6 +446,85 @@ def test_prefill_union_exceeds_capacity_even_when_each_row_fits():
             tool().replay(trace, 20, policy)
         with invalid(2, "unsupported by atomic group residency"):
             tool().replay(trace, 20, policy)
+
+
+def manifest_fixture(metadata, *, forwards=1, positions=1, first=0, last=0):
+    return {
+        "manifest_version": 1, "capture_id": "fixture-capture", "complete": True,
+        "artifacts": {"model_id": metadata["model_id"], "tokenizer_id": "fixture-tokenizer",
+                      "template_id": "fixture-template", "token_stream_sha256": "0" * 64},
+        "build": {"engine_revision": metadata["engine_revision"], "source_state_id": "fixture-source",
+                  "binary_sha256": "0" * 64, "recorder_revision": "fixture-recorder"},
+        "execution": {"context_tokens": 8192, "prefill_chunk_tokens": 1024,
+                      "numerical_mode": metadata["numerical_mode"], "requested_kernel": "fixture-requested",
+                      "effective_kernel": "fixture-effective", "device": "fixture-device",
+                      "os": "fixture-os", "capabilities": {}},
+        "generation": {"mode": "generated", "settings": {"seed": None}},
+        "workload": {"protocol_id": "fixture-protocol", "conversation_id": "fixture-conversation",
+                     "repository_id": "fixture-repository", "split": "tuning",
+                     "continuation_kind": "fixture-continuation"},
+        "extent": {"forwards": forwards, "positions": positions,
+                   "first_position": first, "last_position": last},
+    }
+
+
+def test_manifest_preserves_extensions():
+    metadata = header()
+    manifest = manifest_fixture(metadata)
+    manifest["future"] = {"nested": [None, True, 1.5, {"anything": "kept"}]}
+    manifest["execution"]["capabilities"]["e1"] = [False, 2]
+    expected = deepcopy(manifest)
+    assert hasattr(tool(), "validate_capture_manifest"), "capture manifest validation is missing"
+    assert tool().validate_capture_manifest(manifest, metadata) == expected
+    assert manifest == expected
+
+
+def test_manifest_rejects_missing_wrong_and_inconsistent_fields():
+    metadata = header()
+    base = manifest_fixture(metadata)
+    assert hasattr(tool(), "validate_capture_manifest"), "capture manifest validation is missing"
+    cases = []
+    # Each declared field is required, and every scalar/section has a type contract.
+    for key, value in base.items():
+        paths = [(key,)] + ([(key, field) for field in value] if isinstance(value, dict) else [])
+        for path in paths:
+            for replacement in ("REMOVE", None, []):
+                cases.append((path, replacement))
+    cases += [
+        (("manifest_version",), value) for value in (True, 2, "1")
+    ] + [(("complete",), value) for value in (False, 1, "true")]
+    for section, fields in (
+        ("execution", ("context_tokens", "prefill_chunk_tokens")),
+        ("extent", ("forwards", "positions", "first_position", "last_position")),
+    ):
+        for field in fields:
+            bad = (True, -1, "1", 1.5) + ((0,) if field not in ("first_position", "last_position") else ())
+            cases += [((section, field), value) for value in bad]
+    for section in ("artifacts", "build", "execution", "workload"):
+        for field, value in base[section].items():
+            if isinstance(value, str):
+                cases.append(((section, field), " "))
+    cases += [
+        (("generation", "mode"), "invalid"), (("workload", "split"), "invalid"),
+        (("artifacts", "model_id"), "other"), (("build", "engine_revision"), "other"),
+        (("execution", "numerical_mode"), "other"), (("capture_id",), " "),
+    ]
+    for path in (("artifacts", "token_stream_sha256"), ("build", "binary_sha256")):
+        cases += [(path, value) for value in ("a" * 63, "A" * 64, "g" * 64, True)]
+    for path, replacement in cases:
+        manifest = deepcopy(base)
+        parent = manifest if len(path) == 1 else manifest[path[0]]
+        if replacement == "REMOVE":
+            del parent[path[-1]]
+        else:
+            parent[path[-1]] = replacement
+        with invalid(1, "capture_manifest." + ".".join(path)):
+            tool().validate_capture_manifest(manifest, metadata)
+    for value in (float("inf"), float("-inf"), float("nan"), {1: "bad"}, {"set"}, (1,)):
+        manifest = deepcopy(base)
+        manifest["generation"]["settings"]["extension"] = [value]
+        with invalid(1, "capture_manifest.generation.settings.extension"):
+            tool().validate_capture_manifest(manifest, metadata)
 
 
 def load_tests(loader, tests, pattern):
