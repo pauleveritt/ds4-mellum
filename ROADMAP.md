@@ -88,7 +88,7 @@ Exit met on M5 Max / 128 GiB: matching-path parity, no added per-layer host
 wait, bounded recorder storage and append-capable qualified collection. This
 establishes neither physical 8 GB peak memory nor SSD inference performance.
 
-### S3 — Locality and storage evidence: design approved, plans prepared
+### S3 — Locality and storage evidence: source frozen, storage pending
 
 The user selected `../ac-demo` and its roadmap as the workload source. The
 [S3a proposal](docs/superpowers/specs/2026-10-27-mellum-storage-evidence-design.md)
@@ -97,8 +97,9 @@ CPU-only expert-range/contiguous-layout read tools. Its independent builder
 check found no remaining material question and the user approved the design.
 The [source-freeze plan](docs/superpowers/plans/2026-10-27-mellum-workload-source.md)
 and [storage plan](docs/superpowers/plans/2026-10-27-mellum-storage-evidence.md)
-are ready for plan review and inline execution. No S3 storage benchmark,
-generated cohort or actual workload freeze has run. The first proposed task is Phase 1 only;
+were approved for inline execution. The [source freeze](docs/superpowers/research/2026-10-27-mellum-workload-source-evidence.md)
+preserves all nine tracked files at the pinned commit. No S3 storage benchmark
+or generated cohort has run. The first proposed task is Phase 1 only;
 later phases require their own requests and prior-phase checkpoints.
 
 Collect the frozen workload matrix on this development laptop. Replay warm,
