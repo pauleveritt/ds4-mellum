@@ -344,9 +344,11 @@ Numbers with the tensor tiles on:
 - `ds4_test --mellum-moe`: every selection equals the double reference on random and real rows. Real
   rows are within 7.7e-5 of the staged reference, against the simdgroup tiles' 1.1e-4.
 - `make test-mellum-fastpath`: 45 of 45 pass, including 32 of 32 greedy tokens equal to the exact path's.
-- Against the exact prefill on the seven held-out and oracle files, mean KL is lower on five and worst
-  KL lower on four. The tool prompt's one top-1 change goes away. The Unicode prompt keeps its four
-  router-flip changes (worst KL 0.480 against 0.467).
+- Against the exact prefill on the seven held-out and oracle files, mean KL is lower on four, equal on
+  the short prompt, and slightly higher on the tool prompt (3.1e-3 against 2.8e-3) and the Unicode
+  prompt (1.93e-2 against 1.89e-2). Worst KL is lower on four. The tool prompt's one top-1 change goes
+  away. The Unicode prompt keeps its four router-flip changes (worst KL 0.480 against 0.467). Overall
+  it is about as close to the exact path as the current tiles, not uniformly closer.
 - `tests/mellum_oracle_compare.sh` **fails**. At 1,100 and 2,200 tokens the release prefill changes the top-1 at one of
   65 positions: p1082, where the exact path's top token has p = 0.139 and KL is 2.5e-4, and p1675,
   where it has p = 0.043 and KL is 3.8e-3. Means and maxima improve: 1,100 tokens mean KL 1.6e-3
