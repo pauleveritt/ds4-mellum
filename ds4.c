@@ -74758,7 +74758,7 @@ int ds4_chat_append_multimodal_message(
         const int old_len = tokens->len;
         ds4_vocab *vocab = &e->vocab;
         qwen4_chat_open(vocab, "user", tokens);
-        if (tool) bpe_tokenize_text(vocab, "<tool_response>\n", tokens);
+        if (tool) qwen4_tool_response_tag(vocab, "<tool_response>\n", tokens);
         size_t moved = 0;
         for (size_t i = 0; i <= image_count; i++) {
             const char *text = text_parts[i] ? text_parts[i] : "";
@@ -74775,7 +74775,7 @@ int ds4_chat_append_multimodal_message(
             }
             moved++;
         }
-        if (tool) bpe_tokenize_text(vocab, "\n</tool_response>", tokens);
+        if (tool) qwen4_tool_response_tag(vocab, "\n</tool_response>", tokens);
         qwen4_chat_close(vocab, tokens);
         return 1;
     }
