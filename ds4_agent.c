@@ -9650,9 +9650,10 @@ static void agent_bash_finalize(agent_bash_job *job, int status) {
     agent_worker_note_terminal_mode_may_have_changed(job->worker);
 }
 
-/* Has a job with this timeout run out of time after elapsed seconds? */
+/* Has a job with this timeout run out of time after elapsed seconds?  A timeout of 0 is no deadline
+ * (Pi's bash without one); the agent's own bash tool always gives at least a second. */
 static bool agent_bash_deadline_passed(double timeout_sec, double elapsed) {
-    return elapsed >= timeout_sec;
+    return timeout_sec > 0 && elapsed >= timeout_sec;
 }
 
 /* The monitor owns the descriptors and child reaping. Tool observations take
@@ -11084,8 +11085,6 @@ static char *pi_tool_edit(const agent_tool_call *call) {
 
 /* ---- bash (bash.js, truncate.js truncateTail) ---- */
 
-#define PI_BASH_DEFAULT_TIMEOUT_SEC 120
-
 /* Size of the output's last line: scan the file backwards for a newline. */
 static size_t pi_last_line_bytes(const char *path, size_t total) {
     FILE *fp = fopen(path, "rb");
@@ -11113,10 +11112,11 @@ static size_t pi_last_line_bytes(const char *path, size_t total) {
     return line;
 }
 
-/* The job's timeout in whole seconds: a positive timeout argument rounded up, at most a day. */
+/* The job's timeout in whole seconds: a positive timeout argument rounded up, at most a day.  Without
+ * one it is 0, no deadline, as Pi's bash.js sets no timer. */
 static int pi_bash_timeout(const agent_tool_call *call) {
     double t = 0;
-    int timeout = PI_BASH_DEFAULT_TIMEOUT_SEC;
+    int timeout = 0;
     if (pi_number_arg(call, "timeout", &t) && t > 0)
         timeout = t > 24.0 * 3600.0 ? 24 * 3600 : (int)ceil(t);
     return timeout;
