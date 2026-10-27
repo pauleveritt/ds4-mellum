@@ -28,6 +28,7 @@
 #endif
 
 #include <glob.h>
+#include <sys/socket.h>
 
 #define CHECK(c) do { if (!(c)) { fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #c); exit(1); } } while (0)
 
@@ -528,6 +529,23 @@ static void check_engine_selection(void) {
     CHECK(server_model_syntax_for_engine(&e) == SERVER_MODEL_SYNTAX_HERMES);
     CHECK(server_engine_refusal(&e) == NULL);
     CHECK(server_model_alias_known("mellum-2.1"));     /* GET /v1/models/mellum-2.1 */
+    {   /* GET /v1/models lists Mellum by its own id, not Flash Next's (it is also a qwen4 engine) */
+        int sv[2];
+        CHECK(socketpair(AF_UNIX, SOCK_STREAM, 0, sv) == 0);
+        server srv;
+        memset(&srv, 0, sizeof(srv));
+        srv.engine = &e;
+        CHECK(send_models(&srv, sv[0]));
+        shutdown(sv[0], SHUT_WR);
+        char out[8192];
+        size_t n = 0;
+        ssize_t got;
+        while (n + 1 < sizeof(out) && (got = read(sv[1], out + n, sizeof(out) - 1 - n)) > 0) n += (size_t)got;
+        out[n] = '\0';
+        close(sv[0]);
+        close(sv[1]);
+        CHECK(strstr(out, "\"id\":\"mellum-2.1\"") != NULL && strstr(out, "qwen3.8") == NULL);
+    }
 
     /* step 43: one session, no disk KV (the engine refuses session save and load for Mellum, and Mellum does
      * not batch with other sessions); each refused by name, and the defaults accepted */
