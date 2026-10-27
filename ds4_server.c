@@ -1003,11 +1003,10 @@ static const char *server_model_id_from_engine(ds4_engine *engine) {
            "deepseek-v4-pro" : "deepseek-v4-flash";
 }
 
-/* A loaded model the server cannot serve yet, or NULL.  Mellum would otherwise
- * be spoken Flash Next's Qwen3-coder tool syntax (it is a qwen4 engine). */
+/* A loaded model the server cannot serve yet, or NULL.  None today: Mellum, the last one
+ * refused, is served with the Hermes syntax (and server_session_option_refusal). */
 static const char *server_engine_refusal(ds4_engine *engine) {
-    if (ds4_engine_is_mellum(engine))
-        return "Mellum 2.1 is not served yet: ds4-server has no Hermes tool-call syntax";
+    (void)engine;
     return NULL;
 }
 
@@ -1028,6 +1027,7 @@ static bool server_model_alias_known(const char *id) {
     return id &&
            (!strcmp(id, "deepseek-v4-flash") ||
             !strcmp(id, "deepseek-v4.1-flash") ||
+            !strcmp(id, "mellum-2.1") ||
             !strcmp(id, "qwen3.8-flash-next") ||
             !strcmp(id, "qwen3.8-flash-next-chat") ||
             !strcmp(id, "qwen3.8-flash-next-no-think") ||

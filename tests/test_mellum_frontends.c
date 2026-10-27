@@ -527,6 +527,7 @@ static void check_engine_selection(void) {
     CHECK(!strcmp(server_model_id_from_engine(&e), "mellum-2.1"));
     CHECK(server_model_syntax_for_engine(&e) == SERVER_MODEL_SYNTAX_HERMES);
     CHECK(server_engine_refusal(&e) == NULL);
+    CHECK(server_model_alias_known("mellum-2.1"));     /* GET /v1/models/mellum-2.1 */
 
     /* step 43: one session, no disk KV (the engine refuses session save and load for Mellum, and Mellum does
      * not batch with other sessions); each refused by name, and the defaults accepted */
