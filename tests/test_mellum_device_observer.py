@@ -111,6 +111,21 @@ def test_interrupted_metadata_command_is_killed_and_reaped():
             if child.poll() is None:child.kill()
             child.wait()
 
+def test_parser_caps_valid_xml_before_materializing_large_structure():
+    api=module()
+    for raw in (plistlib.dumps(['x']*20000),plistlib.dumps('x'*2**20)):
+        try:api.decoded(dict(stdout=raw,stderr=b'',returncode=0))
+        except api.CommandFailure:pass
+        else:raise AssertionError('oversized decoded structure accepted')
+
+def test_discovery_failure_keeps_all_collected_commands():
+    api=module();files,volumes,apfs,registry,disk=fixture();disk['TotalSize']=999
+    raw=[dict(stdout=plistlib.dumps(v),stderr=b'',returncode=0) for v in (apfs,disk,registry)]
+    with patch.object(api,'volume_for_file',return_value=volumes['model'],create=True),         patch.object(api.sys,'platform','darwin'),patch.object(api,'command',side_effect=raw):
+        try:api.discover(files)
+        except api.CommandFailure as exc:assert len(exc.evidence['commands'])==3
+        else:raise AssertionError('invalid discovery accepted')
+
 def load_tests(loader,tests,pattern):
     return unittest.TestSuite(unittest.FunctionTestCase(v) for k,v in globals().items() if k.startswith('test_'))
 if __name__=='__main__':unittest.main()
