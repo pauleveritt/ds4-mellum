@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import struct
 import sys
 import tempfile
 import unittest
@@ -75,7 +76,7 @@ def raises(reason):
 def test_inherited_controls_are_rejected_before_collection():
     identity = module('mellum_capture_identity')
     for name in ('DS4_METAL_MELLUM_SOURCE', 'DS4_MOE_REPLAY_SELECTED_IDS', 'DS4_MELLUM_TRACE',
-                 'MELLUM_TRACE_CONTEXT', 'DS4_QWEN4_PREFILL_CHUNK'):
+                 'MELLUM_TRACE_CONTEXT', 'DS4_QWEN4_PREFILL_CHUNK', 'MAKEFLAGS', 'MAKEFILES'):
         for value in ('', '0', 'other'):
             with raises(name):
                 identity.checked_environment({'PATH': '/usr/bin', name: value})
@@ -223,6 +224,52 @@ def test_publication_preserves_existing_output_and_rejects_controls_early():
             with raises('DS4_MOE_REPLAY_SELECTED_IDS'):
                 publisher.publish(**arguments)
         assert not calls
+
+
+def test_publisher_rejects_wrong_input_tokens_or_schedule_even_when_reference_agrees():
+    accepted = []
+    for offset, value in ((60, 99), (24 + len(exporter_fixture().frame(rows=2)) + 24, 1)):
+        def mutate(stage, root, directory, *, offset=offset, value=value):
+            if stage == 'capture':
+                for name in ('owned.routes', 'reference.routes'):
+                    path = directory / name
+                    data = bytearray(path.read_bytes())
+                    struct.pack_into('<I', data, offset, value)
+                    path.write_bytes(data)
+        with publication(mutate) as (publisher, arguments, calls):
+            try:
+                publisher.publish(**arguments)
+            except ValueError:
+                pass
+            else:
+                accepted.append(offset)
+    assert not accepted, f'accepted wrong input token/schedule at offsets {accepted}'
+
+
+def test_native_receipt_and_catalog_bounds():
+    parser = module('mellum_capture_metadata')
+    exporter = module('mellum_routes_to_trace')
+    with tempfile.TemporaryDirectory() as directory:
+        path = Path(directory) / 'catalog'
+        for text in ('', '0 profile-v1;head=encoded', '0 bad\n', '0 profile-v1;head=encoded' + 'x'*16384 + '\n',
+                     '0 profile-v1;head=encoded\x00\n'):
+            path.write_text(text)
+            with raises('profile'):
+                parser.read_profiles(path)
+        path.write_text(''.join(f'{i} profile-v1;head=encoded\n' for i in range(128)))
+        assert len(parser.read_profiles(path)) == 128
+        with path.open('a') as out:
+            out.write('128 profile-v1;head=encoded\n')
+        with raises('profile'):
+            parser.read_profiles(path)
+        path.write_bytes(b' ' * 16385)
+        with raises('exceeds'):
+            parser.read_receipt(path, exporter)
+        for value in (True, 0, 1025):
+            path.write_text(json.dumps({'receipt_version': 1, 'context_tokens': 128, 'cap_tokens': value,
+                                       'capabilities': {}}))
+            with raises('receipt'):
+                parser.read_receipt(path, exporter)
 
 def load_tests(loader, tests, pattern):
     return unittest.TestSuite(unittest.FunctionTestCase(value) for name, value in sorted(globals().items())
