@@ -15,11 +15,19 @@ gives logits byte-identical to the old port's on three prompts in prefill and
 decode, and 64 equal greedy tokens (Checkpoint 2). Since step 22 the `ds4` CLI
 runs Mellum chats on Metal.
 
-**Prefill no longer equals decode exactly** (step 25): a prefill chunk of 32
-rows or more runs the experts as tiled GEMMs on half-staged activations, 2.4x
-faster. Decode, and any chunk under 32 rows, keep the exact arithmetic. Over 64
-positions of each long test prompt, max |d logit| against the exact path is 0.65
-(1,100 tokens) and 0.87 (2,200), with the same top-1 token at every position. Session save/load refuses by name, and ds4-server
+**Prefill no longer equals decode exactly** (steps 25 and 27): a prefill chunk
+of 32 rows or more runs its experts as tiled GEMMs and its Q8_0 projections as
+batched GEMMs, both on half-staged activations; together about 6x faster than
+the exact path (2,200 tokens: about 2,000 t/s against 350). Decode, and any
+chunk under 32 rows, keep the exact arithmetic. Over 64 positions of each long
+test prompt, max |d logit| against the exact path is 2.0 (1,100 tokens) and 8.5
+(2,200), mean KL divergence 2.1e-3 and 1.7e-3, largest probability change 0.06,
+with the same top-1 token at every position (the experts alone: 0.65 and 0.87).
+
+Speed on the M5 Max (Q8_0, Metal), as measured at Checkpoint 3: prefill about
+2,000 t/s on a 2,200-token prompt and 1,900 t/s on 3,235 (CLI); generation 133
+t/s at short context and 119 t/s after 3,235 tokens. A short chat prompt (about
+25 tokens, under 32 rows) prefills at 440-510 t/s. The M4 Max was not measured. Session save/load refuses by name, and ds4-server
 and ds4-agent refuse a Mellum engine at startup (no Hermes tool syntax yet).
 
 Model-free tests: `make test-mellum`. With `DS4_TEST_MELLUM_MODEL` set,
@@ -104,6 +112,13 @@ Step 22, M5 Max, Q8_0, `--temp 0`, n = 1 each:
 | forward pass vs the old port (`refs/old/mellum21-stage1`), session logits | `tests/mellum_oracle_compare.sh ORACLE_DIR $MODEL 64` | byte-equal (`cmp`) on 29, 1,100 and 2,200 templated tokens, prefill and decode; prefill equals decode in this engine on all three; 64 of 64 greedy tokens equal, with equal logits at each step | 1 |
 | prefill speed, exact experts vs tiled (step 25), 2,200 templated tokens, one chunk of 1,024 at a time | `MELLUM_TRACE_REPEAT=6 tests/mellum_trace $MODEL tests/mellum_oracle_2200.tokens prefill` (prototype switch, then the committed code) | runs 3-6 (steady clocks; run 1 is ~20% faster, then the GPU settles): exact 349-364 t/s, tiled 813-886 t/s, two alternated sessions each | 4 per arm, x2 |
 | tiled-experts crossover, one chunk | the same with 9- to 256-token prompts, runs 3-8 of 8 | 9 rows: exact 0.031 s, tiled 0.044 s; 16: 0.046 vs 0.051; 32: 0.081 vs 0.067; 48: 0.114 vs 0.080; 72: 0.164 vs 0.102; 256: 0.61 vs 0.29. Threshold: 32 rows | 6 per point |
+| batched Q8_0 projections (step 27), 2,200 tokens prefill | `MELLUM_TRACE_REPEAT=6 tests/mellum_trace ...2200.tokens prefill`, prototype switch alternated with the step-25 code, 30 s rests | runs 3-6, two rounds: step 25 805-884 t/s; batched with the Metal 4 tensor API on 1,973-2,065 t/s; batched with `DS4_METAL_DISABLE_METAL4=1` 1,971-2,066 t/s (the tensor tile adds nothing measurable here; the batching does) | 4 per arm, x2 |
+| batched projections crossover, one chunk | runs 3-8 of 8, projections exact vs batched (experts tiled from 32 in both) | 16 rows 0.048 vs 0.043 s; 32: 0.071 vs 0.059; 96: 0.127 vs 0.076; 256: 0.28 vs 0.13; 1,024: 1.21-1.31 vs 0.51-0.61. Threshold kept at 32 (one rule with the experts) | 6 per point |
+| committed code after step 27, 2,200 tokens prefill, after a 2-minute rest | `MELLUM_TRACE_REPEAT=6 tests/mellum_trace ...2200.tokens prefill` | 1,977-2,030 t/s, all six runs. Heat-soaked (many runs just before): 930-1,005 t/s, so rest before timing | 6 |
+| generation | `./ds4 -m $MODEL -c 8192 --temp 0 -n 512 -p "Explain how a hash map works, with an example in C."` (CLI's own line) | 133.3-133.5 t/s generation; prefill of the ~25-token prompt 439-511 t/s | 3 |
+| long-prompt prefill and generation | `./ds4 ... -n 256 --prompt-file` (9,000 characters of promessi_sposi.txt and a request: 3,235 tokens) | prefill 1,900 t/s, generation 119 t/s | 1 |
+| Metal 4 tensor API | the startup line of any run | "ds4: Metal 4 tensor API enabled for Tensor kernels" on the M5 Max; `tensor_matmul=off` with `DS4_METAL_DISABLE_METAL4=1`. M4: not measured (no M4 here) | 1 |
+| batched + tiled prefill vs the old engine / exact decode, 64 positions | `tests/mellum_oracle_compare.sh ORACLE_DIR $MODEL 64` (after step 27; rule: top-1 everywhere, max\|d\| <= 10, mean KL <= 0.01) | 1,100: max\|d logit\| 2.008, mean KL 2.1e-3, top-1 65/65; 2,200: 8.471, 1.7e-3, 65/65; short prompt and every decode byte-equal; 64/64 greedy equal; PASS | 1 |
 | tiled prefill vs the exact path / the old engine, logits at 64 positions | `tests/mellum_oracle_compare.sh ORACLE_DIR $MODEL 64` (after step 25) | 1,100 tokens: max\|d logit\| 0.649, top-1 65/65; 2,200: 0.874, top-1 65/65; short prompt and every decode still byte-equal; 64 of 64 greedy tokens equal; PASS | 1 |
 | MoE driver on real layers, 64 rows tiled vs double | `DS4_TEST_MELLUM_MODEL=... ./ds4_test --mellum-moe` | same experts selected; output within 1.0e-3 (16 rows exact: 3.4e-7, row 0 alone bit-equal) | 1 |
 | the oracle script can fail: the same comparison against an old tree whose sliding attention splits keys over 4 simdgroups instead of 8 (same math, another summation order; scratch, not committed) | `tests/mellum_oracle_compare.sh ORACLE_BAD $MODEL 8` | exit 1, `mellum-oracle: FAILED`: all six cmp checks fail (max\|d logit\| 7.3e-3 at 29 tokens, 9.1e-2 at 1,100, 5.4e-1 at 2,200, argmax still 23), the greedy check fails at token 0; this engine's prefill-equals-decode checks still pass | 1 |

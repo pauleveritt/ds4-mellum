@@ -60427,20 +60427,23 @@ static bool qwen4_graph_moe(ds4_qwen4_gpu_graph *g, const ds4_model *m, const ds
     return ok;
 }
 
-/* From this many rows a chunk's experts run as tiled GEMMs over each expert's token list instead of one row at a
- * time.  Measured on the M5 Max (tests/mellum_trace, prefill, runs 3-8 of 8): tiled loses at 16 rows (0.051 s
- * against 0.046 s) and wins from 32 (0.067 against 0.081); a 2,200-token prompt prefills at 813-886 t/s against
- * 349-364.  The price: the tiled kernels stage the activations as half, so a prefill chunk of 32 rows or more no
- * longer equals its decode steps bit for bit.  Over 64 positions each of a 1,100- and a 2,200-token prompt, max
- * |d logit| against the per-token path is 0.65 and 0.87 with the same top-1 token at all 128 (MELLUM.md). */
-#define MELLUM_MOE_TILED_MIN_ROWS 32u
+/* From this many rows a prefill chunk runs its experts as tiled GEMMs over each expert's token list, and its
+ * Q8_0 projections through the batched ds4_gpu_matmul_q8_0_tensor, instead of one row's arithmetic at a time.
+ * Measured on the M5 Max (tests/mellum_trace, prefill, steady runs; MELLUM.md has the table): tiled experts lose
+ * at 16 rows and win from 32; batched projections win from 16 and by 2.2x at 1,024; with both, a 2,200-token
+ * prompt prefills at about 2,060 t/s against 350 with neither.  The price: these kernels stage activations as
+ * half, so a chunk of 32 rows or more no longer equals its decode steps bit for bit.  Over 64 positions each of
+ * a 1,100- and a 2,200-token prompt the experts alone move the logits by at most 0.65 and 0.87, and with the
+ * projections by at most 2.0 and 8.5 (mean KL 2e-3), with the same top-1 token at all 128.  Chunks under 32 rows
+ * and decode keep the exact arithmetic. */
+#define MELLUM_TILED_MIN_ROWS 32u
 
 /* Mellum's FFN for the T rows of the FFN_NORM scratch, into MOE_OUT (the caller adds the residual): F32 router,
  * softmax over all 64, top 8 renormalized, Q8_0 SwiGLU experts, weighted sum.  It is not qwen4_graph_moe, which
  * reads ffn_gate_inp_shexp and the shared expert unconditionally and folds the hyper-connection combine into its
  * reduce.  Mellum's layer has none of those tensors; this binds only the router and the three expert tensors, and
  * the buffers are the MoE entries of mellum_requests, so the plan counts what the driver uses.  Below
- * MELLUM_MOE_TILED_MIN_ROWS the ops are ds4_gpu_mellum_moe_tensor's (contract in ds4_gpu.h): none of them tiles
+ * MELLUM_TILED_MIN_ROWS the ops are ds4_gpu_mellum_moe_tensor's (contract in ds4_gpu.h): none of them tiles
  * rows together, so a row's bits do not depend on T.  From there the experts are tiled, and they do. */
 static bool mellum_graph_moe(ds4_qwen4_gpu_graph *g, const ds4_model *m, const ds4_layer_weights *l, uint32_t T) {
 #if !defined(__APPLE__)
@@ -60464,7 +60467,7 @@ static bool mellum_graph_moe(ds4_qwen4_gpu_graph *g, const ds4_model *m, const d
     p.up_offset = l->ffn_up_exps->abs_offset;
     p.down_offset = l->ffn_down_exps->abs_offset;
     ds4_gpu_tensor *const *s = g->mellum_scratch;
-    if (T >= MELLUM_MOE_TILED_MIN_ROWS) {
+    if (T >= MELLUM_TILED_MIN_ROWS) {
         /* The router, top-8 and reduce as below; the experts as tiled GEMMs over each expert's
          * token list (upstream's prefill MoE), which stage the activations as half. */
         ds4_gpu_tensor *router_out[1] = { s[MELLUM_S_ROUTER_LOGITS] };
@@ -60510,13 +60513,12 @@ static bool mellum_graph_moe(ds4_qwen4_gpu_graph *g, const ds4_model *m, const d
  *               r = X + O(heads);  X = r + moe(rmsnorm(r) * ffn_norm)
  *   logits = output(rmsnorm(X_last) * output_norm)
  *
- * Every op but one is bit-identical over T rows and over T one-row calls (the projections
- * through the exact rows kernel, the router one row per threadgroup, both attentions row by
- * row); the experts are too below MELLUM_MOE_TILED_MIN_ROWS, so a chunk of fewer rows and its
- * decode steps compute the same bytes.  From that row count the experts run as tiled GEMMs on
- * half-staged activations, which is 2.4x faster at prefill and no longer bit-identical to
- * decode (the measured difference is at MELLUM_MOE_TILED_MIN_ROWS).  Only the T == 1
- * projections are the one-row kernel itself, which the rows kernel equals.
+ * Below MELLUM_TILED_MIN_ROWS every op is bit-identical over T rows and over T one-row calls
+ * (the projections through the exact rows kernel, the router and experts one row per
+ * threadgroup, both attentions row by row), so such a chunk and its decode steps compute the
+ * same bytes.  From that row count the projections and experts run as batched and tiled GEMMs
+ * on half-staged activations, about 6x faster at prefill and no longer bit-identical to decode
+ * (the measured difference is at MELLUM_TILED_MIN_ROWS).  The attentions stay row by row.
  *
  * After a forward, HIDDEN holds the chunk's rows as the last layer left them, before the output
  * norm (the head normalizes into another scratch), so a later graph can read the last row's
@@ -60602,13 +60604,13 @@ static ds4_gpu_mellum_rope mellum_rope_params(void) {
     return p;
 }
 
-/* A Q8_0 projection of T rows with decode's arithmetic: one row is the decode kernel, more rows the
- * exact rows kernel, which is bit-identical to T one-row calls.  Never the batched
- * ds4_gpu_matmul_q8_0_tensor, whose T-row bits differ from the one-row ones. */
+/* A Q8_0 projection of T rows: one row is the decode kernel; from MELLUM_TILED_MIN_ROWS rows the batched
+ * ds4_gpu_matmul_q8_0_tensor (its T-row bits differ from the one-row ones: see the constant); between, the
+ * exact rows kernel, which is bit-identical to T one-row calls. */
 static bool mellum_proj(ds4_gpu_tensor *out, const ds4_model *m, const ds4_tensor *w, const ds4_gpu_tensor *x,
                         uint32_t T) {
-    if (T == 1u) {
-        return ds4_gpu_matmul_q8_0_tensor(out, m->map, m->size, w->abs_offset, w->dim[0], w->dim[1], x, 1u) != 0;
+    if (T == 1u || T >= MELLUM_TILED_MIN_ROWS) {
+        return ds4_gpu_matmul_q8_0_tensor(out, m->map, m->size, w->abs_offset, w->dim[0], w->dim[1], x, T) != 0;
     }
     return ds4_gpu_matmul_q8_0_decode_rows_exact_tensor(out, m->map, m->size, w->abs_offset, w->dim[0], w->dim[1],
                                                         x, T) != 0;

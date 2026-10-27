@@ -14,9 +14,10 @@
 # eval per token) mode, both engines' tests/mellum_trace write the logits at up to 64 positions
 # spread over the file (98,304 f32 each) and the session's last-row logits.  Decode must equal the
 # old engine's byte for byte (cmp).  So must a prefill whose chunks are all below 32 rows (the
-# short file): from 32 rows this engine's experts run as tiled GEMMs (ds4.c,
-# MELLUM_MOE_TILED_MIN_ROWS), so a longer prefill is compared within a tolerance instead: the same
-# top-1 token at every traced position and max|d logit| <= TOL (MELLUM_ORACLE_TOL, default 1.0).
+# short file): from 32 rows this engine's projections and experts run as batched and tiled GEMMs
+# on half-staged activations (ds4.c, MELLUM_TILED_MIN_ROWS), so a longer prefill is compared
+# within a tolerance instead: the same top-1 token at every traced position, max|d logit| <= TOL
+# (MELLUM_ORACLE_TOL, default 10) and mean KL divergence <= KLTOL (MELLUM_ORACLE_KL, default 0.01).
 # This engine's prefill against its own decode is held to the same rule.  Then GREEDY_TOKENS
 # (default 64) greedy tokens from the short prompt, one decode run per token in each engine: every
 # step's argmax and logits must be equal.  Every comparison prints max|d logit| and top-1 agreement.
@@ -27,7 +28,8 @@ set -u
 ORACLE=$(cd "$1" && pwd) || exit 2
 MODEL=$2
 GREEDY=${3:-64}
-TOL=${MELLUM_ORACLE_TOL:-1.0}
+TOL=${MELLUM_ORACLE_TOL:-10}
+KLTOL=${MELLUM_ORACLE_KL:-0.01}
 cd "$(dirname "$0")/.." || exit 2
 ROOT=$(pwd)
 [ -x tests/mellum_trace ] || { echo "build tests/mellum_trace first (make tests/mellum_trace)" >&2; exit 2; }
@@ -50,14 +52,17 @@ PY
 }
 
 # compare A B POSITIONS EXACT: the logits of two traced runs at every position, and their session
-# logits.  EXACT 1: every file must be byte-equal; 0: the same top-1 everywhere and max|d| <= TOL.
-# Prints one summary and returns 1 on failure.
+# logits.  EXACT 1: every file must be byte-equal; 0: the same top-1 everywhere, max|d| <= TOL and
+# mean KL(B || A) <= KLTOL.  Prints one summary and returns 1 on failure.
 compare() {
-    python3 -I - "$1" "$2" "$3" "$4" "$TOL" <<'PY'
-import struct, sys
-a, b, positions, exact, tol = sys.argv[1], sys.argv[2], sys.argv[3].split(','), sys.argv[4] == '1', float(sys.argv[5])
+    python3 -I - "$1" "$2" "$3" "$4" "$TOL" "$KLTOL" <<'PY'
+import math, struct, sys
+a, b, positions, exact = sys.argv[1], sys.argv[2], sys.argv[3].split(','), sys.argv[4] == '1'
+tol, kltol = float(sys.argv[5]), float(sys.argv[6])
 files = ['p%s.logits' % p for p in positions] + ['session.logits']
-worst, agree, equal = 0.0, 0, 0
+def softmax(v):
+    m = max(v); e = [math.exp(t - m) for t in v]; s = sum(e); return [t / s for t in e]
+worst, agree, equal, kl = 0.0, 0, 0, 0.0
 for f in files:
     x = open('%s.%s.f32' % (a, f), 'rb').read(); y = open('%s.%s.f32' % (b, f), 'rb').read()
     equal += x == y
@@ -65,10 +70,14 @@ for f in files:
     u = struct.unpack('<%df' % n, x); v = struct.unpack('<%df' % n, y)
     worst = max(worst, max(abs(i - j) for i, j in zip(u, v)))
     agree += max(range(n), key=u.__getitem__) == max(range(n), key=v.__getitem__)
-ok = equal == len(files) if exact else (agree == len(files) and worst <= tol)
-rule = 'byte-equal' if exact else 'top-1 equal, max|d| <= %g' % tol
-print('%s (%s): %d of %d logits files byte-equal, top-1 agree %d/%d, max|d logit| %.3e' %
-      ('ok  ' if ok else 'FAIL', rule, equal, len(files), agree, len(files), worst))
+    if x != y:
+        p, q = softmax(v), softmax(u)
+        kl += sum(pi * (math.log(pi) - math.log(qi)) for pi, qi in zip(p, q) if pi > 1e-12)
+kl /= len(files)
+ok = equal == len(files) if exact else (agree == len(files) and worst <= tol and kl <= kltol)
+rule = 'byte-equal' if exact else 'top-1 equal, max|d| <= %g, mean KL <= %g' % (tol, kltol)
+print('%s (%s): %d of %d logits files byte-equal, top-1 agree %d/%d, max|d logit| %.3e, mean KL %.2e' %
+      ('ok  ' if ok else 'FAIL', rule, equal, len(files), agree, len(files), worst, kl))
 sys.exit(0 if ok else 1)
 PY
 }
