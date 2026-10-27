@@ -104,6 +104,43 @@ artifact and clean exporter temporary files. Target local macOS/Linux filesystem
 power-loss durability and network filesystems are outside this guarantee.
 The CLI writes no stdout artifact and reports errors concisely on stderr.
 
+## CPU session-controller core
+
+The approved [session-recorder design](superpowers/specs/2026-10-27-mellum-session-capture-design.md)
+has a GPU-free core in `ds4_mellum_capture_state.h` and `ds4_mellum_profile.h`.
+Run `make test-mellum-profile test-mellum-capture-state`; both also run under
+`make test-mellum`. The latter checks a synthetic controller capture through
+the existing reader, exporter and replay, and rejects an aborted capture.
+
+Construct the controller on fresh caller-owned storage with an immutable
+borrowed kernel catalog. Keep the catalog/definitions and sink context alive
+through finish or abort. Calls are serialized, same-thread and non-reentrant;
+sinks must not call back into the controller. There is no reset/reuse after
+failure or finish. The later adapter owns the actual session and supplies its
+committed prefix; this core does not verify that prefix against session KV.
+
+Begin sync with the full unchanged/extended prompt, or eval at the next
+position. Each forward begins an initially empty profile scope, borrowed until
+forward end/abort. Record actual selected kernel descriptors in that scope and
+acknowledge successful layer copies in order 0..27. Only after successful GPU
+completion/readback may the adapter end the forward with its actual tokens and
+cap-strided expert IDs. CPU fixture events cannot prove those GPU events.
+Operation end requires every promised position to have a complete frame.
+No-op sync preserves logits availability; a final forward without a head clears
+it. Finish emits the used profile catalog before the native completion footer.
+Cancellation, incomplete profiles/layers and sink failures are terminal and
+prevent a successful artifact. Abort never writes a footer. FINISHED rejects
+further mutations while preserving its bytes and logits availability.
+
+Profiles contain at most 64 canonical descriptors with six integer constants
+each, with at most 128 distinct profiles per controller. The descriptions use
+`profile-v1;head=encoded|not-encoded;ROLE:kernel(label=value,...)` and distinguish
+every observed specialization. Definitions are supplied by the caller; the
+synthetic test catalog does not establish production kernel provenance.
+The registry/controller, 16 KiB formatting scratch and proposed pair of ID
+buffers at cap=1024 fit within the 2,200,000 logical-byte design bound, excluding
+session, token and sink storage. This is not a measured process peak.
+
 ## Remaining GPU work
 
 S2b must attach per-session capture storage, copy selections before scratch
@@ -115,7 +152,7 @@ closes the compute encoder; overhead must be measured later. The existing
 hidden-state trace's per-layer waits do not provide that evidence.
 
 See the [roadmap](../ROADMAP.md) and [evaluation protocol](MELLUM_SSD_EVALUATION.md).
-S2 remains open; no GPU experiment or SSD inference has been performed here.
+S2 remains open. The CPU-core work adds no GPU experiments or SSD inference.
 
 ## GPU primitive proof
 
@@ -130,7 +167,7 @@ builds have no observer allocation or native-writer dependency. The smoke
 wrapper clears inherited Mellum trace/path and prefill-chunk controls.
 
 The [GPU proof](superpowers/research/2026-10-27-mellum-route-gpu-proof.md)
-records the first matrix and exploratory replay. Public attachment, lifecycle
-failure coverage and actual encoded-kernel metadata are still required before
+records the first matrix and exploratory replay. Owned-session integration,
+live lifecycle failure coverage and actual encoded-kernel metadata are still required before
 S2b is complete. Do not turn experimental raw spools into qualified v2 evidence
 using guessed profile descriptions.

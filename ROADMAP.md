@@ -66,8 +66,14 @@ validate the remaining lifecycle and actual encoded-kernel provenance gates.
 S2 remains open until these gates pass. The independently reviewed
 [session-recorder proposal](docs/superpowers/specs/2026-10-27-mellum-session-capture-design.md)
 uses an owned append-only diagnostic session, CPU-testable lifecycle/controller
-and bounded actual-encoding profiles. It awaits design approval; no production
-recorder implementation or further GPU use has started.
+and bounded actual-encoding profiles. The design is approved. Its
+[CPU-core plan](docs/superpowers/plans/2026-10-27-mellum-capture-cpu-core.md)
+now supplies canonical bounded profiles, terminal append-only operation/forward
+control, catalog-before-footer finalization and synthetic C-to-export/replay
+checks, all included in the model-free test gate. This core is not wired to
+inference. Next: implement the owned-session adapter and observe actual Metal
+encoding choices, then validate cancellation/cleanup, source provenance and
+live parity during an authorized GPU window. No further GPU use has occurred.
 
 Buffer selected IDs on the GPU before per-layer scratch is reused; export at
 existing synchronization points. Bound recorder memory and reject incomplete
