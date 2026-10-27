@@ -63,7 +63,11 @@ are unqualified policy outcomes, not a feasibility verdict. See the
 
 Attach the production diagnostic recorder to the actual session graph and
 validate the remaining lifecycle and actual encoded-kernel provenance gates.
-S2 remains open until these gates pass.
+S2 remains open until these gates pass. The independently reviewed
+[session-recorder proposal](docs/superpowers/specs/2026-10-27-mellum-session-capture-design.md)
+uses an owned append-only diagnostic session, CPU-testable lifecycle/controller
+and bounded actual-encoding profiles. It awaits design approval; no production
+recorder implementation or further GPU use has started.
 
 Buffer selected IDs on the GPU before per-layer scratch is reused; export at
 existing synchronization points. Bound recorder memory and reject incomplete
