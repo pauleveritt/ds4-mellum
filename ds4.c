@@ -7293,7 +7293,8 @@ static float config_mellum_positive_f32(const ds4_model *m, const char *key) {
 
 /* Mellum 2.1 (arch `mellum`).  Widths come from the GGUF with range checks;
  * what the Metal kernels need as a constant is pinned to the validated value
- * (window 1024, 64 experts with 8 used, head width 128, YaRN 16 over 8192).
+ * (window 1024, 64 experts with 8 used, 32 heads over 4 KV heads of width 128,
+ * YaRN 16 over 8192).
  * The layer count is read, not pinned.  The dense `feed_forward_length`
  * (7168) is deliberately not read: every Mellum layer is a routed MoE, so
  * n_ff_dense stays 0.  Never calls qwen4_rope_configure: its 32-pair table
@@ -7314,18 +7315,15 @@ static void config_validate_mellum_model(const ds4_model *m) {
     config_mellum_range("mellum.block_count", n_block, 1u, DS4_MAX_LAYER);
     g_ds4_shape.n_layer = n_block;
     g_ds4_shape.n_embd = required_u32(m, "mellum.embedding_length");
-    config_mellum_range("mellum.embedding_length", g_ds4_shape.n_embd, 32u, DS4_MAX_EMBD);
-    if (g_ds4_shape.n_embd % 32u) {
-        config_refuse_mellum_key("mellum.embedding_length", "must be a multiple of 32 (Q8_0 blocks)");
+    config_mellum_range("mellum.embedding_length", g_ds4_shape.n_embd, 128u, DS4_MAX_EMBD);
+    if (g_ds4_shape.n_embd % 128u) {
+        config_refuse_mellum_key("mellum.embedding_length", "must be a multiple of 128 (the MoE kernels' rows)");
     }
-    g_ds4_shape.n_head = required_u32(m, "mellum.attention.head_count");
-    g_ds4_shape.n_head_kv = required_u32(m, "mellum.attention.head_count_kv");
-    config_mellum_range("mellum.attention.head_count", g_ds4_shape.n_head, 1u, DS4_MAX_HEAD);
-    config_mellum_range("mellum.attention.head_count_kv", g_ds4_shape.n_head_kv, 1u, DS4_MAX_HEAD_KV);
-    if (g_ds4_shape.n_head % g_ds4_shape.n_head_kv || g_ds4_shape.n_head / g_ds4_shape.n_head_kv > 12u) {
-        config_refuse_mellum_key("mellum.attention.head_count",
-                                 "must be a multiple of head_count_kv with a group of at most 12");
-    }
+    /* the sliding attention kernel is written for 32 query heads over 4 KV heads */
+    config_expect_u32("mellum.attention.head_count", required_u32(m, "mellum.attention.head_count"), 32u);
+    config_expect_u32("mellum.attention.head_count_kv", required_u32(m, "mellum.attention.head_count_kv"), 4u);
+    g_ds4_shape.n_head = 32u;
+    g_ds4_shape.n_head_kv = 4u;
     config_expect_u32("mellum.attention.key_length", required_u32(m, "mellum.attention.key_length"), 128u);
     config_expect_u32("mellum.attention.value_length", required_u32(m, "mellum.attention.value_length"), 128u);
     g_ds4_shape.n_head_dim = 128u;
