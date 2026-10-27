@@ -711,6 +711,49 @@ static void check_pi_edit_fuzzy(const char *dir) {
     puts("ok   agent: Pi's edit for Mellum, fuzzy (quotes, dashes, spaces, trailing whitespace; other lines kept)");
 }
 
+/* Step 46: one tool result may take at most a quarter of the context.  A longer one keeps its head and its tail, with
+ * a note between them saying how much was cut and how to ask for less (the tiny vocabulary is a token per byte).
+ * Sibling: a result inside the cap is the tool's text, unchanged. */
+static void check_tool_result_cap(const char *dir) {
+    agent_worker *w = pi_worker();
+    agent_config cfg = {0};
+    cfg.gen.ctx_size = 800;   /* a cap of 200 tokens */
+    w->cfg = &cfg;
+    char big[2048] = "";
+    for (int i = 0; i < 60; i++) {
+        char line[40];
+        snprintf(line, sizeof(line), "line %02d of the long file\n", i);
+        strcat(big, line);
+    }
+    char *f = pi_fixture(dir, "long.txt", big), *s = pi_fixture(dir, "short.txt", "a short file\n");
+    agent_tool_calls calls = {0};
+    agent_tool_call c = {.name = xstrdup("read")};
+    agent_tool_call_add_arg_owned(&c, "path", xstrdup(f), true);
+    agent_tool_calls_push(&calls, &c);
+    agent_tool_call d = {.name = xstrdup("read")};
+    agent_tool_call_add_arg_owned(&d, "path", xstrdup(s), true);
+    agent_tool_calls_push(&calls, &d);
+    agent_tool_observation obs = agent_execute_tool_observation(w, &calls);
+    CHECK(obs.part_count == 2);
+    const char *text = obs.parts[0].text;
+    ds4_tokens tok = {0};
+    ds4_tokenize_text(w->engine, text, &tok);
+    CHECK(tok.len <= 200 && tok.len >= 150);
+    CHECK(strncmp(text, "line 00 of the long file\n", 25) == 0);
+    CHECK(strstr(text, "line 59 of the long file\n") != NULL);
+    CHECK(strstr(text, "tokens cut here") != NULL && strstr(text, "a quarter of the context") != NULL);
+    CHECK(strstr(text, "line 30 of the long file") == NULL);
+    char *alone = pi_run("read", "path", s, NULL);
+    CHECK(!strcmp(obs.parts[1].text, alone));
+    free(alone);
+    ds4_tokens_free(&tok);
+    agent_tool_observation_free(&obs);
+    agent_tool_calls_free(&calls);
+    free(f); free(s);
+    w->cfg = NULL;
+    puts("ok   agent: one Mellum tool result takes at most a quarter of the context, head and tail kept");
+}
+
 /* one call as Mellum writes it, parsed by the agent's Hermes parser and run when it parses: the tool's text, or
  * "refused: " and the parser's error */
 static char *pi_hermes_run(const char *call_json) {
@@ -866,6 +909,7 @@ static void check_pi_tools(void) {
     check_pi_edit(dir);
     check_pi_edit_fuzzy(dir);
     check_pi_edit_departure(dir);
+    check_tool_result_cap(dir);
     check_pi_nul(dir);
     check_pi_types(dir);
     check_pi_duplicate_arguments(dir);
