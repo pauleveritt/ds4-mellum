@@ -95,6 +95,12 @@ def verify_batch(batch_dir: Path) -> tuple[dict, dict]:
     packed = pack_tools.validate_packed(common.load_json(packed_path))
     index_tools.verify_index_source(index)
     pack_tools.verify_packed(index,packed,packed_path.parent)
+    if batch['inputs']['model'] != index['source']:
+        raise ValueError('native model input differs from verified index')
+    if (Path(batch['inputs']['payload']['path']) != packed_path.parent/'experts.bin' or
+            batch['inputs']['payload']['sha256'] != packed['payload']['sha256'] or
+            batch['inputs']['payload']['size'] != packed['payload']['bytes']):
+        raise ValueError('native packed input differs from verified payload')
     ids = dict(uniform=plans.uniform_ids(),diagnostic=plans.diagnostic_ids(Path(batch['inputs']['trace']['path'])))
     expected_keys = {f'{name}-{layout}' for name in ids for layout in ('original','packed')}
     if set(batch['plans']) != expected_keys:
