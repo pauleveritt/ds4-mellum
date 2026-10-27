@@ -73,7 +73,8 @@ and `chat_template.jinja` are byte-identical to the Hugging Face snapshot
 - `ds4_prompt_prefix_append` (`ds4_prompt_prefix.h`, review fix R4): for Mellum
   it no longer pushes EOS after an imported assistant turn, because
   `ds4_chat_append_message` has already closed the turn with `<|im_end|>\n`.
-  Other models are unchanged. **Possible upstream issue:** Flash Next takes the same path and
+  It also drops the reasoning of imported Mellum assistant turns, as the
+  template does (R5). Other models are unchanged. **Possible upstream issue:** Flash Next takes the same path and
   probably renders `answer<|im_end|>\n<|im_end|><|im_start|>user` too; a
   tiny-vocabulary sibling test pins its current render (three `<|im_end|>`
   for a user and an assistant turn). It was not checked against Flash Next's
@@ -191,11 +192,17 @@ Step 22, M5 Max, Q8_0, `--temp 0`, n = 1 each:
   families: the CLI prints it as it comes (`tests/test_mellum_cli.sh` checks a
   direct answer on the simple question).
 
-- Earlier reasoning in ds4-agent: 2.1's template drops the reasoning of the
-  assistant turns before the last user turn when it renders a new one. The
-  agent's transcript is its KV cache and keeps every turn as generated;
-  dropping the reasoning would mean prefilling the conversation again at every
-  user message. Within one user turn (a tool loop) the two agree.
+- Earlier reasoning in live transcripts (the ds4-agent and the CLI's chat):
+  2.1's template drops the reasoning of the assistant turns before the last
+  user turn when it renders a new one. A live transcript is its KV cache and
+  keeps every turn as generated; dropping the reasoning would mean
+  prefilling the conversation again at every user message. Within one user
+  turn (a tool loop) the two agree. Rendered histories follow the template
+  (review fix R5): a prompt-prefix file's assistant turns all come before
+  the live prompt, so their reasoning is dropped (`ds4_prompt_prefix_append`,
+  pinned against the template's ids). ds4-server still refuses Mellum; its
+  request renderer (step 42) is to drop earlier reasoning and keep it within
+  the current tool cycle, as the template does.
 - Special-token text in user turns: the HF tokenizer would encode a
   `<tool_call>` typed in a user message as token 29; ds4 keeps user text plain
   BPE, as for every model. System text (the tools block, `-sys`) and assistant
