@@ -298,9 +298,10 @@ static void check_memory_plan(void) {
  * per head: the kernels' own constants, ds4_gpu_qwen4_attn_part_floats, which the live group checks). */
 enum { T_E = 2304, T_QDIM = 4096, T_KVDIM = 512, T_EXPERTS = 64, T_USED = 8, T_FF = 896, T_RING = 1024 };
 
+/* the full layers' caches, the 21 rings, and the rings' copy at the last prefill's end (the rewind frontier) */
 static uint64_t expect_kv(uint64_t ctx) {
     return 7ull * ctx * (2ull * T_KVDIM * 2u) +
-           21ull * T_RING * (2ull * T_KVDIM * 2u + sizeof(int32_t));
+           2ull * 21ull * T_RING * (2ull * T_KVDIM * 2u + sizeof(int32_t));
 }
 
 /* bytes per prefill row (activations and MoE transients) */
@@ -352,10 +353,11 @@ static void check_mellum_plan_sums(void) {
             CHECK(m.total_bytes == m.raw_bytes + m.scratch_bytes);
         }
     }
-    /* KV at 20,000: 7 full layers x 20,000 rows x 2,048 B, plus 21 rings of 1,024 rows x 2,048 B and a 4 B tag */
+    /* KV at 20,000: 7 full layers x 20,000 rows x 2,048 B, plus 21 rings of 1,024 rows x 2,048 B and a 4 B tag,
+     * twice: the live rings and their copy at the rewind frontier */
     const ds4_context_memory m20 = ds4_context_memory_estimate_with_prefill_mode(DS4_BACKEND_METAL, 20000, 0, false);
-    CHECK(m20.raw_bytes == 7ull * 20000 * 2048 + 21ull * 1024 * (2048 + 4));
-    CHECK(m20.raw_bytes == 330846208ull);
+    CHECK(m20.raw_bytes == 7ull * 20000 * 2048 + 2ull * 21ull * 1024 * (2048 + 4));
+    CHECK(m20.raw_bytes == 330846208ull + 44126208ull);
     printf("ok   plan == sum of the allocator's requests == the dims, at 4 contexts x chunk {1024, 1}\n");
 }
 
@@ -374,7 +376,8 @@ static void check_mellum_plan_scales_with_chunk(void) {
 
     mellum_req reqs[MELLUM_MAX_REQS];
     const uint32_t n = mellum_requests(20000, 1024, reqs);
-    uint32_t k = 0, v = 0, tags = 0, scratch = 0, logits = 0;
+    uint32_t k = 0, v = 0, tags = 0, scratch = 0, logits = 0, frontier = 0;
+    uint64_t frontier_bytes = 0;
     uint64_t moe = 0;
     for (uint32_t i = 0; i < n; i++) {
         switch (reqs[i].kind) {
@@ -383,10 +386,13 @@ static void check_mellum_plan_scales_with_chunk(void) {
         case MELLUM_REQ_TAG: tags++; CHECK(reqs[i].bytes == T_RING * 4u); break;
         case MELLUM_REQ_SCRATCH: scratch++; break;
         case MELLUM_REQ_LOGITS: logits++; break;
+        default: frontier++; frontier_bytes += reqs[i].bytes; CHECK(reqs[i].cls == MELLUM_CLASS_KV); break;
         }
         if (reqs[i].cls == MELLUM_CLASS_MOE) moe += reqs[i].bytes;
     }
     CHECK(k == 28 && v == 28 && tags == 21 && scratch == MELLUM_SCRATCH_COUNT && logits == 1);
+    /* the frontier: a K, V and tag copy of each ring */
+    CHECK(frontier == 3 * 21 && frontier_bytes == 21ull * T_RING * (2ull * T_KVDIM * 2u + 4u));
     /* the per-expert partial outputs are in the table, and counted */
     CHECK(moe > 72ull * 1024 * 1024);
     for (uint32_t i = 0; i < n; i++) {
@@ -396,7 +402,8 @@ static void check_mellum_plan_scales_with_chunk(void) {
             CHECK(reqs[i].index % 4 == 3 && reqs[i].bytes == 20000ull * T_KVDIM * 2u);   /* full */
         }
     }
-    printf("ok   plan scales with cap_tokens; 28 K + 28 V + 21 tags + %u scratch + logits\n", (unsigned)MELLUM_SCRATCH_COUNT);
+    printf("ok   plan scales with cap_tokens; 28 K + 28 V + 21 tags + 63 frontier copies + %u scratch + logits\n",
+           (unsigned)MELLUM_SCRATCH_COUNT);
 }
 
 /* The chunk clamp.  DS4_QWEN4_PREFILL_CHUNK reaches the plan through qwen4_prefill_chunk_tokens

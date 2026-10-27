@@ -580,9 +580,9 @@ static void test_mellum_session_allocation(void) {
 /* Session rewind (DS4_TEST_MELLUM_MODEL): after a prompt of `len` tokens, decode k tokens recording each step's
  * logits, rewind k, decode the same k again; every step's logits must equal the first pass's, word for word.  One
  * token back keeps both caches (the sliding ring is read before a chunk is committed, so the slot the dropped row
- * overwrote held a position no later query reads): the graph stays at the rewound position.  Further back the ring
- * has lost what the next query needs: the graph resets and the kept tokens are replayed, which is exact because a
- * prefill chunk equals its decode steps. */
+ * overwrote held a position no later query reads).  Further back the ring has lost what the next query needs, but
+ * a rewind to where the last sync ended (here `len`) restores the rings saved there: the graph stays at the rewound
+ * position either way.  A deeper rewind anywhere else resets (test_mellum_rewind_fresh_case). */
 bool ds4_test_session_graph_pos(ds4_session *s, uint32_t *pos);   /* ds4.c test hook */
 
 static int test_mellum_token(int i) {
@@ -607,8 +607,7 @@ static void test_mellum_rewind_case(ds4_engine *engine, int len, int k) {
     TEST_ASSERT(ds4_session_pos(s) == len);
     uint32_t graph_pos = UINT32_MAX;
     TEST_ASSERT(ds4_test_session_graph_pos(s, &graph_pos));
-    if (k == 1) TEST_ASSERT(graph_pos == (uint32_t)len);   /* kept, not reset */
-    else TEST_ASSERT(graph_pos == 0);                     /* reset; the next eval replays */
+    TEST_ASSERT(graph_pos == (uint32_t)len);   /* kept (k == 1) or restored from the sync's end, not reset */
     uint64_t diff = 0;
     for (int j = 0; j < k; j++) {
         TEST_ASSERT(ds4_session_eval(s, test_mellum_token(len + j), err, sizeof(err)) == 0);
@@ -618,7 +617,7 @@ static void test_mellum_rewind_case(ds4_engine *engine, int len, int k) {
     TEST_ASSERT(diff == 0);
     TEST_ASSERT(ds4_session_pos(s) == len + k);
     printf("mellum-rewind: prompt %d, k %d: graph at %u after the rewind (%s); %llu of %d logit words differ from the "
-           "straight decode\n", len, k, graph_pos, k == 1 ? "both caches kept" : "reset, replayed",
+           "straight decode\n", len, k, graph_pos, k == 1 ? "both caches kept" : "rings restored from the sync's end",
            (unsigned long long)diff, k * 98304);
     free(first); free(again);
     ds4_tokens_free(&prompt);
@@ -668,6 +667,62 @@ static void test_mellum_rewind_fresh_case(ds4_engine *engine, int len, int k, in
     TEST_ASSERT(d_straight > 0);   /* the replay's 32-row chunk is not the straight run's arithmetic */
     free(rewound); free(fresh); free(straight);
     ds4_tokens_free(&prompt); ds4_tokens_free(&kept);
+    ds4_session_free(s);
+}
+
+/* The rewind frontier (DS4_TEST_MELLUM_MODEL): where a sync ends the session saves its sliding rings and logits, so
+ * a rewind there after k decoded tokens (a thinking answer the next request's template drops) is exact at any length:
+ * the graph stays at len with the sync's logits, and a next sync extending the prompt equals a fresh session's sync
+ * of the prompt and then of the extension, word for word.  The sibling: a rewind below the frontier and a different
+ * token there make the saved rings stale, so a later rewind to the old frontier must reset, not restore them. */
+static void test_mellum_frontier_case(ds4_engine *engine, int len, int k) {
+    float *at_sync = malloc(98304u * sizeof(float)), *rewound = malloc(98304u * sizeof(float));
+    float *next = malloc(98304u * sizeof(float)), *fresh = malloc(98304u * sizeof(float));
+    TEST_ASSERT(at_sync && rewound && next && fresh);
+    char err[256] = {0};
+    ds4_tokens prompt = {0}, ext = {0};
+    for (int i = 0; i < len; i++) ds4_tokens_push(&prompt, test_mellum_token(i));
+    for (int i = 0; i < len + 5; i++) ds4_tokens_push(&ext, i < len ? test_mellum_token(i) : test_mellum_token(50000 + i));
+    ds4_session *s = NULL;
+    TEST_ASSERT(ds4_session_create(&s, engine, 4096) == 0 && s != NULL);
+    if (!s || !at_sync || !rewound || !next || !fresh) return;
+    TEST_ASSERT(ds4_session_sync(s, &prompt, err, sizeof(err)) == 0);
+    TEST_ASSERT(ds4_session_copy_logits(s, at_sync, 98304) == 98304);
+    for (int j = 0; j < k; j++) TEST_ASSERT(ds4_session_eval(s, test_mellum_token(len + j), err, sizeof(err)) == 0);
+    ds4_session_rewind(s, len);
+    uint32_t graph_pos = UINT32_MAX;
+    TEST_ASSERT(ds4_test_session_graph_pos(s, &graph_pos) && graph_pos == (uint32_t)len);
+    TEST_ASSERT(ds4_session_copy_logits(s, rewound, 98304) == 98304);
+    TEST_ASSERT(ds4_session_sync(s, &ext, err, sizeof(err)) == 0);
+    TEST_ASSERT(ds4_session_copy_logits(s, next, 98304) == 98304);
+    /* the sibling: one back below the frontier at len + 5 keeps the caches, a different token goes there, and two
+     * more; the rewind to len + 5 is then two back from somewhere the frontier no longer describes */
+    ds4_session_rewind(s, len + 4);
+    TEST_ASSERT(ds4_session_eval(s, test_mellum_token(70000), err, sizeof(err)) == 0);
+    TEST_ASSERT(ds4_session_eval(s, test_mellum_token(70001), err, sizeof(err)) == 0);
+    TEST_ASSERT(ds4_session_eval(s, test_mellum_token(70002), err, sizeof(err)) == 0);
+    ds4_session_rewind(s, len + 5);
+    uint32_t stale_pos = UINT32_MAX;
+    TEST_ASSERT(ds4_test_session_graph_pos(s, &stale_pos) && stale_pos == 0);
+    ds4_session_free(s);
+    s = NULL;
+    TEST_ASSERT(ds4_session_create(&s, engine, 4096) == 0 && s != NULL);
+    if (!s) return;
+    TEST_ASSERT(ds4_session_sync(s, &prompt, err, sizeof(err)) == 0);
+    TEST_ASSERT(ds4_session_sync(s, &ext, err, sizeof(err)) == 0);
+    TEST_ASSERT(ds4_session_copy_logits(s, fresh, 98304) == 98304);
+    uint64_t d_sync = 0, d_next = 0;
+    for (uint32_t i = 0; i < 98304u; i++) {
+        d_sync += memcmp(&rewound[i], &at_sync[i], sizeof(float)) != 0;
+        d_next += memcmp(&next[i], &fresh[i], sizeof(float)) != 0;
+    }
+    printf("mellum-rewind: sync %d, eval %d, rewind to %d: graph at %u, %llu of 98304 logit words differ from the "
+           "sync's; the next sync of 5 differs in %llu from a fresh session's; a stale frontier resets (graph at %u)\n",
+           len, k, len, graph_pos, (unsigned long long)d_sync, (unsigned long long)d_next, stale_pos);
+    TEST_ASSERT(d_sync == 0);
+    TEST_ASSERT(d_next == 0);
+    free(at_sync); free(rewound); free(next); free(fresh);
+    ds4_tokens_free(&prompt); ds4_tokens_free(&ext);
     ds4_session_free(s);
 }
 
@@ -734,8 +789,9 @@ static void test_mellum_rewind(void) {
     if (!engine) return;
     test_mellum_rewind_case(engine, 500, 1);    /* inside the window */
     test_mellum_rewind_case(engine, 1100, 1);   /* past it: the ring has wrapped */
-    test_mellum_rewind_case(engine, 1100, 3);   /* deeper than the ring allows: replay */
+    test_mellum_rewind_case(engine, 1100, 3);   /* deeper than the ring allows: back to the sync's end */
     test_mellum_rewind_fresh_case(engine, 31, 3, 32);
+    test_mellum_frontier_case(engine, 1100, 40);
     ds4_engine_close(engine);
 }
 
@@ -8360,7 +8416,7 @@ static const ds4_test_entry test_entries[] = {
     {"--qwen4-prefill-checkpoints", "qwen4-prefill-checkpoints", "Qwen chunk checkpoints restore matching logits and state", test_qwen_prefill_checkpoints},
     {"--mellum-session", "mellum-session", "Mellum session allocation equals its plan (DS4_TEST_MELLUM_MODEL)", test_mellum_session_allocation},
     {"--mellum-exact-prefill", "mellum-exact-prefill", "Mellum prefill equals decode byte for byte under DS4_MELLUM_EXACT_PREFILL=1 (DS4_TEST_MELLUM_MODEL)", test_mellum_exact_prefill},
-    {"--mellum-rewind", "mellum-rewind", "Mellum session rewind: one token keeps the caches, deeper replays; logits equal a straight decode (DS4_TEST_MELLUM_MODEL)", test_mellum_rewind},
+    {"--mellum-rewind", "mellum-rewind", "Mellum session rewind: one token or to the last sync's end keeps the caches, elsewhere deeper replays; logits equal a straight decode (DS4_TEST_MELLUM_MODEL)", test_mellum_rewind},
     {"--mellum-server-ids", "mellum-server-ids", "Mellum server renders against the template's ids (DS4_TEST_MELLUM_MODEL)", test_mellum_server_ids},
     {"--mellum-moe", "mellum-moe", "Mellum MoE driver on the real model's layers against a double reference (DS4_TEST_MELLUM_MODEL)", test_mellum_moe_real},
     {"--qwen4-restore-reuse", "qwen4-restore-reuse", "Qwen restore discards old verifier state and rejects truncated payloads", test_qwen_restore_reused_session},
