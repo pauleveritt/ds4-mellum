@@ -1080,6 +1080,7 @@ test-mellum: tests/test_mellum_config tests/test_mellum_tokenizer tests/test_mel
 	./tests/test_mellum_frontends_cli
 	./tests/test_mellum_frontends_agent
 	./tests/test_mellum_frontends_server
+	python3 -I tests/test_mellum_logits_compare.py
 
 tests/test_qwen4_ngram_state.o: tests/test_qwen4_ngram_state.c ds4.c ds4.h
 	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -Wno-unused-function -I. -c -o $@ $<

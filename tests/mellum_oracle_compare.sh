@@ -54,34 +54,9 @@ PY
 }
 
 # compare A B POSITIONS EXACT: the logits of two traced runs at every position, and their session
-# logits.  EXACT 1: every file must be byte-equal; 0: the same top-1 everywhere, max|d| <= TOL and
-# mean KL(B || A) <= KLTOL.  Prints one summary and returns 1 on failure.
+# logits (tests/mellum_logits_compare.py has the rules).  Prints one summary and returns 1 on failure.
 compare() {
-    python3 -I - "$1" "$2" "$3" "$4" "$TOL" "$KLTOL" <<'PY'
-import math, struct, sys
-a, b, positions, exact = sys.argv[1], sys.argv[2], sys.argv[3].split(','), sys.argv[4] == '1'
-tol, kltol = float(sys.argv[5]), float(sys.argv[6])
-files = ['p%s.logits' % p for p in positions] + ['session.logits']
-def softmax(v):
-    m = max(v); e = [math.exp(t - m) for t in v]; s = sum(e); return [t / s for t in e]
-worst, agree, equal, kl = 0.0, 0, 0, 0.0
-for f in files:
-    x = open('%s.%s.f32' % (a, f), 'rb').read(); y = open('%s.%s.f32' % (b, f), 'rb').read()
-    equal += x == y
-    n = len(x) // 4
-    u = struct.unpack('<%df' % n, x); v = struct.unpack('<%df' % n, y)
-    worst = max(worst, max(abs(i - j) for i, j in zip(u, v)))
-    agree += max(range(n), key=u.__getitem__) == max(range(n), key=v.__getitem__)
-    if x != y:
-        p, q = softmax(v), softmax(u)
-        kl += sum(pi * (math.log(pi) - math.log(qi)) for pi, qi in zip(p, q) if pi > 1e-12)
-kl /= len(files)
-ok = equal == len(files) if exact else (agree == len(files) and worst <= tol and kl <= kltol)
-rule = 'byte-equal' if exact else 'top-1 equal, max|d| <= %g, mean KL <= %g' % (tol, kltol)
-print('%s (%s): %d of %d logits files byte-equal, top-1 agree %d/%d, max|d logit| %.3e, mean KL %.2e' %
-      ('ok  ' if ok else 'FAIL', rule, equal, len(files), agree, len(files), worst, kl))
-sys.exit(0 if ok else 1)
-PY
+    python3 -I "$ROOT/tests/mellum_logits_compare.py" "$1" "$2" "$3" "$4" "$TOL" "$KLTOL"
 }
 
 # run ENGINE_DIR TOKENS MODE OUT_PREFIX [POSITIONS]: the session logits land in
