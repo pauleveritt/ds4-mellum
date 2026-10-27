@@ -110,6 +110,79 @@ static void check_sampling_defaults(void) {
 }
 #endif
 
+#if defined(MELLUM_FRONTEND_AGENT)
+/* A byte-level vocabulary with 2.1's special ids at their real places and no merges: byte c is
+ * id 35 + c, as in tests/mellum_fixture.h. */
+static void tiny_vocab(ds4_engine *e) {
+    static char fill[35][24], bytes[256][8];
+    static ds4_str toks[35 + 256];
+    memset(e, 0, sizeof(*e));
+    ds4_vocab *v = &e->vocab;
+    v->n_vocab = 35 + 256;
+    v->token = toks;
+    table_init(&v->token_to_id, 291);
+    table_init(&v->merge_rank, 0);
+    const char *special[35];
+    for (int i = 0; i < 35; i++) { snprintf(fill[i], sizeof(fill[i]), "<fill_%d>", i); special[i] = fill[i]; }
+    special[0] = "<|endoftext|>"; special[23] = "<think>"; special[24] = "</think>";
+    special[27] = "<|im_start|>"; special[28] = "<|im_end|>";
+    special[29] = "<tool_call>"; special[30] = "</tool_call>";
+    special[31] = "<tool_response>"; special[32] = "</tool_response>";
+    int extra = 0;
+    for (int i = 0; i < 291; i++) {
+        const char *t = NULL;
+        if (i < 35) t = special[i];
+        else {
+            const int c = i - 35;
+            const bool direct = (c >= 33 && c <= 126) || (c >= 161 && c <= 172) || (c >= 174);
+            const int cp = direct ? c : 256 + extra++;
+            if (cp < 0x80) { bytes[c][0] = (char)cp; bytes[c][1] = 0; }
+            else { bytes[c][0] = (char)(0xC0 | (cp >> 6)); bytes[c][1] = (char)(0x80 | (cp & 0x3F)); bytes[c][2] = 0; }
+            t = bytes[c];
+        }
+        toks[i].ptr = t; toks[i].len = strlen(t);
+        table_put(&v->token_to_id, toks[i], i);
+    }
+    v->im_start_id = 27; v->im_end_id = 28; v->endoftext_id = 0; v->eos_id = 28;
+    v->think_start_id = 23; v->think_end_id = 24;
+    v->bos_id = v->system_id = v->user_id = v->assistant_id = -1;
+}
+
+static void push_bytes(ds4_tokens *t, const char *s) {
+    for (; *s; s++) ds4_tokens_push(t, 35 + (unsigned char)*s);
+}
+
+/* Compaction resumes inside an open reasoning block: the prefix must carry <think> and its newline
+ * whichever model: Qwen's own thinking-on prefix has them, Mellum's does not (the model writes
+ * <think> itself). */
+static void check_resume_prefix(void) {
+    static ds4_engine e;
+    tiny_vocab(&e);
+    ds4_tokens want = {0}, got = {0};
+    ds4_tokens_push(&want, 27);
+    push_bytes(&want, "assistant\n");
+    ds4_tokens_push(&want, 23);
+    push_bytes(&want, "\n");
+
+    g_ds4_shape = DS4_SHAPE_MELLUM;
+    agent_append_open_think_prefix(&e, &got);
+    CHECK(got.len == want.len && !memcmp(got.v, want.v, (size_t)want.len * sizeof(int)));
+
+    /* sibling: Qwen's prefix already ends <think> and a newline, so nothing is added */
+    g_ds4_shape = DS4_SHAPE_QWEN4_EXP;
+    got.len = 0;
+    agent_append_open_think_prefix(&e, &got);
+    CHECK(got.len == want.len && !memcmp(got.v, want.v, (size_t)want.len * sizeof(int)));
+    ds4_tokens plain = {0};
+    ds4_chat_append_assistant_prefix(&e, &plain, DS4_THINK_HIGH);
+    CHECK(plain.len == got.len && !memcmp(plain.v, got.v, (size_t)got.len * sizeof(int)));
+    ds4_tokens_free(&want); ds4_tokens_free(&got); ds4_tokens_free(&plain);
+    puts("ok   agent: compaction resume reopens <think> for Mellum; Flash Next's prefix unchanged");
+}
+#else
+static void check_resume_prefix(void) {}
+#endif
+
 #if defined(MELLUM_FRONTEND_CLI)
 static void check_engine_selection(void) {}
 #elif defined(MELLUM_FRONTEND_AGENT)
@@ -152,5 +225,6 @@ static void check_engine_selection(void) {
 int main(void) {
     check_engine_selection();
     check_sampling_defaults();
+    check_resume_prefix();
     return 0;
 }

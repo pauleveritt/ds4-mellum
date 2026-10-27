@@ -9723,6 +9723,24 @@ static int agent_special_token_id(ds4_engine *engine, const char *rendered) {
     return id;
 }
 
+/* The assistant prefix for resuming inside an open reasoning block.  Qwen's thinking-on
+ * prefix already ends with <think> and a newline; Mellum 2.1's does not (the model writes
+ * <think> itself), so reopen it here or the resumed text is reasoning with no opener. */
+static void agent_append_open_think_prefix(ds4_engine *engine, ds4_tokens *tokens) {
+    const int start = tokens->len;
+    ds4_chat_append_assistant_prefix(engine, tokens, DS4_THINK_HIGH);
+    const int think_start = agent_special_token_id(engine, "<think>");
+    if (think_start < 0) return;
+    for (int i = start; i < tokens->len; i++) {
+        if (tokens->v[i] == think_start) return;
+    }
+    ds4_tokens newline = {0};
+    ds4_tokenize_text(engine, "\n", &newline);
+    ds4_tokens_push(tokens, think_start);
+    for (int i = 0; i < newline.len; i++) ds4_tokens_push(tokens, newline.v[i]);
+    ds4_tokens_free(&newline);
+}
+
 static int agent_compact_tail_boundary(const ds4_tokens *tokens, int bottom,
                                        int sys_len, int tail_budget, int user_id) {
     int target = bottom - tail_budget;
@@ -10026,8 +10044,8 @@ static bool agent_worker_compact_transcript(agent_worker *w, const char *reason,
             if (w->transcript.v[i] == think_end) in_think = false;
         }
         resumed_start = compacted.len;
-        ds4_chat_append_assistant_prefix(w->engine, &compacted,
-            in_think ? DS4_THINK_HIGH : DS4_THINK_NONE);
+        if (in_think) agent_append_open_think_prefix(w->engine, &compacted);
+        else ds4_chat_append_assistant_prefix(w->engine, &compacted, DS4_THINK_NONE);
     } else if (tail_start < bottom &&
         w->transcript.v[tail_start] != ds4_token_user(w->engine) &&
         w->transcript.v[tail_start] != ds4_token_assistant(w->engine)) {
