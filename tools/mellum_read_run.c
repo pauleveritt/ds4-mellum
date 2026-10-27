@@ -59,8 +59,8 @@ static void *work(void *arg) {
     pthread_mutex_unlock(&s->lock);
     return NULL;
 }
-int mellum_read_execute(int fd,const mellum_read_plan *plan,unsigned count,mellum_read_sample *samples,
-                        mellum_read_summary *summary,char *err,size_t n) {
+int mellum_read_execute_observed(int fd,const mellum_read_plan *plan,unsigned count,mellum_read_sample *samples,
+                        mellum_read_summary *summary,const mellum_read_observers *hooks,char *err,size_t n) {
     shared s={.fd=fd,.plan=plan,.samples=samples};
     worker workers[4]={{0}};
     pthread_t threads[4];
@@ -90,6 +90,7 @@ int mellum_read_execute(int fd,const mellum_read_plan *plan,unsigned count,mellu
     while (!failed && !s.stop && s.ready<count) {
         if (pthread_cond_wait(&s.gate,&s.lock)!=0) failed=1;
     }
+    if (!failed && !s.stop && hooks && hooks->ready && hooks->ready(hooks->context,err,n)) failed=1;
     s.start=now_ns();
     if (failed || !s.start) s.stop=1;
     s.released=1;
@@ -99,6 +100,7 @@ int mellum_read_execute(int fd,const mellum_read_plan *plan,unsigned count,mellu
     summary->end_ns=now_ns(); summary->start_ns=s.start;
     summary->buffer_bytes=count*plan->max_job_bytes;
     failed=failed || s.stop || !summary->end_ns || s.next!=plan->count;
+    if (!failed && hooks && hooks->done && hooks->done(hooks->context,err,n)) failed=1;
     for (unsigned i=0;i<count;++i) free(workers[i].buffer);
     if (pthread_cond_destroy(&s.gate)!=0) failed=1;
     if (pthread_mutex_destroy(&s.lock)!=0) failed=1;
@@ -106,4 +108,9 @@ int mellum_read_execute(int fd,const mellum_read_plan *plan,unsigned count,mellu
 early:
     if (n) snprintf(err,n,"worker execution failed; no complete report");
     return -1;
+}
+
+int mellum_read_execute(int fd,const mellum_read_plan *plan,unsigned count,mellum_read_sample *samples,
+                       mellum_read_summary *summary,char *err,size_t n) {
+    return mellum_read_execute_observed(fd,plan,count,samples,summary,NULL,err,n);
 }

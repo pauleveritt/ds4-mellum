@@ -31,4 +31,11 @@ typedef struct { uint64_t enqueue_ns, start_ns, done_ns, bytes, syscalls; } mell
 typedef struct { uint64_t start_ns, end_ns, prewarm_bytes, buffer_bytes; } mellum_read_summary;
 int mellum_read_execute(int, const mellum_read_plan *, unsigned, mellum_read_sample *,
                          mellum_read_summary *, char *, size_t);
+typedef struct {
+    int (*ready)(void *, char *, size_t);
+    int (*done)(void *, char *, size_t);
+    void *context;
+} mellum_read_observers;
+int mellum_read_execute_observed(int, const mellum_read_plan *, unsigned, mellum_read_sample *,
+    mellum_read_summary *, const mellum_read_observers *, char *, size_t);
 #endif
