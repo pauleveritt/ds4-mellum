@@ -12,3 +12,7 @@ mkdir "$proof_dir/short" "$proof_dir/tiled" "$proof_dir/exact"
 ./tests/mellum_routes_gpu "$DS4_TEST_MELLUM_MODEL" tests/mellum_oracle_short.tokens 20 "$proof_dir/short"
 ./tests/mellum_routes_gpu "$DS4_TEST_MELLUM_MODEL" tests/mellum_heldout_code.tokens 32 "$proof_dir/tiled"
 DS4_MELLUM_EXACT_PREFILL=1 ./tests/mellum_routes_gpu "$DS4_TEST_MELLUM_MODEL" tests/mellum_heldout_code.tokens 32 "$proof_dir/exact"
+# Ordered route/token/phase/segment parity; observed profile IDs may differ.
+for case in short tiled exact; do
+    python3 -I tests/mellum_routes_compare.py "$proof_dir/$case/reference.routes" "$proof_dir/$case/owned.routes"
+done
