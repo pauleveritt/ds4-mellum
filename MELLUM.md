@@ -32,7 +32,8 @@ that is what the oracle uses to check long prefills byte for byte.
 Speed on the M5 Max (Q8_0, Metal), step 29, through the CLI after a rest, n = 3
 each: a short chat prompt prefills at 440-450 t/s and generates at 132.6-133.1
 t/s; a 3,235-token prompt prefills at 1,842-1,871 t/s and then generates at
-116.2-117.8 t/s. The trace driver's 2,200-token prefill: about 2,000 t/s. The M4
+116.2-117.8 t/s. The trace driver's 2,200-token prefill: about 2,000 t/s. Since E1 (routed Q8_0
+experts on the Metal 4 tensor tiles), about 2,880 t/s at 2,200 tokens and 2,060 at 6,000. The M4
 Max was not measured. Session save/load refuses by name, and ds4-server
 and ds4-agent refuse a Mellum engine at startup (no Hermes tool syntax yet).
 
@@ -78,6 +79,13 @@ and `chat_template.jinja` are byte-identical to the Hugging Face snapshot
 - The DeepSeek max-effort preamble (`chat_push_think_prefix`, review fix R6) is skipped for Mellum by name.
   Other models' max thinking is unchanged; a tiny-vocabulary sibling test
   checks that Flash Next still pushes it.
+- Q8_0 on the tensor-tile expert kernels (E1). `metal/qwen4.metal`'s `qwen4_load_raw16` and
+  `qwen4_dequant_raw16` gain a Q8_0 branch.
+  - `qwen4_moe_mm_nax` admits Q8_0 only at the level Mellum sets through the new
+    `ds4_gpu_qwen4_moe_q8_tiles`.
+  - `ds4_gpu_tensor_tiles_available` is new, for tests.
+  - Other weight types and other models' Q8_0 experts are unchanged, and a model-free kernel test checks
+    that Q8_0 experts without Mellum's level give the same bytes with and without `DS4_QWEN4_MOE_MM_NAX=2`.
 - `ds4_prompt_prefix_append` (`ds4_prompt_prefix.h`, review fix R4): for Mellum
   it no longer pushes EOS after an imported assistant turn, because
   `ds4_chat_append_message` has already closed the turn with `<|im_end|>\n`.
@@ -198,6 +206,13 @@ review of `5aa742c`):
   reference, with a half-staged reference for the tiled rows; `99c259d`.
 - R8: `f16a1dd` the Metal 4 record reconciled.
 - E1: `86fcd05`, `8e7b158` measured and reverted (no product code).
+
+After the rebase onto `ee7e840` (`9986668` the SHA map):
+
+- E1a: `3864941` (red), `6f933ac` the near-tie top-1 rule; `08e39fd` its margin.
+- E1b: `849ee5b` held-out log loss.
+- E1c: `face2b0` Q8_0 raw words; `db073ac` (red), `816d062` Mellum's opt-in;
+  `2d0756d` the Flash Next boundary test; `5e3b53f` the measurements.
 
 From step 28 on, commits follow smaller rules: one concern each, the failing
 test committed red on its own, at most about 150 lines of product code.
@@ -392,7 +407,7 @@ Metal 4 stays on. The absolute medians are about 4-5% below the review's. Runs w
 slow down (the fourth process's first run was 1,942 against the first process's 2,006), and the A/B/B/A
 order balances that drift between the arms but not its level.
 
-### E1: routed Q8_0 experts on the tensor tiles (reverted)
+### E1: routed Q8_0 experts on the tensor tiles (landed after the rebase)
 
 `qwen4_moe_mm_nax` admits Q4_K, MXFP4, IQ2_XXS and Q2_K experts to the Metal 4 tensor tiles, not Mellum's Q8_0
 experts. A scratch probe added Q8_0 raw words to the tensor kernels' weight fetch (`qwen4_load_raw16` and
@@ -427,10 +442,21 @@ Numbers with the tensor tiles on:
   against 2.1e-3; 2,200 tokens 1.3e-3 against 1.7e-3, with max |d logit| 1.5 against 8.5. Exact
   prefill, decode and the 64 greedy tokens stay byte-equal.
 
-Reverted. The two changes are near-ties of the kind "Oracle caps" shows the current path making on
-held-out prompts, but the gate is the oracle's top-1 rule, and changing that rule is Paul's decision.
-The patches (Q8_0 raw words, a Mellum-only opt-in through `DS4_MELLUM_MOE_NAX`, a red test) and the
-runner are in the session notes folder, `e1-q8-tensor-tiles/`, with a README.
+At first E1 was reverted (`86fcd05`). The two changes are near-ties of the kind "Oracle caps" shows the
+current path making on held-out prompts, but the oracle's top-1 rule is the gate, and changing it was
+Paul's decision. After Checkpoint 3.5 he chose to revise the rule (E1a: a top-1 change passes only at a
+near-tie of 0.75 nats) and to check quality with log loss (E1b: not worse beyond the spread). E1 then
+landed on the rebased branch:
+
+- `face2b0` adds the Q8_0 raw words.
+- `db073ac` (red) and `816d062` add the Mellum-only opt-in. `mellum_graph_moe` sets
+  `ds4_gpu_qwen4_moe_q8_tiles(2)` around its tiled calls and clears it after.
+- `DS4_MELLUM_MOE_NAX=0` keeps the simdgroup tiles, as a diagnostic.
+- `2d0756d` tests that other callers' Q8_0 experts, such as Flash Next's, keep the simdgroup tiles even under
+  `DS4_QWEN4_MOE_MM_NAX=2`.
+
+At the landed head prefill is +41% at 2,200 tokens and +29% at 6,000 (the Measured table). The patches
+and runner are also in `misc/e1-q8-tensor-tiles/`, which is git-ignored.
 
 ## Rebase onto ee7e840 (review step RB, 2026-10-27)
 
