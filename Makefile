@@ -1663,3 +1663,20 @@ test-mellum-read-run: tests/test_mellum_read_run
 clean-mellum-read-run:
 	rm -f tests/test_mellum_read_run tools/mellum_read_bench
 clean: clean-mellum-read-run
+
+MELLUM_READ_SOURCES = tools/mellum_read_bench.c tools/mellum_read_plan.c tools/mellum_read_io.c tools/mellum_read_run.c
+
+tools/mellum_read_bench: $(MELLUM_READ_SOURCES) tools/mellum_read.h
+	$(CC) $(MELLUM_READ_CFLAGS) $(MELLUM_READ_SOURCES) -o $@
+
+tests/mellum_read_bench_fault: $(MELLUM_READ_SOURCES) tools/mellum_read.h tests/mellum_read_bench_faults.h tests/mellum_read_bench_faults.c
+	$(CC) $(MELLUM_READ_CFLAGS) -include tests/mellum_read_bench_faults.h $(MELLUM_READ_SOURCES) tests/mellum_read_bench_faults.c -o $@
+
+.PHONY: test-mellum-read-bench
+test-mellum-read-bench: tools/mellum_read_bench tests/mellum_read_bench_fault
+	python3 -I tests/test_mellum_read_bench.py
+
+.PHONY: clean-mellum-read-bench
+clean-mellum-read-bench:
+	rm -f tests/mellum_read_bench_fault
+clean: clean-mellum-read-bench

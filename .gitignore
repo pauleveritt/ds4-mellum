@@ -138,3 +138,4 @@ __pycache__/
 /tools/mellum_read_bench
 /tests/test_mellum_read_io
 /tests/test_mellum_read_run
+/tests/mellum_read_bench_fault
