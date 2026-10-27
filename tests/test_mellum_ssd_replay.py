@@ -3,10 +3,12 @@
 from copy import deepcopy
 from contextlib import contextmanager
 from functools import lru_cache
+import hashlib
 import importlib.util
 from itertools import product
 import json
 from pathlib import Path
+import platform
 import subprocess
 import sys
 import tempfile
@@ -596,6 +598,66 @@ def test_nested_json_exponent_overflow_is_rejected():
     raw = json.dumps(header())[:-1] + ', "extension": {"nested": {"x": 1, "x": 2}}}'
     with invalid(1, "duplicate JSON key"):
         tool().load_trace([raw])
+
+
+def test_report_identity_without_raw_input():
+    for kind, version, status in (
+        ("synthetic", 1, "synthetic-declared"), ("synthetic", 2, "synthetic-declared"),
+        ("measured", 1, "legacy-declared"), ("measured", 2, "manifest-declared"),
+    ):
+        metadata = header() if kind == "synthetic" else header(layers=28, experts=64, top_k=8, expert_bytes=6580224)
+        metadata.update(schema_version=version, capture_kind=kind)
+        if version == 2:
+            metadata["capture_manifest"] = manifest_fixture(metadata)
+        routes = [[list(range(metadata["geometry"]["top_k"]))]] * metadata["geometry"]["layers"]
+        trace = load([metadata, *forward(0, routes)])
+        assert tool().run_sweep(trace)["evidence"] == {
+            "trace_sha256": None, "replay_source_sha256": hashlib.sha256(SCRIPT.read_bytes()).hexdigest(),
+            "python_version": platform.python_version(), "provenance_status": status,
+        }
+        assert tool().run_sweep(trace, trace_sha256="a" * 64)["evidence"]["trace_sha256"] == "a" * 64
+        for bad in (True, "", "A" * 64, "a" * 63, "g" * 64):
+            try:
+                tool().run_sweep(trace, trace_sha256=bad)
+            except ValueError as exc:
+                assert "trace_sha256" in str(exc)
+            else:
+                raise AssertionError(f"accepted invalid digest {bad!r}")
+
+
+def cli_bytes(raw):
+    with tempfile.TemporaryDirectory() as directory:
+        path = Path(directory) / "trace.jsonl"
+        path.write_bytes(raw)
+        return subprocess.run([sys.executable, "-I", str(SCRIPT), str(path)], capture_output=True, text=True)
+
+
+def test_cli_hashes_exact_bytes_and_preserves_manifest():
+    items = records()
+    items[0].update(schema_version=2, capture_manifest=manifest_fixture(items[0]))
+    items[0]["capture_manifest"]["extension"] = {"nested": [None, {"kept": True}]}
+    reports, digests = [], []
+    for newline in (b"\n", b"\r\n"):
+        raw = newline.join(json.dumps(item).encode("utf-8") for item in items) + newline
+        result = cli_bytes(raw)
+        assert result.returncode == 0, result.stderr
+        report = json.loads(result.stdout)
+        assert report["trace"] == items[0]
+        assert report["evidence"]["trace_sha256"] == hashlib.sha256(raw).hexdigest()
+        assert report["evidence"]["replay_source_sha256"] == hashlib.sha256(SCRIPT.read_bytes()).hexdigest()
+        reports.append(report)
+        digests.append(report["evidence"]["trace_sha256"])
+    assert digests[0] != digests[1]
+    assert reports[0]["results"] == reports[1]["results"]
+    report = json.loads(cli_bytes(("\n".join(json.dumps(item) for item in records()) + "\n").encode()).stdout)
+    assert report["trace"] == header()
+
+
+def test_cli_invalid_utf8_emits_no_report():
+    result = cli_bytes(b"\xff\n")
+    assert result.returncode != 0
+    assert result.stdout == ""
+    assert result.stderr and "Traceback" not in result.stderr
 
 
 def load_tests(loader, tests, pattern):
