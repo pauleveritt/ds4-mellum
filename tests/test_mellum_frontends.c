@@ -711,6 +711,25 @@ static void check_pi_edit_fuzzy(const char *dir) {
     puts("ok   agent: Pi's edit for Mellum, fuzzy (quotes, dashes, spaces, trailing whitespace; other lines kept)");
 }
 
+/* Step 49: the departure is found under Pi's fuzzy normalisation, the one the edit itself tries, and reported in the
+ * file's own bytes: a curly quote the model typed straight, or trailing spaces it dropped, is no departure; the real
+ * difference is.  (Sibling: check_pi_edit_departure's ASCII cases are unchanged.) */
+static void check_pi_edit_departure_fuzzy(const char *dir) {
+    char want[PATH_MAX + 512];
+    char *f = pi_fixture(dir, "dq.py", "msg = \xe2\x80\x9chello world\xe2\x80\x9d\nx = 1   \ny = 2\n");
+    snprintf(want, sizeof(want), "Could not find the exact text in %s. The old text must match exactly including all "
+             "whitespace and newlines. The file matches oldText's start up to line 1, column 16, where oldText has "
+             "`there\"` and the file has `world\xe2\x80\x9d`.", f);
+    PI_EXPECT(pi_run("edit", "path", f, "edits", "#[{\"oldText\": \"msg = \\\"hello there\\\"\", \"newText\": \"y\"}]", NULL),
+              want);
+    snprintf(want, sizeof(want), "Could not find the exact text in %s. The old text must match exactly including all "
+             "whitespace and newlines. The file matches oldText's start up to line 3, column 5, where oldText has `3` "
+             "and the file has `2`.", f);
+    PI_EXPECT(pi_run("edit", "path", f, "edits", "#[{\"oldText\": \"x = 1\\ny = 3\", \"newText\": \"y\"}]", NULL), want);
+    free(f);
+    puts("ok   agent: a missed Pi edit's departure is found under the fuzzy normalisation, in the file's bytes");
+}
+
 /* Step 46: one tool result may take at most a quarter of the context.  A longer one keeps its head and its tail, with
  * a note between them saying how much was cut and how to ask for less (the tiny vocabulary is a token per byte).
  * Sibling: a result inside the cap is the tool's text, unchanged. */
@@ -909,6 +928,7 @@ static void check_pi_tools(void) {
     check_pi_edit(dir);
     check_pi_edit_fuzzy(dir);
     check_pi_edit_departure(dir);
+    check_pi_edit_departure_fuzzy(dir);
     check_tool_result_cap(dir);
     check_pi_nul(dir);
     check_pi_types(dir);
