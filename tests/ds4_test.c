@@ -625,6 +625,57 @@ static void test_mellum_rewind_case(ds4_engine *engine, int len, int k) {
     ds4_session_free(s);
 }
 
+/* The exact-prefill diagnostic (DS4_TEST_MELLUM_MODEL): with DS4_MELLUM_EXACT_PREFILL=1 set when the session is
+ * created, a prefill of 1,100 tokens (chunks of 1,024 and 76 rows) runs the exact paths, so its logits equal those
+ * of the same tokens decoded one by one, byte for byte.  Without it the 1,024-row chunk takes the batched and tiled
+ * paths and they do not (the sibling, which shows the switch is what makes the difference). */
+static bool test_mellum_prefill_logits(ds4_engine *engine, bool exact, bool decode, float *logits) {
+    if (exact) setenv("DS4_MELLUM_EXACT_PREFILL", "1", 1);
+    else unsetenv("DS4_MELLUM_EXACT_PREFILL");
+    ds4_session *s = NULL;
+    const bool created = ds4_session_create(&s, engine, 4096) == 0 && s != NULL;
+    unsetenv("DS4_MELLUM_EXACT_PREFILL");   /* read once, at session start */
+    if (!created) return false;
+    ds4_tokens prompt = {0};
+    char err[256] = {0};
+    bool ok = true;
+    for (int i = 0; i < (decode ? 1 : 1100); i++) ds4_tokens_push(&prompt, test_mellum_token(i));
+    ok = ds4_session_sync(s, &prompt, err, sizeof(err)) == 0;
+    for (int i = 1; ok && decode && i < 1100; i++) ok = ds4_session_eval(s, test_mellum_token(i), err, sizeof(err)) == 0;
+    ok = ok && ds4_session_copy_logits(s, logits, 98304) == 98304;
+    ds4_tokens_free(&prompt);
+    ds4_session_free(s);
+    return ok;
+}
+
+static void test_mellum_exact_prefill(void) {
+    const char *model = getenv("DS4_TEST_MELLUM_MODEL");
+    if (!model || !model[0]) {
+        puts("mellum-exact-prefill: DS4_TEST_MELLUM_MODEL unset, skipped");
+        return;
+    }
+    ds4_engine *engine = NULL;
+    ds4_engine_options opt = { .model_path = model, .backend = DS4_BACKEND_METAL, .context_size = 4096 };
+    TEST_ASSERT(ds4_engine_open(&engine, &opt) == 0 && engine != NULL);
+    if (!engine) return;
+    float *dec = malloc(98304u * sizeof(float)), *exact = malloc(98304u * sizeof(float)), *fast = malloc(98304u * sizeof(float));
+    TEST_ASSERT(dec && exact && fast);
+    TEST_ASSERT(test_mellum_prefill_logits(engine, false, true, dec));
+    TEST_ASSERT(test_mellum_prefill_logits(engine, true, false, exact));
+    TEST_ASSERT(test_mellum_prefill_logits(engine, false, false, fast));
+    uint64_t d_exact = 0, d_fast = 0;
+    for (uint32_t i = 0; i < 98304u; i++) {
+        d_exact += memcmp(&exact[i], &dec[i], sizeof(float)) != 0;
+        d_fast += memcmp(&fast[i], &dec[i], sizeof(float)) != 0;
+    }
+    printf("mellum-exact-prefill: 1,100-token prefill vs decode: %llu of 98304 logit words differ with "
+           "DS4_MELLUM_EXACT_PREFILL=1, %llu without\n", (unsigned long long)d_exact, (unsigned long long)d_fast);
+    TEST_ASSERT(d_exact == 0);
+    TEST_ASSERT(d_fast > 0);
+    free(dec); free(exact); free(fast);
+    ds4_engine_close(engine);
+}
+
 static void test_mellum_rewind(void) {
     const char *model = getenv("DS4_TEST_MELLUM_MODEL");
     if (!model || !model[0]) {
@@ -7615,6 +7666,7 @@ static const ds4_test_entry test_entries[] = {
 #ifndef DS4_NO_GPU
     {"--qwen4-prefill-checkpoints", "qwen4-prefill-checkpoints", "Qwen chunk checkpoints restore matching logits and state", test_qwen_prefill_checkpoints},
     {"--mellum-session", "mellum-session", "Mellum session allocation equals its plan (DS4_TEST_MELLUM_MODEL)", test_mellum_session_allocation},
+    {"--mellum-exact-prefill", "mellum-exact-prefill", "Mellum prefill equals decode byte for byte under DS4_MELLUM_EXACT_PREFILL=1 (DS4_TEST_MELLUM_MODEL)", test_mellum_exact_prefill},
     {"--mellum-rewind", "mellum-rewind", "Mellum session rewind: one token keeps the caches, deeper replays; logits equal a straight decode (DS4_TEST_MELLUM_MODEL)", test_mellum_rewind},
     {"--mellum-moe", "mellum-moe", "Mellum MoE driver on the real model's layers against a double reference (DS4_TEST_MELLUM_MODEL)", test_mellum_moe_real},
     {"--qwen4-restore-reuse", "qwen4-restore-reuse", "Qwen restore discards old verifier state and rejects truncated payloads", test_qwen_restore_reused_session},
