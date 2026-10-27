@@ -45077,7 +45077,8 @@ static void chat_push_think_prefix(const ds4_vocab *vocab,
             token_vec_push(out, vocab->system_id);
             bpe_tokenize_text(vocab, effort, out);
         }
-    } else if (think_mode == DS4_THINK_MAX) {
+    } else if (think_mode == DS4_THINK_MAX && !ds4_model_is_mellum()) {
+        /* DeepSeek's preamble; Mellum 2.1's template has no effort text */
         bpe_tokenize_text(vocab, DS4_REASONING_EFFORT_MAX_PREFIX, out);
     }
 }
