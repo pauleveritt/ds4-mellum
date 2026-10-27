@@ -443,6 +443,7 @@ typedef enum {
     SERVER_MODEL_SYNTAX_GLM,
     SERVER_MODEL_SYNTAX_DEEPSEEK41,
     SERVER_MODEL_SYNTAX_QWEN,
+    SERVER_MODEL_SYNTAX_HERMES,     /* Mellum 2.1: ChatML with Hermes <tool_call> JSON */
 } server_model_syntax;
 
 #define DS41_TOOL_CALLS_START "<｜DSML｜ calls>"
