@@ -45362,6 +45362,14 @@ static void bpe_tokenize_tool_response_text(ds4_vocab *vocab, const char *conten
     bpe_tokenize_wrapped_payload_text(vocab, content, "</tool_response>", out);
 }
 
+/* A qwen4 tool message's <tool_response> wrapper.  Mellum's template text encodes it as the
+ * vocabulary's added tokens 31 and 32, which plain BPE text would not give; Flash Next keeps
+ * the text form it always had. */
+static void qwen4_tool_response_tag(ds4_vocab *vocab, const char *tag, token_vec *out) {
+    if (ds4_model_is_mellum()) tokenize_rendered_chat_vocab(vocab, tag, out);
+    else bpe_tokenize_text(vocab, tag, out);
+}
+
 void ds4_chat_append_message(ds4_engine *e, ds4_tokens *tokens, const char *role, const char *content) {
     ds4_vocab *vocab = &e->vocab;
     if (!role) role = "user";
@@ -45370,9 +45378,9 @@ void ds4_chat_append_message(ds4_engine *e, ds4_tokens *tokens, const char *role
     if (ds4_model_is_qwen4()) {
         if (!strcmp(role, "tool") || !strcmp(role, "function")) {
             qwen4_chat_open(vocab, "user", tokens);
-            bpe_tokenize_text(vocab, "<tool_response>\n", tokens);
+            qwen4_tool_response_tag(vocab, "<tool_response>\n", tokens);
             bpe_tokenize_tool_response_text(vocab, content, tokens);
-            bpe_tokenize_text(vocab, "\n</tool_response>", tokens);
+            qwen4_tool_response_tag(vocab, "\n</tool_response>", tokens);
         } else {
             const char *name = (!strcmp(role, "system") || !strcmp(role, "developer")) ? "system" :
                                !strcmp(role, "assistant") ? "assistant" : "user";
