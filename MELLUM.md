@@ -374,6 +374,24 @@ host: unescaped quotes break a call's JSON, and backtick-delimited values).
   1.6e-3, top-1 64/65 with the one change at a near-tie; 2,200: 1.3e-3,
   64/65).
 
+Phase 7b, the gaps left at Checkpoint 5 (steps 48-50, 2026-10-27):
+
+- Step 48, `129f74b` red, `303c698` fix: the quote repair takes `edit`'s
+  older single-edit form, `oldText` and `newText` after the path, cut at their
+  one `", "newText": "` boundary; any other boundary leaves it unrepaired.
+- Step 49, `a711ace` red, `0d3b8f2` fix: the missed-edit departure is found
+  under Pi's fuzzy normalisation and mapped back to the file's bytes, so a
+  curly quote typed straight or dropped trailing spaces are no departure.
+- Step 50, NFKC in Pi's fuzzy edit: stopped at the table's size, as the
+  brief says, and nothing committed. A generator that takes the decompositions
+  and compositions from node (Pi's runtime, Unicode 17.0) and the combining
+  classes from Python (Unicode 16.0) matches node's NFKC on all 1,112,063 code
+  points and 8,519 probes. Its table is 5,914 decompositions (9,193 code
+  points), 961 compositions and 393 class ranges: 2,313 lines and 219 KB, or
+  about 167 KB packed, against 192 KB for the largest generated table here.
+  Pi's fuzzy edit still runs without NFKC, so a full-width or ligature
+  difference is a miss here where Pi would match.
+
 Review fixes and experiment E1 (after step 33, before step 34; the outside
 review of `5aa742c`):
 
