@@ -73,6 +73,19 @@ def test_malformed_snapshot_retains_cell_progress():
                 assert exc.evidence['failed_command']['stdout']==raw['stdout']
             else:raise AssertionError('malformed snapshot accepted')
 
+def test_capture_cap_reserves_command_copies_and_decoder():
+    api=module()
+    with tempfile.TemporaryDirectory() as directory:
+        path=Path(directory)/'input';path.write_bytes(bytes(range(64)))
+        argv=[str(ROOT/'tools/mellum_read_bench'),'--input',str(path),
+              '--plan',str(ROOT/'tests/mellum_read_plan_v1.bin'),'--workers','1','--mode','buffered']
+        # A 32 MiB command can occupy >64 MiB in bytearray/bytes copies alone.
+        with patch.object(api,'MEMORY_LIMIT',64*2**20),patch.object(api,'IDLE_SECONDS',.001),             patch.object(api.observer,'snapshot',side_effect=sampler(api)):
+            try:api.observe(argv,{})
+            except api.ObservationFailure as exc:
+                assert 'memory bound' in str(exc) and not exc.evidence['snapshots']
+            else:raise AssertionError('capture accepted without transient working-memory allowance')
+
 def load_tests(loader,tests,pattern):
     return unittest.TestSuite(unittest.FunctionTestCase(v) for k,v in globals().items() if k.startswith('test_'))
 if __name__=='__main__':unittest.main()
