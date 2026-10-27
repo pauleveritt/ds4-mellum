@@ -27,7 +27,7 @@ if [ -z "${DS4_TEST_MELLUM_MODEL:-}" ]; then
 fi
 [ -x tests/mellum_trace ] || { echo "mellum-fastpath: build tests/mellum_trace first (make tests/mellum_trace)" >&2; exit 2; }
 M=$DS4_TEST_MELLUM_MODEL
-TOL=10 KLTOL=0.01 KLMAX=1.0 DLOGP=1.0
+TOL=10 KLTOL=0.01 KLMAX=1.0 DLOGP=1.0 NEARTIE=0.75
 dir=$(mktemp -d "${TMPDIR:-/tmp}/mellum-fastpath.XXXXXX") || exit 2
 trap 'rm -rf "$dir"' EXIT
 fail=0
@@ -51,7 +51,7 @@ trace() {
     fi || { echo "FAIL the driver failed on $2 $3 chunk $4:"; tail -3 "$1.err"; fail=1; return 1; }
 }
 compare() { # A B POSITIONS EXACT
-    python3 -I tests/mellum_logits_compare.py "$1" "$2" "$3" "$4" "$TOL" "$KLTOL" "$KLMAX" "$DLOGP"
+    python3 -I tests/mellum_logits_compare.py "$1" "$2" "$3" "$4" "$TOL" "$KLTOL" "$KLMAX" "$DLOGP" "$NEARTIE"
 }
 
 for n in 31 32 1023 1024 1025 2048; do
