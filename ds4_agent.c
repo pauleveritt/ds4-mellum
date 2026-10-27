@@ -2892,6 +2892,12 @@ static void agent_hermes_tool_parse(agent_dsml_parser *p) {
                 p->parse_pos = (size_t)(past - raw);
                 p->hermes_phase = AGENT_HERMES_TOP_AFTER;
             } else if (!strcmp(key, "arguments")) {
+                /* a repeated "arguments" replaces the earlier object, as json.loads keeps the last */
+                for (int i = 0; i < p->current.argc; i++) {
+                    free(p->current.args[i].name);
+                    free(p->current.args[i].value);
+                }
+                p->current.argc = 0;
                 if (*cur == '"') {
                     /* arguments as a JSON string: decode it, then read the object inside */
                     const char *past = NULL;
