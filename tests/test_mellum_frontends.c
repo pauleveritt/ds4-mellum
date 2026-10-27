@@ -179,8 +179,40 @@ static void check_resume_prefix(void) {
     ds4_tokens_free(&want); ds4_tokens_free(&got); ds4_tokens_free(&plain);
     puts("ok   agent: compaction resume reopens <think> for Mellum; Flash Next's prefix unchanged");
 }
+
+/* One round's tool results for Mellum: each call's result is its own part, the text as the tool returned it (no
+ * "Tool result N" header), and the round is one user turn with a <tool_response> block per result, as 2.1's
+ * template renders consecutive tool messages (ds4_chat_append_tool_results). */
+static void check_tool_observation(void) {
+    static ds4_engine e;
+    tiny_vocab(&e);
+    g_ds4_shape = DS4_SHAPE_MELLUM;
+    agent_worker w;
+    memset(&w, 0, sizeof(w));
+    w.engine = &e;
+    pthread_mutex_init(&w.mu, NULL);
+    agent_tool_calls calls = {0};
+    agent_tool_call a = {.name = xstrdup("alpha")}, b = {.name = xstrdup("beta")};
+    agent_tool_calls_push(&calls, &a);
+    agent_tool_calls_push(&calls, &b);
+    char *r0 = agent_execute_tool_call(&w, &calls.v[0]), *r1 = agent_execute_tool_call(&w, &calls.v[1]);
+    agent_tool_observation obs = agent_execute_tool_observation(&w, &calls);
+    ds4_tokens got = {0}, want = {0};
+    ds4_vision_span *spans = NULL;
+    char err[128] = "";
+    CHECK(agent_tool_observation_build(&w, &obs, &got, &spans, err, sizeof(err)));
+    const char *parts[] = {r0, r1};
+    CHECK(ds4_chat_append_tool_results(&e, &want, parts, 2) == 1);
+    CHECK(got.len == want.len && !memcmp(got.v, want.v, (size_t)want.len * sizeof(int)));
+    agent_tool_observation_free(&obs);
+    agent_tool_calls_free(&calls);
+    free(r0); free(r1); free(w.out);
+    ds4_tokens_free(&got); ds4_tokens_free(&want);
+    puts("ok   agent: a Mellum round's results are one user turn, a raw <tool_response> block per call");
+}
 #else
 static void check_resume_prefix(void) {}
+static void check_tool_observation(void) {}
 #endif
 
 #if defined(MELLUM_FRONTEND_CLI)
@@ -228,5 +260,6 @@ int main(void) {
     check_engine_selection();
     check_sampling_defaults();
     check_resume_prefix();
+    check_tool_observation();
     return 0;
 }
