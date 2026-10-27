@@ -97,6 +97,18 @@ def test_wrong_revision_and_tracked_changes_refused():
             api.bundle(repo, revision, repo / 'output')
 
 
+def test_hidden_tracked_changes_cannot_pass_cleanliness_check():
+    api = module()
+    for flag in ('--assume-unchanged', '--skip-worktree'):
+        with repository() as (root, repo, revision):
+            git(repo, 'update-index', flag, 'AGENTS.md')
+            (repo / 'AGENTS.md').write_bytes(b'hidden tracked change')
+            assert not git(repo, 'status', '--porcelain', '-uno')
+            with refused():
+                api.bundle(repo, revision, root / 'output')
+            assert not (root / 'output/artifact').exists()
+
+
 def test_git_redirects_and_replacements_cannot_substitute_source():
     api = module()
     with repository() as (root, repo, revision), repository() as (_, other, _):
