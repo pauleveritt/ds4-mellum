@@ -13048,10 +13048,7 @@ static char *build_responses_visible_assistant_suffix(const request *r,
         return build_qwen_assistant_suffix(r, content, reasoning,
                                            r && r->reasoning_summary_emit && calls && calls->len > 0, calls);
     }
-    if (syntax == SERVER_MODEL_SYNTAX_HERMES) {
-        return build_hermes_assistant_suffix(r, content, reasoning,
-                                             r && r->reasoning_summary_emit && calls && calls->len > 0, calls);
-    }
+    if (syntax == SERVER_MODEL_SYNTAX_HERMES) return NULL;   /* server_responses_visible_key */
     buf suffix = {0};
     /* This suffix mirrors what a Responses client can replay, not necessarily
      * every token in KV.  Hidden reasoning stays live in the session unless the
@@ -13094,8 +13091,14 @@ static char *build_responses_visible_assistant_suffix(const request *r,
 static char *server_responses_visible_key(server *s, server_slot *slot, const request *r,
                                           const char *content, const char *reasoning,
                                           const tool_calls *calls) {
-    (void)s;
-    (void)slot;
+    if (r && r->model_syntax == SERVER_MODEL_SYNTAX_HERMES) {
+        /* Mellum: the KV's own text, the live tokens as rendered, without the stop token the
+         * session never evaluated.  A next request matches it only when its render reproduces
+         * those bytes (a tool cycle, an exact replay), so the reused prompt is always its own;
+         * one whose template dropped the turn's reasoning takes ordinary prefix reuse instead. */
+        size_t n = 0;
+        return render_tokens_text(s->engine, ds4_session_tokens(slot->session), &n);
+    }
     char *suffix = build_responses_visible_assistant_suffix(r, content, reasoning, calls);
     buf visible = {0};
     buf_puts(&visible, r && r->prompt_text ? r->prompt_text : "");
@@ -13110,18 +13113,10 @@ static char *build_thinking_visible_text(const request *r,
     if (!ds4_think_mode_enabled(r->think_mode)) return NULL;
 
     size_t pt_len = strlen(r->prompt_text);
-    if (r->model_syntax == SERVER_MODEL_SYNTAX_HERMES) {
-        /* the next request renders this turn after a new user message, so without its
-         * reasoning: the content as answered, closed by <|im_end|> */
-        const char *gen = "<|im_start|>assistant\n";
-        const size_t gen_len = strlen(gen);
-        if (pt_len < gen_len || memcmp(r->prompt_text + pt_len - gen_len, gen, gen_len) != 0) return NULL;
-        buf visible = {0};
-        buf_append(&visible, r->prompt_text, pt_len);
-        buf_puts(&visible, content ? content : "");
-        buf_puts(&visible, "<|im_end|>\n");
-        return buf_take(&visible);
-    }
+    /* Mellum: none.  The next request renders this answer after a new user message, without the
+     * reasoning the KV holds, so no visible key may stand for the live session (phase 6 review
+     * P6-R1); an exact replay reuses it by tokens. */
+    if (r->model_syntax == SERVER_MODEL_SYNTAX_HERMES) return NULL;
     if (r->model_syntax == SERVER_MODEL_SYNTAX_QWEN) {
         /* the next request renders this turn as an empty think block plus the
          * trimmed content, closed by <|im_end|> */

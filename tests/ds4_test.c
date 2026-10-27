@@ -8079,17 +8079,15 @@ static void test_mellum_server_visible_text(void) {
                                                   "</tool_call><|im_end|>"));
         }
         free(suffix); free(next); buf_free(&want);
-        /* a final answer: the next request adds a user message, and the turn's reasoning is dropped */
-        char *visible = think ? build_thinking_visible_text(&r, "The answer.") : NULL;
-        const char *n2[] = {"user", "assistant", "user"}, *n2c[] = {"Q", "The answer.", "Q2"};
-        next = mellum_render(n2, n2c, reasoning, NULL, 3, think);
-        if (think) TEST_ASSERT(visible && starts_with(next, visible));
-        free(visible); free(next);
+        /* a final answer: the next request adds a user message and drops the turn's reasoning, which
+         * the KV keeps, so no visible key stands for the live session (P6-R1; test_mellum_frontends
+         * checks the reused prompt itself) */
+        TEST_ASSERT(build_thinking_visible_text(&r, "The answer.") == NULL);
         tool_calls_free(&calls);
         free(prompt);
     }
     if (test_failures == failures_before)
-        printf("mellum-server: a finished turn's remembered text is the next request's render of it\n");
+        printf("mellum-server: a finished tool turn's remembered text is the next request's render of it\n");
 }
 
 /* After a Mellum tool-call turn the session continues: the live tail appends the tool results to the KV (the turn's
