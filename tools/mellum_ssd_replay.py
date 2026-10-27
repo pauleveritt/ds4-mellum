@@ -357,6 +357,14 @@ def replay(trace: Trace, capacity_bytes: int, policy: str) -> dict:
     totals["distinct_experts"] = len(distinct)
     return {
         "policy": policy,
+        "interpretation": {
+            "kind": "lower-bound" if policy == "relaxed-optimal" else "causal-policy",
+            "objective": "whole-trace-demand-loads-and-bytes",
+            "schedule_scope": ("atomic-full-group-residency-or-fixed-sorted-sequence"
+                               if policy == "relaxed-optimal" else "atomic-full-group-residency"),
+            "diagnostics_are_bounds": False,
+            "order_flexible_tiling_covered": False,
+        },
         "cache": dict(requested_bytes=capacity_bytes, effective_bytes=slots * expert_bytes,
                       slots=slots, peak_bytes=cache.peak * expert_bytes),
         "totals": totals,
@@ -385,7 +393,9 @@ def run_sweep(trace: Trace, capacities: Sequence[int] = DEFAULT_CAPACITIES) -> d
             "prefetch_modeled": False,
             "group_model": "atomic per-layer union; oversized groups rejected",
             "row_hits": "references resident before the group begins",
-            "relaxed-optimal": "future-aware sequential eviction with bypass; not a grouped optimum",
+            "relaxed-optimal": "whole-trace loads/bytes bound for atomic residency or fixed sorted order; "
+                               "future-aware bypass; not a grouped optimum or a bound for flexible tiling",
+            "diagnostics": "phase/segment/forward/token/cold-start/tail and blocked layers are policy outcomes, not bounds",
             "percentiles": "nearest rank over all decode tokens, including cold start",
             "throughput_prediction": None,
         },
