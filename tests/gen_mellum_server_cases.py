@@ -79,6 +79,9 @@ CASES = [
       {"role": "assistant", "content": "<think>\nUse bash.\n</think>\n\nRunning it.",
        "tool_calls": [call("c1", "bash", {"command": "ls"})]},
       {"role": "tool", "tool_call_id": "c1", "content": "hello.py"}]),
+    # the template appends the generation prompt whenever add_generation_prompt is set, after an assistant turn too
+    ("history ending in an assistant turn", True, None,
+     [{"role": "user", "content": "Q"}, {"role": "assistant", "content": "A", "reasoning_content": "r"}]),
     ("tools: a call, think off", False, TOOLS,
      [SYS, {"role": "user", "content": "Run ls."},
       {"role": "assistant", "content": "", "tool_calls": [call("c1", "bash", {"command": "ls -la"})]},
