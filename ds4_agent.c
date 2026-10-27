@@ -2666,8 +2666,32 @@ static bool agent_hermes_add_args_from_json(agent_dsml_parser *p, const char *js
     return true;
 }
 
+/* Pathology 148: a value delimited with backticks, as a JavaScript template string is.  Reported at once, not held
+ * for a repair: a quote repair has nothing to do with it. */
+static void agent_hermes_backtick_error(agent_dsml_parser *p, const char *key) {
+    char msg[160];
+    snprintf(msg, sizeof(msg), "argument \"%.32s\" is delimited with backticks: a JSON string needs double quotes, "
+             "with each quote inside written \\\"", key ? key : "");
+    p->hermes_deferred = true;
+    agent_dsml_set_error(p, msg);
+}
+
+/* The key whose value starts at `at` inside a raw value ("key": `), or "" when there is none to name. */
+static char *agent_hermes_key_before(const char *from, const char *at) {
+    const char *q = at;
+    while (q > from && (q[-1] == ' ' || q[-1] == '\t' || q[-1] == '\r' || q[-1] == '\n')) q--;
+    if (q <= from || q[-1] != ':') return xstrdup("");
+    q--;
+    while (q > from && (q[-1] == ' ' || q[-1] == '\t' || q[-1] == '\r' || q[-1] == '\n')) q--;
+    if (q <= from || q[-1] != '"') return xstrdup("");
+    const char *close = --q;
+    while (q > from && q[-1] != '"') q--;
+    return q > from ? xstrndup(q, (size_t)(close - q)) : xstrdup("");
+}
+
 /* Scan the raw (non-string) value being read since p->param_value_start.  Returns 1 when complete
- * (end set), 0 when it needs more bytes, -1 when it cannot be JSON. */
+ * (end set), 0 when it needs more bytes, -1 when it cannot be JSON, -2 at a backtick outside a
+ * string (end set to it). */
 static int agent_hermes_raw_value_end(agent_dsml_parser *p, size_t *end) {
     const bool bracketed = p->raw[p->param_value_start] == '{' || p->raw[p->param_value_start] == '[';
     for (size_t i = p->hermes_scan; i < p->raw_len; i++) {
@@ -2680,6 +2704,7 @@ static int agent_hermes_raw_value_end(agent_dsml_parser *p, size_t *end) {
             continue;
         }
         if (c == '"') { p->hermes_in_string = true; continue; }
+        if (c == '`') { *end = i; return -2; }
         if (c == '{' || c == '[') {
             if (++p->hermes_depth > AGENT_HERMES_MAX_DEPTH) return -1;
             continue;
@@ -2729,6 +2754,12 @@ static bool agent_hermes_finish_value(agent_dsml_parser *p) {
     } else {
         size_t end = 0;
         int rc = agent_hermes_raw_value_end(p, &end);
+        if (rc == -2) {
+            char *key = agent_hermes_key_before(p->raw + p->param_value_start, p->raw + end);
+            agent_hermes_backtick_error(p, key);
+            free(key);
+            return false;
+        }
         if (rc < 0) {
             agent_dsml_set_error(p, "tool call argument nests too deeply");
             return false;
@@ -2771,6 +2802,9 @@ static bool agent_hermes_begin_value(agent_dsml_parser *p, const char *cur, bool
                *cur == 't' || *cur == 'f' || *cur == 'n') {
         p->param_is_string = false;
         p->param_value_start = p->parse_pos;
+    } else if (*cur == '`') {
+        agent_hermes_backtick_error(p, skip ? "" : p->hermes_key);
+        return false;
     } else {
         agent_dsml_set_error(p, "invalid JSON value in a tool call argument");
         return false;
