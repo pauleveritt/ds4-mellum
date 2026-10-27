@@ -77,11 +77,14 @@ def publish(root: Path, *, model: Path, tokens: Path, first_prefill: int, contex
     with tempfile.TemporaryDirectory(prefix='.mellum-capture-', dir=output.parent) as directory:
         stage = Path(directory)
         build_log = stage / 'build.log'
+        binary_path = root / 'tests/mellum_routes_gpu'
+        old_binary = identity.file_stat(binary_path) if binary_path.exists() else None
         _run(['make', '-B', '-j4', 'tests/mellum_routes_gpu'], cwd=root, env=env, log=build_log)
         if source != identity.source_identity(root):
             raise ValueError('source inputs changed during build')
-        binary_path = root / 'tests/mellum_routes_gpu'
         binary = identity.file_identity(binary_path)
+        if old_binary is not None and old_binary == {key: binary[key] for key in old_binary}:
+            raise ValueError('capture binary was not rebuilt')
         child_env = dict(env, MELLUM_TRACE_CONTEXT=str(context), DS4_QWEN4_PREFILL_CHUNK=str(prefill_chunk))
         if exact_prefill:
             child_env['DS4_MELLUM_EXACT_PREFILL'] = '1'
