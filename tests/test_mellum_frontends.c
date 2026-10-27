@@ -518,16 +518,15 @@ static void check_engine_selection(void) {
     puts("ok   agent: Mellum gets the Hermes syntax and is not refused; Flash Next keeps its syntax");
 }
 #else
-/* The server names a Mellum engine as Mellum and speaks it the Hermes syntax, ahead of the qwen4
- * check (it refuses to serve it until that syntax is complete); Flash Next keeps its id and syntax. */
+/* The server names a Mellum engine as Mellum, speaks it the Hermes syntax, ahead of the qwen4 check,
+ * and serves it; Flash Next keeps its id and syntax. */
 static void check_engine_selection(void) {
     static ds4_engine e;
     g_ds4_shape = DS4_SHAPE_MELLUM;
     CHECK(ds4_engine_is_mellum(&e) && ds4_engine_is_qwen4(&e));
     CHECK(!strcmp(server_model_id_from_engine(&e), "mellum-2.1"));
     CHECK(server_model_syntax_for_engine(&e) == SERVER_MODEL_SYNTAX_HERMES);
-    const char *why = server_engine_refusal(&e);
-    CHECK(why && strstr(why, "Mellum 2.1"));
+    CHECK(server_engine_refusal(&e) == NULL);
 
     /* step 43: one session, no disk KV (the engine refuses session save and load for Mellum, and Mellum does
      * not batch with other sessions); each refused by name, and the defaults accepted */
@@ -543,7 +542,7 @@ static void check_engine_selection(void) {
     CHECK(!strcmp(server_model_id_from_engine(&e), "qwen3.8-flash-next"));
     CHECK(server_engine_refusal(&e) == NULL);
     CHECK(server_model_syntax_for_engine(&e) == SERVER_MODEL_SYNTAX_QWEN);
-    puts("ok   server: Mellum named and refused by name, Flash Next keeps its id and syntax");
+    puts("ok   server: Mellum named and served with the Hermes syntax, Flash Next keeps its id and syntax");
 }
 #endif
 
