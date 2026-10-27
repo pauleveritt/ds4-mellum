@@ -10738,6 +10738,179 @@ static char *pi_tool_edit(const agent_tool_call *call) {
     return msg;
 }
 
+/* ---- bash (bash.js, truncate.js truncateTail) ---- */
+
+#define PI_BASH_DEFAULT_TIMEOUT_SEC 120
+
+/* Size of the output's last line: scan the file backwards for a newline. */
+static size_t pi_last_line_bytes(const char *path, size_t total) {
+    FILE *fp = fopen(path, "rb");
+    if (!fp) return 0;
+    size_t line = 0, pos = total;
+    char chunk[4096];
+    bool first = true;
+    while (pos > 0) {
+        size_t take = pos < sizeof(chunk) ? pos : sizeof(chunk);
+        if (fseeko(fp, (off_t)(pos - take), SEEK_SET) != 0) break;
+        if (fread(chunk, 1, take, fp) != take) break;
+        size_t i = take;
+        while (i > 0) {
+            if (chunk[i - 1] == '\n' && !(first && i == take && pos == total)) {
+                fclose(fp);
+                return line;
+            }
+            line++;
+            i--;
+        }
+        first = false;
+        pos -= take;
+    }
+    fclose(fp);
+    return line;
+}
+
+static char *pi_tool_bash(agent_worker *w, const agent_tool_call *call) {
+    const char *cmd = agent_tool_arg_value(call, "command");
+    if (!cmd || !cmd[0]) return xstrdup("bash requires a command string.");
+    double t = 0;
+    int timeout = PI_BASH_DEFAULT_TIMEOUT_SEC;
+    if (pi_number_arg(call, "timeout", &t) && t > 0)
+        timeout = t > 24.0 * 3600.0 ? 24 * 3600 : (int)ceil(t);
+    char err[256] = {0};
+    agent_bash_job *job = agent_bash_start(w, cmd, timeout, err, sizeof(err));
+    if (!job) return xstrdup(err[0] ? err : "failed to start the command");
+
+    bool aborted = false;
+    while (agent_bash_is_running(job)) {
+        if (worker_should_interrupt(w)) {
+            aborted = true;
+            agent_bash_signal(job, SIGTERM);
+            double s = now_sec();
+            while (agent_bash_is_running(job) && now_sec() - s < 1.0) usleep(20000);
+            agent_bash_signal(job, SIGKILL);
+            s = now_sec();
+            while (agent_bash_is_running(job) && now_sec() - s < 3.0) usleep(20000);
+            break;
+        }
+        usleep(20000);
+    }
+
+    pthread_mutex_lock(&job->mu);
+    const size_t total_bytes = job->bytes;
+    const int exit_status = job->exit_status;
+    const bool timed_out = job->timed_out;
+    const int child_status = job->child_status;
+    const bool reaped = job->reaped;
+    const int total_lines = agent_bash_display_lines(job);
+    char path[PATH_MAX];
+    snprintf(path, sizeof(path), "%s", job->path);
+    pthread_mutex_unlock(&job->mu);
+
+    /* the last PI_MAX_BYTES + 1 bytes are enough for a tail of PI_MAX_BYTES */
+    char *text = NULL;
+    size_t text_len = 0;
+    const bool truncated = (size_t)total_lines > PI_MAX_LINES || total_bytes > PI_MAX_BYTES;
+    bool by_lines = true, last_partial = false;
+    size_t out_lines = 0;
+    if (total_bytes == 0) {
+        text = xstrdup("");
+    } else {
+        size_t take = total_bytes < (size_t)PI_MAX_BYTES + 1 ? total_bytes : (size_t)PI_MAX_BYTES + 1;
+        char *buf = xmalloc(take + 1);
+        FILE *fp = fopen(path, "rb");
+        size_t got = 0;
+        if (fp && fseeko(fp, (off_t)(total_bytes - take), SEEK_SET) == 0) got = fread(buf, 1, take, fp);
+        if (fp) fclose(fp);
+        buf[got] = '\0';
+        if (!truncated) {
+            text = buf;
+            text_len = got;
+        } else {
+            /* truncateTail: whole lines from the end, up to PI_MAX_LINES and PI_MAX_BYTES */
+            const bool whole_file = got == total_bytes;
+            size_t end = got;
+            if (end && buf[end - 1] == '\n') end--;           /* a final newline starts no line */
+            size_t kept_start = end, bytes = 0, line_end = end;
+            for (;;) {
+                size_t ls = line_end;
+                while (ls > 0 && buf[ls - 1] != '\n') ls--;
+                const bool partial_first = ls == 0 && !whole_file;   /* cut by the read, length unknown */
+                const size_t lb = (line_end - ls) + (out_lines > 0 ? 1 : 0);
+                if (partial_first || bytes + lb > PI_MAX_BYTES) {
+                    by_lines = false;
+                    if (out_lines == 0) {
+                        /* even the last line alone is too long: its final PI_MAX_BYTES bytes */
+                        size_t from = end > (size_t)PI_MAX_BYTES ? end - PI_MAX_BYTES : 0;
+                        while (from < end && ((unsigned char)buf[from] & 0xc0) == 0x80) from++;
+                        kept_start = from;
+                        out_lines = 1;
+                        last_partial = true;
+                    }
+                    break;
+                }
+                bytes += lb;
+                out_lines++;
+                kept_start = ls;
+                if (out_lines >= PI_MAX_LINES || ls == 0) break;
+                line_end = ls - 1;                                 /* step over the newline */
+            }
+            text_len = end - kept_start;
+            text = xmalloc(text_len + 1);
+            memcpy(text, buf + kept_start, text_len);
+            text[text_len] = '\0';
+            free(buf);
+        }
+    }
+    (void)text_len;
+
+    agent_buf out = {0};
+    const bool no_exit = reaped && WIFSIGNALED(child_status) && !timed_out && !aborted;
+    const bool failed_status = aborted || timed_out || no_exit || exit_status != 0;
+    const char *body = text[0] ? text : (failed_status && (aborted || timed_out) ? "" : "(no output)");
+    agent_buf_puts(&out, body);
+    if (truncated && text[0]) {
+        char size_b[32], note[PATH_MAX + 200];
+        pi_format_size(PI_MAX_BYTES, size_b, sizeof(size_b));
+        if (last_partial) {
+            char size_a[32], size_l[32];
+            pi_format_size(strlen(text), size_a, sizeof(size_a));
+            pi_format_size(pi_last_line_bytes(path, total_bytes), size_l, sizeof(size_l));
+            snprintf(note, sizeof(note), "\n\n[Showing last %s of line %d (line is %s). Full output: %s]",
+                     size_a, total_lines, size_l, path);
+        } else if (by_lines) {
+            snprintf(note, sizeof(note), "\n\n[Showing lines %zu-%d of %d. Full output: %s]",
+                     (size_t)total_lines - out_lines + 1, total_lines, total_lines, path);
+        } else {
+            snprintf(note, sizeof(note), "\n\n[Showing lines %zu-%d of %d (%s limit). Full output: %s]",
+                     (size_t)total_lines - out_lines + 1, total_lines, total_lines, size_b, path);
+        }
+        agent_buf_puts(&out, note);
+    }
+    if (aborted || timed_out || no_exit || exit_status != 0) {
+        char status[96];
+        if (aborted) snprintf(status, sizeof(status), "Command aborted");
+        else if (timed_out) snprintf(status, sizeof(status), "Command timed out after %d seconds", timeout);
+        else if (no_exit) snprintf(status, sizeof(status), "Command terminated without an exit code");
+        else snprintf(status, sizeof(status), "Command exited with code %d", exit_status);
+        if (out.len) agent_buf_puts(&out, "\n\n");
+        agent_buf_puts(&out, status);
+    }
+    free(text);
+    char *result = agent_buf_take(&out);
+    /* show the user what the command printed, as the agent's own bash does */
+    if (result[0]) {
+        size_t shown = strlen(result) > 8192 ? 8192 : strlen(result);
+        char *safe = agent_terminal_safe_text(result, shown);
+        agent_publish(w, "\x1b[90m", 5);
+        agent_publish(w, safe, strlen(safe));
+        if (safe[0] && safe[strlen(safe) - 1] != '\n') agent_publish(w, "\n", 1);
+        agent_publish(w, "\x1b[0m", 4);
+        free(safe);
+    }
+    agent_bash_remove_job(w, job);
+    return result;
+}
+
 /* Execute one parsed DSML tool call and return the text that will be appended as
  * the tool-role result.  UI visualization already happened while streaming; this
  * function is only about side effects and the model-visible observation. */
@@ -10748,6 +10921,7 @@ static char *agent_execute_tool_call(agent_worker *w, const agent_tool_call *cal
         if (!strcmp(call->name, "read")) return pi_tool_read(call);
         if (!strcmp(call->name, "write")) return pi_tool_write(call);
         if (!strcmp(call->name, "edit")) return pi_tool_edit(call);
+        if (!strcmp(call->name, "bash")) return pi_tool_bash(w, call);
     }
 
     if (!strcmp(call->name, "read")) return agent_tool_read(w, call);
