@@ -107,6 +107,17 @@ def test_hidden_tracked_changes_cannot_pass_cleanliness_check():
             with refused():
                 api.bundle(repo, revision, root / 'output')
             assert not (root / 'output/artifact').exists()
+        with repository() as (root, repo, revision):
+            real_run = subprocess.run
+            def hidden_mid_copy(argv, **kwargs):
+                result = real_run(argv, **kwargs)
+                if 'cat-file' in argv:
+                    git(repo, 'update-index', flag, 'AGENTS.md')
+                    (repo / 'AGENTS.md').write_bytes(b'hidden during copy')
+                return result
+            with patch.object(subprocess, 'run', side_effect=hidden_mid_copy), refused():
+                api.bundle(repo, revision, root / 'output')
+            assert not (root / 'output/artifact').exists()
 
 
 def test_git_redirects_and_replacements_cannot_substitute_source():
