@@ -29,7 +29,15 @@ def main() -> None:
     run = commands.add_parser('run')
     run.add_argument('--batch', type=Path, required=True)
     run.add_argument('--output', type=Path, required=True)
+    observe_prepare = commands.add_parser('observe-prepare')
+    for name in ('prior-batch','binary','output'):
+        observe_prepare.add_argument(f'--{name}',type=Path,required=True)
+    observe_run = commands.add_parser('observe-run')
+    for name in ('batch','output'):
+        observe_run.add_argument(f'--{name}',type=Path,required=True)
     args = parser.parse_args()
+    if args.command.startswith('observe-') and sys.platform!='darwin':
+        raise SystemExit('macOS required for device observation')
     if args.command == 'index':
         value = index_tools.build_index(args.model)
         result = common.publication.publish(args.output, lambda stage: common.write_json(stage / 'index.json', value))
@@ -38,6 +46,10 @@ def main() -> None:
         print(identity.sibling('mellum_expert_pack').pack(args.index, args.output))
     elif args.command == 'prepare':
         print(identity.sibling('mellum_read_batch').prepare_batch(args.index, args.packed, args.trace, args.binary, args.output))
+    elif args.command == 'observe-prepare':
+        print(identity.sibling('mellum_observe_manifest').prepare(args.prior_batch,args.binary,args.output))
+    elif args.command == 'observe-run':
+        print(identity.sibling('mellum_observe_batch').run(args.batch,args.output))
     elif args.command == 'run':
         print(identity.sibling('mellum_read_batch').run_batch(args.batch, args.output))
 

@@ -1699,3 +1699,13 @@ test-mellum-read-gate: tests/test_mellum_read_gate
 clean-mellum-read-gate:
 	rm -f tests/test_mellum_read_gate
 clean: clean-mellum-read-gate
+
+.PHONY: test-mellum-device-observation
+test-mellum-device-observation: test-mellum-read-gate tools/mellum_read_bench
+	python3 -I tests/test_mellum_read_observed.py
+	python3 -I tests/test_mellum_device_observer.py
+	python3 -I tests/test_mellum_device_classify.py
+	python3 -I tests/test_mellum_observe_manifest.py
+	python3 -I tests/test_mellum_observe_process.py
+	python3 -I tests/test_mellum_observe_batch.py
+test-mellum-storage: test-mellum-device-observation
