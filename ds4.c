@@ -60750,11 +60750,13 @@ static bool mellum_graph_head(ds4_qwen4_gpu_graph *g, const ds4_model *m, const 
     const uint64_t row_bytes = (uint64_t)DS4_N_EMBD * sizeof(float);
     ds4_gpu_tensor *x = ds4_gpu_tensor_view(s[MELLUM_S_HIDDEN], (uint64_t)row * row_bytes, row_bytes);
     ds4_gpu_tensor *normed = ds4_gpu_tensor_view(s[MELLUM_S_ATTN_NORM], 0, row_bytes);
-    const bool ok = x && normed &&
+    bool ok = x && normed &&
         ds4_gpu_rms_norm_weight_rows_tensor(normed, x, m->map, m->size, w->output_norm->abs_offset, DS4_N_EMBD, 1u,
-                                            DS4_RMS_EPS) != 0 &&
-        ds4_gpu_matmul_q8_0_tensor(g->logits, m->map, m->size, w->output->abs_offset, w->output->dim[0],
+                                            DS4_RMS_EPS) != 0;
+    if (g->mellum_capture) mellum_observer_projection_role(true);
+    ok = ok && ds4_gpu_matmul_q8_0_tensor(g->logits, m->map, m->size, w->output->abs_offset, w->output->dim[0],
                                    w->output->dim[1], normed, 1u) != 0;
+    if (g->mellum_capture) mellum_observer_projection_role(false);
     ds4_gpu_tensor_free(x);
     ds4_gpu_tensor_free(normed);
     return ok;
@@ -60796,7 +60798,10 @@ static bool mellum_graph_forward_tokens(ds4_qwen4_gpu_graph *g, const ds4_model 
     }
     ds4_gpu_tensor *const *s = g->mellum_scratch;
     const ds4_gpu_mellum_rope rope = mellum_rope_params();
-    bool ok = ds4_gpu_tensor_write(s[MELLUM_S_TOKENS], 0, tokens, (uint64_t)T * sizeof(int32_t)) != 0 &&
+    ds4_mellum_capture *capture=g->mellum_capture;
+    bool ok = (!capture ||
+               (mellum_capture_forward_begin(&capture->core,&capture->scope,pos0,T,logits_out!=NULL) &&
+                mellum_observer_enter(&capture->scope))) && ds4_gpu_tensor_write(s[MELLUM_S_TOKENS], 0, tokens, (uint64_t)T * sizeof(int32_t)) != 0 &&
               glm_graph_begin_commands_if_needed() &&
               ds4_gpu_embed_tokens_q8_0_tensor(s[MELLUM_S_HIDDEN], s[MELLUM_S_TOKENS], m->map, m->size,
                                                w->token_embd->abs_offset, (uint32_t)w->token_embd->dim[1], T, E) != 0;
@@ -60804,6 +60809,12 @@ static bool mellum_graph_forward_tokens(ds4_qwen4_gpu_graph *g, const ds4_model 
     for (uint32_t il = 0; il < n_layer && ok; il++) {
         ok = mellum_graph_layer(g, m, &w->layer[il], il, full_slot, pos0, T, &rope);
         if (!ds4_mellum_layer_is_sliding(il)) full_slot++;
+        if (ok && capture) {
+            mellum_routes_layout_info layout;
+            ok=mellum_routes_layout(g->cap_tokens,T,il,&layout) &&
+               ds4_gpu_tensor_copy(capture->gpu,layout.layer_offset,s[MELLUM_S_SELECTED],0,layout.copy_bytes) &&
+               mellum_capture_layer(&capture->core,il);
+        }
 #ifdef DS4_MELLUM_ROUTES_TEST
         /* Test executable only: preserve IDs before the next layer reuses them. */
         if (ok) ok = route_layer(g->cap_tokens, il, T, s[MELLUM_S_SELECTED]);
@@ -60851,6 +60862,13 @@ static bool mellum_graph_forward_tokens(ds4_qwen4_gpu_graph *g, const ds4_model 
     }
     if (ds4_gpu_commands_active() && !ds4_gpu_end_commands()) ok = false;
     free(hid); free(ffn); free(qk); free(row_logits);
+    if (capture) {
+        bool observed=mellum_observer_leave(&capture->scope);
+        ok=ok && observed && ds4_gpu_tensor_read(capture->gpu,0,capture->host,capture->bytes) &&
+           mellum_capture_forward_end(&capture->core,&capture->scope,true,(const uint32_t *)tokens,T,
+                                      capture->host,(size_t)(capture->bytes/sizeof(uint32_t)));
+        if (!ok) mellum_capture_abort(&capture->core,&capture->scope);
+    }
 #ifdef DS4_MELLUM_ROUTES_TEST
     /* Completion above is the ordinary forward wait, including no-logits calls. */
     if (ok) ok = route_done(pos0, T, tokens);
@@ -88940,8 +88958,42 @@ bool ds4_test_session_graph_pos(ds4_session *s, uint32_t *pos) {
 int ds4_mellum_capture_create(ds4_mellum_capture **out, ds4_engine *e, int ctx,
         const ds4_mellum_capture_options *opts, char *err, size_t n) {
     if (out) *out=NULL;
+#ifdef DS4_HAS_QWEN4_METAL
+    if (!out || !e || !opts || !opts->spool_sink || ctx<=1 ||
+        e->backend!=DS4_BACKEND_METAL || !e->metal_ready || !ds4_model_is_mellum() ||
+        e->ssd_streaming || e->distributed.role!=DS4_DISTRIBUTED_NONE || e->tp.active ||
+        e->multi_tier || e->cuda_tensor_parallel || e->support_kind!=DS4_SUPPORT_NONE ||
+        e->mtp_ready || e->glm_mtp || e->dspark ||
+        !e->weights.token_embd || e->weights.token_embd->type!=DS4_TENSOR_Q8_0 ||
+        !e->weights.output || e->weights.output->type!=DS4_TENSOR_Q8_0 ||
+        (getenv("DS4_MELLUM_TRACE") && *getenv("DS4_MELLUM_TRACE")) ||
+        (getenv("DS4_MELLUM_TRACE_AT") && *getenv("DS4_MELLUM_TRACE_AT"))) {
+        if (err && n) snprintf(err,n,"Mellum capture unsupported engine, options or trace controls");
+        return 1;
+    }
+    ds4_mellum_capture *c=calloc(1,sizeof(*c));
+    mellum_routes_layout_info layout;
+    if (c && !ds4_session_create(&c->session,e,ctx) && c->session->qwen4_graph_ready &&
+        mellum_routes_layout(c->session->qwen4_graph.cap_tokens,1,0,&layout)) {
+        c->bytes=layout.buffer_bytes;
+        c->host=malloc((size_t)c->bytes);
+        c->gpu=ds4_gpu_tensor_alloc(c->bytes);
+        /* Start the spool only after the private session and every buffer exist. */
+        if (c->host && c->gpu && mellum_capture_state_init(&c->core,c->session->qwen4_graph.cap_tokens,
+                  opts->spool_sink,opts->spool_context,mellum_observer_catalog())) {
+            c->session->qwen4_graph.mellum_capture=c;
+            ds4_session_set_cancel(c->session,opts->cancel,opts->cancel_context);
+            *out=c;
+            if (err && n) err[0]=0;
+            return 0;
+        }
+    }
+    ds4_mellum_capture_free(c);
+    if (err && n) snprintf(err,n,"Mellum capture allocation or header failed");
+#else
     (void)e;(void)ctx;(void)opts;
     if (err && n) snprintf(err,n,"Mellum capture unsupported on this backend");
+#endif
     return 1;
 }
 static int mellum_capture_error(ds4_mellum_capture *c,char *err,size_t n,const char *message) {
