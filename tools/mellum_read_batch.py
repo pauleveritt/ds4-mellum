@@ -121,3 +121,60 @@ def verify_batch(batch_dir: Path) -> tuple[dict, dict]:
     common.integer(batch['timed_logical_bytes'],total,total)
     common.integer(total,1,BUDGET-1)
     return batch,jobs_by_key
+
+
+def distribution(values: list[float]) -> dict:
+    if not values or any(type(v) not in (int,float) or not math.isfinite(v) or v < 0 for v in values):
+        raise ValueError('nonempty finite nonnegative samples required')
+    ordered = sorted(values)
+    return {name:ordered[math.ceil(q*len(ordered))-1] for name,q in (('p50',.5),('p95',.95),('p99',.99),('max',1))}
+
+
+def validate_native(report: dict, jobs: list[dict], run: dict, expected_file: dict) -> dict:
+    try:
+        total = sum(sum(span['bytes'] for span in job['ranges']) for job in jobs)
+        maximum = max(sum(span['bytes'] for span in job['ranges']) for job in jobs)
+        common.integer(report['schema_version'],1,1)
+        common.integer(report['workers'],run['workers'],run['workers'])
+        common.integer(report['jobs'],len(jobs),len(jobs))
+        common.integer(report['logical_bytes'],total,total)
+        if report['mode'] != run['mode'] or report['physical_io_verified'] is not False:
+            raise ValueError('native mode/physical claim differs')
+        avoid = run['mode'] == 'avoid'
+        if any(report['cache_controls'][key] is not avoid for key in ('nocache','rdahead_disabled')):
+            raise ValueError('native cache controls differ')
+        if report['file'] != expected_file:
+            raise ValueError('native file identity differs')
+        for key in common.STAT_KEYS:
+            common.integer(report['file'][key],expected_file[key],expected_file[key])
+        summary = report['summary']
+        start = common.integer(summary['start_ns'],1)
+        end = common.integer(summary['end_ns'],start+1)
+        common.integer(summary['buffer_bytes'],run['workers']*maximum,run['workers']*maximum)
+        prewarm = 0 if avoid else total
+        common.integer(summary['prewarm_bytes'],prewarm,prewarm)
+        common.integer(summary['prewarm_syscalls'],0 if avoid else sum(len(j['ranges']) for j in jobs),
+                       0 if avoid else 2**63-1)
+        if len(report['samples']) != len(jobs):
+            raise ValueError('incomplete native samples')
+        queue, service, elapsed, details = [], [], [], []
+        for i,(sample,job) in enumerate(zip(report['samples'],jobs,strict=True)):
+            common.integer(sample['job_id'],i,i)
+            common.integer(sample['expert_id'],job['expert_id'],job['expert_id'])
+            common.integer(sample['enqueue_ns'],start,start)
+            began = common.integer(sample['start_ns'],start,end)
+            done = common.integer(sample['done_ns'],began,end)
+            size = sum(span['bytes'] for span in job['ranges'])
+            common.integer(sample['bytes'],size,size)
+            common.integer(sample['syscalls'],len(job['ranges']))
+            q,s,e = (began-start)/1e6, (done-began)/1e6, (done-start)/1e6
+            queue.append(q); service.append(s); elapsed.append(e)
+            details.append(dict(job_id=i,queue_ms=q,service_ms=s,end_to_end_ms=e))
+        calls = sum(sample['syscalls'] for sample in report['samples'])
+        return dict(logical_bytes=total,makespan_ms=(end-start)/1e6,bytes_per_second=total*1e9/(end-start),
+                    queue_ms=distribution(queue),service_ms=distribution(service),end_to_end_ms=distribution(elapsed),
+                    jobs=details,completion_order=sorted(range(len(jobs)),key=lambda i:(report['samples'][i]['done_ns'],i)),
+                    syscalls=calls,syscalls_per_job=calls/len(jobs),returned_read_bytes_per_logical_byte=1.0,
+                    physical_io_verified=False)
+    except (KeyError,TypeError,IndexError) as exc:
+        raise ValueError('malformed native report') from exc
