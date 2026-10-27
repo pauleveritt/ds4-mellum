@@ -147,7 +147,25 @@ static void check_finish(void) {
     puts("ok finish and short writes");
 }
 
-int main(void) {
+static size_t file_sink(void *ctx, const void *data, size_t bytes) {
+    return fwrite(data, 1, bytes, ctx);
+}
+
+static int write_fixture(const char *path) {
+    FILE *file = fopen(path, "wb");
+    if (!file) return 1;
+    mellum_routes_writer w;
+    uint32_t ids[452];
+    padded_ids(ids);
+    bool ok = mellum_routes_begin(&w, 2, file_sink, file) && emit_fixture(&w, ids) && mellum_routes_finish(&w);
+    if (fflush(file) != 0) ok = false;
+    if (fclose(file) != 0) ok = false;
+    return ok ? 0 : 1;
+}
+
+int main(int argc, char **argv) {
+    if (argc == 3 && strcmp(argv[1], "--emit-fixture") == 0) return write_fixture(argv[2]);
+    if (argc != 1) return 2;
     check_layout();
     check_frames();
     check_finish();

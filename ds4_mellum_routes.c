@@ -71,3 +71,12 @@ bool mellum_routes_forward(mellum_routes_writer *w, uint64_t forward, uint64_t p
     w->next_position = position + rows;
     return true;
 }
+
+bool mellum_routes_finish(mellum_routes_writer *w) {
+    if (!w || w->state != 1) return false;
+    if (!w->forwards) { w->state = 0; return false; }
+    if (!routes_bytes(w, "END1", 4) || !routes_word(w, w->forwards, 8) ||
+        !routes_word(w, w->positions, 8)) return false;
+    w->state = 2;
+    return true;
+}

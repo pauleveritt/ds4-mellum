@@ -28,4 +28,5 @@ bool mellum_routes_forward(mellum_routes_writer *w, uint64_t forward, uint64_t p
                            uint32_t rows, uint32_t phase, uint32_t segment_id, uint32_t execution_id,
                            const uint32_t *tokens, size_t token_count,
                            const uint32_t *selected, size_t selected_count);
+bool mellum_routes_finish(mellum_routes_writer *w);
 #endif
