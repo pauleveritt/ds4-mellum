@@ -24,10 +24,11 @@ test prompt, max |d logit| against the exact path is 2.0 (1,100 tokens) and 8.5
 (2,200), mean KL divergence 2.1e-3 and 1.7e-3, largest probability change 0.06,
 with the same top-1 token at every position (the experts alone: 0.65 and 0.87).
 
-Speed on the M5 Max (Q8_0, Metal), as measured at Checkpoint 3: prefill about
-2,000 t/s on a 2,200-token prompt and 1,900 t/s on 3,235 (CLI); generation 133
-t/s at short context and 119 t/s after 3,235 tokens. A short chat prompt (about
-25 tokens, under 32 rows) prefills at 440-510 t/s. The M4 Max was not measured. Session save/load refuses by name, and ds4-server
+Speed on the M5 Max (Q8_0, Metal), step 29, through the CLI after a rest, n = 3
+each: a short chat prompt prefills at 440-450 t/s and generates at 132.6-133.1
+t/s; a 3,235-token prompt prefills at 1,842-1,871 t/s and then generates at
+116.2-117.8 t/s. The trace driver's 2,200-token prefill: about 2,000 t/s. The M4
+Max was not measured. Session save/load refuses by name, and ds4-server
 and ds4-agent refuse a Mellum engine at startup (no Hermes tool syntax yet).
 
 Model-free tests: `make test-mellum`. With `DS4_TEST_MELLUM_MODEL` set,
@@ -88,7 +89,29 @@ Phase 3a (forward pass on Metal, identical to the old engine):
 - `f0332e3` ungated full attention on upstream's qwen4 decode kernels (step 17).
 - `2712e56` MoE, top-8 of 64 routed experts, no shared expert (step 18).
 - `b3f9897` the forward pass behind `DS4_MELLUM_TRACE`, and its trace driver (step 19).
-- `f86c6b4`, this commit: the oracle's token files and comparison script (step 20).
+- `f86c6b4`, `46d7d79`: the oracle's token files and comparison script (step 20).
+- `48296f7` the Unicode table ends with one newline; `51e898c` the oracle shown failing.
+- `9d2ff02` prefill equals decode, op by op (step 21).
+- `a27783e` the forward-pass refusal lifted; the CLI runs Mellum chats (step 22).
+- `322389e` compaction resumes an open reasoning block with `<think>` (step 23; the
+  rest of step 23 is in `5109a6d` and `a74bafe`).
+- `63c647f` session rewind keeps both caches one token back (step 24).
+
+Phase 3b (speed):
+- `e4a6595` experts as tiled GEMMs from 32 rows (step 25).
+- Step 26 not done: `kernel_qwen4_attn_mm` is fixed at head width 256 and gated
+  (`constexpr uint D = 256`); Mellum's full layers are 128 and ungated, so it
+  would need a kernel change, and the brief says to stop and report instead.
+- `219ac0a` Q8_0 projections batched from 32 rows (step 27).
+
+Phase 4 (CLI):
+- `c5c4e57` (red), `a6c2eb0` the CLI says when a turn stops at the -n cap (step 28).
+- `907094d` what `--nothink` does with Mellum (step 28).
+- `be82f23` (red), `b9dbf42` the speed line and session errors name Mellum (step 29).
+- This commit: the step-29 speed measurement.
+
+From step 28 on, commits follow smaller rules: one concern each, the failing
+test committed red on its own, at most about 150 lines of product code.
 
 ## Smoke runs
 
@@ -127,6 +150,8 @@ Step 22, M5 Max, Q8_0, `--temp 0`, n = 1 each:
 | batched projections crossover, one chunk | runs 3-8 of 8, projections exact vs batched (experts tiled from 32 in both) | 16 rows 0.048 vs 0.043 s; 32: 0.071 vs 0.059; 96: 0.127 vs 0.076; 256: 0.28 vs 0.13; 1,024: 1.21-1.31 vs 0.51-0.61. Threshold kept at 32 (one rule with the experts) | 6 per point |
 | committed code after step 27, 2,200 tokens prefill, after a 2-minute rest | `MELLUM_TRACE_REPEAT=6 tests/mellum_trace ...2200.tokens prefill` | 1,977-2,030 t/s, all six runs. Heat-soaked (many runs just before): 930-1,005 t/s, so rest before timing | 6 |
 | generation | `./ds4 -m $MODEL -c 8192 --temp 0 -n 512 -p "Explain how a hash map works, with an example in C."` (CLI's own line) | 133.3-133.5 t/s generation; prefill of the ~25-token prompt 439-511 t/s | 3 |
+| step 29, short prompt, after a 2-minute rest, 30 s between runs | the same command | prefill 439.6, 440.6, 450.4 t/s; generation 132.6, 133.1, 133.1 t/s (each turn stopped at the 512 cap) | 3 |
+| step 29, 3,235-token prompt, 30 s between runs | `./ds4 -m $MODEL -c 8192 --temp 0 -n 256 --prompt-file PROMPT` (9,000 characters of promessi_sposi.txt and "Summarize the text above in three sentences.") | prefill 1,842, 1,871, 1,846 t/s; generation 116.2, 117.8, 116.6 t/s | 3 |
 | long-prompt prefill and generation | `./ds4 ... -n 256 --prompt-file` (9,000 characters of promessi_sposi.txt and a request: 3,235 tokens) | prefill 1,900 t/s, generation 119 t/s | 1 |
 | Metal 4 tensor API | the startup line of any run | "ds4: Metal 4 tensor API enabled for Tensor kernels" on the M5 Max; `tensor_matmul=off` with `DS4_METAL_DISABLE_METAL4=1`. M4: not measured (no M4 here) | 1 |
 | batched + tiled prefill vs the old engine / exact decode, 64 positions | `tests/mellum_oracle_compare.sh ORACLE_DIR $MODEL 64` (after step 27; rule: top-1 everywhere, max\|d\| <= 10, mean KL <= 0.01) | 1,100: max\|d logit\| 2.008, mean KL 2.1e-3, top-1 65/65; 2,200: 8.471, 1.7e-3, 65/65; short prompt and every decode byte-equal; 64/64 greedy equal; PASS | 1 |
