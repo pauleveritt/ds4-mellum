@@ -78,3 +78,32 @@ def make_jobs(index: dict, ids: list[tuple[int, int]], layout: str) -> list[dict
             dest += span['bytes']
         jobs.append(dict(job_id=job_id, expert_id=layer * 64 + expert, ranges=ranges))
     return jobs
+
+
+def encode_plan(jobs: list[dict], file_bytes: int) -> bytes:
+    common.integer(file_bytes, 1)
+    common.integer(len(jobs), 1, 4096)
+    records = []
+    total, maximum = 0, 0
+    try:
+        for i, job in enumerate(jobs):
+            common.integer(job['job_id'], i, i)
+            expert = common.integer(job['expert_id'], 0, 1791)
+            common.integer(len(job['ranges']), 1, 3)
+            dest = 0
+            for span in job['ranges']:
+                offset = common.integer(span['offset'])
+                length = common.integer(span['bytes'], 1, 6580224)
+                common.integer(span['dest'], dest, dest)
+                if offset > file_bytes or length > file_bytes - offset:
+                    raise ValueError('read span exceeds file')
+                records.append(struct.pack('<IIQQQ', i, expert, offset, length, dest))
+                dest += length
+            common.integer(dest, 1, 6580224)
+            total += dest
+            maximum = max(maximum, dest)
+    except (KeyError, TypeError) as exc:
+        raise ValueError('malformed logical read jobs') from exc
+    header = struct.pack('<8sIIIIQQQQQ', b'MLREAD01', 1, 64, len(jobs), len(records),
+                         file_bytes, total, maximum, 0, 0)
+    return header + b''.join(records)
