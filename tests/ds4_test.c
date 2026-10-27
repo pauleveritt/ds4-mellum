@@ -7985,6 +7985,20 @@ static void test_mellum_server_parse(void) {
         TEST_ASSERT(text && !strcmp(text, want.ptr));
         free(text); buf_free(&want); chat_msgs_free(&msgs);
     }
+    {   /* the client sends the arguments back as the server returned them (minified); tool memory restores the
+         * sampled call text, and the render uses it, so the turn still matches the KV */
+        chat_msgs msgs = {0};
+        chat_msgs_push(&msgs, (chat_msg){.role = xstrdup("user"), .content = xstrdup("Q")});
+        chat_msg a = {.role = xstrdup("assistant"), .content = xstrdup(""), .reasoning = xstrdup("Read it first.")};
+        tool_calls_push(&a.calls, (tool_call){.id = xstrdup("c1"), .name = xstrdup("read"),
+                                              .arguments = xstrdup("{\"path\":\"hello.py\"}")});
+        a.calls.raw_tool_text = xstrdup("<tool_call>\n{\"name\": \"read\", \"arguments\": {\"path\": \"hello.py\"}}\n</tool_call>");
+        chat_msgs_push(&msgs, a);
+        char *text = render_chat_prompt_text_for_syntax(SERVER_MODEL_SYNTAX_HERMES, &msgs, NULL, NULL, DS4_THINK_HIGH);
+        TEST_ASSERT(text && strstr(text, "{\"path\": \"hello.py\"}") != NULL && strstr(text, "{\"path\":\"hello.py\"}") == NULL);
+        free(text);
+        chat_msgs_free(&msgs);
+    }
     /* content, then two calls; a call's end marker inside a JSON string is text */
     mellum_parse("<think>\nTwo.\n</think>\n\nWriting.\n<tool_call>\n{\"name\": \"write\", \"arguments\": {\"path\": \"a\", \"content\": \"x </tool_call> y\"}}\n</tool_call>\n<tool_call>\n{\"name\": \"bash\", \"arguments\": {\"command\": \"ls\"}}\n</tool_call>",
                  true, &content, &reasoning, &calls);
