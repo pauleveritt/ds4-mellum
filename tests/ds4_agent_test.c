@@ -1059,6 +1059,79 @@ static void test_hermes_greedy_boundaries(void) {
     agent_dsml_parser_free(&p);
 }
 
+/* numbers, booleans, null and nested values are kept as their raw JSON text */
+static void test_hermes_raw_values(void) {
+    const char *text =
+        "<tool_call>\n{\"name\": \"read\", \"arguments\": {\"path\": \"x\", \"offset\": 12, \"limit\": 3}}\n</tool_call>\n"
+        "<tool_call>\n{\"name\": \"edit\", \"arguments\": {\"path\": \"f\", \"edits\": "
+        "[{\"oldText\": \"a\\\"b]}\", \"newText\": \"c\"}, {\"oldText\": \"x\", \"newText\": \"y\"}]}}\n</tool_call>\n"
+        "<tool_call>\n{\"name\": \"bash\", \"arguments\": {\"command\": \"ls\", \"timeout\": 5, \"bg\": false}}\n</tool_call>";
+    const size_t text_len = strlen(text);
+    for (size_t step = 1; step <= text_len; step += text_len - 1) {   /* a byte at a time, then whole */
+        agent_dsml_parser p = hermes_parser();
+        for (size_t i = 0; i < text_len; i += step)
+            agent_dsml_feed(&p, text + i, text_len - i < step ? text_len - i : step);
+        agent_dsml_finish(&p);
+        AGENT_TEST_ASSERT(p.state == AGENT_DSML_DONE);
+        AGENT_TEST_ASSERT(p.calls.len == 3);
+        if (p.calls.len == 3) {
+            const agent_tool_call *r = &p.calls.v[0], *e = &p.calls.v[1], *b = &p.calls.v[2];
+            AGENT_TEST_ASSERT(!strcmp(agent_tool_arg_value(r, "offset"), "12"));
+            AGENT_TEST_ASSERT(!strcmp(agent_tool_arg_value(r, "limit"), "3"));
+            AGENT_TEST_ASSERT(r->args[0].is_string && !r->args[1].is_string && !r->args[2].is_string);
+            AGENT_TEST_ASSERT(!strcmp(agent_tool_arg_value(e, "edits"),
+                "[{\"oldText\": \"a\\\"b]}\", \"newText\": \"c\"}, {\"oldText\": \"x\", \"newText\": \"y\"}]"));
+            AGENT_TEST_ASSERT(!e->args[1].is_string);
+            AGENT_TEST_ASSERT(!strcmp(agent_tool_arg_value(b, "timeout"), "5"));
+            AGENT_TEST_ASSERT(!strcmp(agent_tool_arg_value(b, "bg"), "false"));
+        }
+        agent_dsml_parser_free(&p);
+    }
+
+    /* what json.loads refuses as a value is refused; what it takes is taken */
+    char err[160];
+    int n;
+    const char *bad[] = {"1x", "0x10", "nan", "01", "1.", "-", "+1", "inf", "1e", "[0x1]", "[1,]", "tru", "{\"a\" 1}"};
+    for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
+        char body[200];
+        snprintf(body, sizeof(body), "{\"name\": \"read\", \"arguments\": {\"offset\": %s}}\n</tool_call>", bad[i]);
+        AGENT_TEST_ASSERT(hermes_parse_all(body, err, sizeof(err), &n) == AGENT_DSML_ERROR);
+    }
+    const char *good[] = {"0", "-0", "7", "-1.5e3", "2E+2", "true", "false", "null", "[1, 2.5, {\"a\": null}]", "{}"};
+    for (size_t i = 0; i < sizeof(good) / sizeof(good[0]); i++) {
+        char body[200];
+        snprintf(body, sizeof(body), "{\"name\": \"read\", \"arguments\": {\"offset\": %s}}\n</tool_call>", good[i]);
+        AGENT_TEST_ASSERT(hermes_parse_all(body, err, sizeof(err), &n) == AGENT_DSML_DONE && n == 1);
+    }
+    /* nesting past the limit is refused; at the limit it is taken */
+    char deep[700], ok[700];
+    int k = 0;
+    k += snprintf(deep + k, sizeof(deep) - (size_t)k, "{\"name\": \"read\", \"arguments\": {\"x\": ");
+    memcpy(ok, deep, (size_t)k);
+    for (int i = 0; i < 257; i++) deep[k + i] = '[';
+    for (int i = 0; i < 257; i++) deep[k + 257 + i] = ']';
+    snprintf(deep + k + 514, sizeof(deep) - (size_t)k - 514, "}}\n</tool_call>");
+    for (int i = 0; i < 256; i++) ok[k + i] = '[';
+    for (int i = 0; i < 256; i++) ok[k + 256 + i] = ']';
+    snprintf(ok + k + 512, sizeof(ok) - (size_t)k - 512, "}}\n</tool_call>");
+    AGENT_TEST_ASSERT(hermes_parse_all(deep, err, sizeof(err), &n) == AGENT_DSML_ERROR);
+    AGENT_TEST_ASSERT(hermes_parse_all(ok, err, sizeof(err), &n) == AGENT_DSML_DONE && n == 1);
+
+    /* a nested edits array is sampled, not greedy: it holds the code being written */
+    agent_tail_capture tail = {.cap = 4096};
+    agent_token_renderer renderer = {.format_thinking = true, .last_output_newline = true, .capture = &tail};
+    agent_dsml_parser p = hermes_parser();
+    agent_stream_renderer stream = {.renderer = &renderer, .parser = &p, .syntax = AGENT_TOOL_SYNTAX_HERMES};
+    const char *edit = "<tool_call>\n{\"name\": \"edit\", \"arguments\": {\"path\": \"f\", \"edits\": [{\"oldText\": \"a";
+    agent_stream_text(&stream, edit, strlen(edit), false);
+    AGENT_TEST_ASSERT(p.state == AGENT_DSML_PARAM_VALUE);
+    AGENT_TEST_ASSERT(!agent_stream_wants_greedy_sampling(&stream));
+    agent_stream_text(&stream, NULL, 0, true);
+    renderer_finish(&renderer);
+    free(agent_tail_capture_take(&tail, NULL));
+    agent_dsml_parser_free(&p);
+}
+
 static void test_hermes_tool_syntax(void) {
     test_hermes_syntax_basics();
     test_hermes_split_points();
@@ -1066,6 +1139,7 @@ static void test_hermes_tool_syntax(void) {
     test_hermes_markers_inside_strings();
     test_hermes_errors();
     test_hermes_greedy_boundaries();
+    test_hermes_raw_values();
 }
 
 static void test_v41_tool_syntax(void) {
