@@ -7981,7 +7981,7 @@ static void test_mellum_server_parse(void) {
         buf want = {0};
         buf_puts(&want, "<|im_start|>user\nQ<|im_end|>\n<|im_start|>assistant\n");
         buf_puts(&want, one);
-        buf_puts(&want, "<|im_end|>\n");
+        buf_puts(&want, "<|im_end|>\n<|im_start|>assistant\n");     /* and the generation prompt, as always */
         TEST_ASSERT(text && !strcmp(text, want.ptr));
         free(text); buf_free(&want); chat_msgs_free(&msgs);
     }

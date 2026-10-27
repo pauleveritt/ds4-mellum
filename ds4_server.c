@@ -3606,10 +3606,10 @@ static void append_hermes_conversation(buf *b, const chat_msgs *msgs, int start,
             if (i == n - 1 || !hermes_is_tool_message(&msgs->v[i + 1])) buf_puts(b, "<|im_end|>\n");
         }
     }
-    if (n == 0 || strcmp(msgs->v[n - 1].role, "assistant") != 0) {
-        buf_puts(b, "<|im_start|>assistant\n");
-        if (!ds4_think_mode_enabled(think_mode)) buf_puts(b, "<think>\n\n</think>\n\n");
-    }
+    /* the template appends the generation prompt whenever add_generation_prompt is set, after a
+     * final assistant turn too: the server has no assistant-prefill semantics for Mellum */
+    buf_puts(b, "<|im_start|>assistant\n");
+    if (!ds4_think_mode_enabled(think_mode)) buf_puts(b, "<think>\n\n</think>\n\n");
 }
 
 /* Mellum 2.1's chat_template.jinja: the first system message (with the tools block when
