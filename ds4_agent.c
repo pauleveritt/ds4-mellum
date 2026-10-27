@@ -10321,18 +10321,23 @@ static char *pi_tool_read(const agent_tool_call *call) {
     double offset = 0, limit = 0;
     const bool has_offset = pi_number_arg(call, "offset", &offset) && offset != 0;
     const bool has_limit = pi_number_arg(call, "limit", &limit);
+    /* clamp before converting: a double past the range of size_t is undefined behaviour, and past
+     * the file's end every offset and limit reads the same; a negative limit reads nothing */
+    if (offset > (double)total + 1.0) offset = (double)total + 1.0;
+    if (limit > (double)total) limit = (double)total;
+    if (limit < 0) limit = 0;
     size_t start_line = has_offset && offset > 1 ? (size_t)offset - 1 : 0;
     if (start_line >= total) {
-        char *msg = xmalloc(128);
-        snprintf(msg, 128, "Offset %s is beyond end of file (%zu lines total)",
-                 agent_tool_arg_value(call, "offset"), total);
+        const char *given = agent_tool_arg_value(call, "offset");
+        char *msg = xmalloc(strlen(given) + 96);
+        sprintf(msg, "Offset %s is beyond end of file (%zu lines total)", given, total);
         free(file.ptr);
         return msg;
     }
     const size_t sb = pi_line_start(d, n, start_line);
     size_t eb = n, user_limited = 0;
     if (has_limit) {
-        size_t lim = limit > 0 ? (size_t)limit : 0;
+        const size_t lim = (size_t)limit;
         size_t end_line = start_line + lim < total ? start_line + lim : total;
         user_limited = end_line - start_line;
         if (end_line == start_line) eb = sb;
