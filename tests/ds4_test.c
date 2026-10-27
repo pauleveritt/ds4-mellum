@@ -8078,6 +8078,58 @@ static void test_mellum_server_visible_text(void) {
         printf("mellum-server: a finished turn's remembered text is the next request's render of it\n");
 }
 
+/* After a Mellum tool-call turn the session continues: the live tail appends the tool results to the KV (the turn's
+ * <|im_end|> was the stop token), and a malformed call is answered with an error result in the same shape */
+static void test_mellum_server_continuations(void) {
+    const int failures_before = test_failures;
+    const char *q[] = {"user"}, *qc[] = {"Q"};
+    char *prompt = mellum_render(q, qc, NULL, NULL, 1, true);
+    request r = {0};
+    r.kind = REQ_CHAT;
+    r.model_syntax = SERVER_MODEL_SYNTAX_HERMES;
+    r.think_mode = DS4_THINK_HIGH;
+    r.prompt_text = prompt;
+    tool_calls calls = {0};
+    tool_calls_push(&calls, (tool_call){.id = xstrdup("c1"), .name = xstrdup("bash"),
+                                        .arguments = xstrdup("{\"command\": \"ls\"}")});
+    char *turn = build_tool_checkpoint_suffix(&r, "", "Use bash.", &calls);
+    turn[strlen(turn) - strlen("<|im_end|>")] = '\0';              /* the KV stops before the stop token */
+    const char *roles[] = {"user", "assistant", "tool", "tool"}, *contents[] = {"Q", "", "a.txt", "b.txt"};
+    chat_msgs msgs = {0};
+    for (int i = 0; i < 4; i++) {
+        chat_msg m = {.role = xstrdup(roles[i]), .content = xstrdup(contents[i])};
+        if (i == 1) {
+            m.reasoning = xstrdup("Use bash.");
+            tool_calls_push(&m.calls, (tool_call){.id = xstrdup("c1"), .name = xstrdup("bash"),
+                                                  .arguments = xstrdup("{\"command\": \"ls\"}")});
+        }
+        chat_msgs_push(&msgs, m);
+    }
+    char *full = render_chat_prompt_text_for_syntax(SERVER_MODEL_SYNTAX_HERMES, &msgs, NULL, NULL, DS4_THINK_HIGH);
+    char *tail = render_live_tool_tail_for_syntax(SERVER_MODEL_SYNTAX_HERMES, &msgs, 2, NULL, DS4_THINK_HIGH);
+    buf live = {0};
+    buf_puts(&live, prompt);
+    buf_puts(&live, turn);
+    buf_puts(&live, tail ? tail : "<none>");
+    TEST_ASSERT(full && !strcmp(live.ptr, full));
+    buf_free(&live); free(full); free(tail); free(turn); chat_msgs_free(&msgs);
+
+    thinking_state thinking = {0};
+    char *bad = build_invalid_tool_call_error_suffix(&r, &thinking, "invalid JSON");
+    TEST_ASSERT(starts_with(bad, "<|im_end|>\n<|im_start|>user\n<tool_response>\nTool error: invalid Hermes tool call: invalid JSON\n"));
+    TEST_ASSERT(bad && strstr(bad, "\n</tool_response><|im_end|>\n<|im_start|>assistant\n") != NULL);
+    TEST_ASSERT(bad && strlen(bad) > 20 && !strcmp(bad + strlen(bad) - 22, "<|im_start|>assistant\n"));
+    free(bad);
+    thinking.inside = true;                       /* a call made inside the think block closes it first */
+    bad = build_invalid_tool_call_error_suffix(&r, &thinking, NULL);
+    TEST_ASSERT(starts_with(bad, "\n</think>\n\n<|im_end|>\n<|im_start|>user\n<tool_response>\nTool error: invalid Hermes tool call\n"));
+    free(bad);
+    tool_calls_free(&calls);
+    free(prompt);
+    if (test_failures == failures_before)
+        printf("mellum-server: a live tool tail continues the KV to the full render; a malformed call gets a Hermes error turn\n");
+}
+
 /* With the real vocabulary (DS4_TEST_MELLUM_MODEL): each rendered case, tokenized as the server tokenizes a prompt
  * (ds4_tokenize_rendered_chat), gives the template's ids. */
 static void test_mellum_server_ids(void) {
@@ -8124,6 +8176,7 @@ static void test_server_unit_group(void) {
     test_mellum_server_render();
     test_mellum_server_parse();
     test_mellum_server_visible_text();
+    test_mellum_server_continuations();
 }
 
 typedef void (*test_fn)(void);
