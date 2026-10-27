@@ -1651,3 +1651,15 @@ test-mellum-read-io: tests/test_mellum_read_io
 clean-mellum-read-io:
 	rm -f tests/test_mellum_read_io
 clean: clean-mellum-read-io
+
+tests/test_mellum_read_run: tests/test_mellum_read_run.c tools/mellum_read_run.c tools/mellum_read_io.c tools/mellum_read.h tests/mellum_read_run_faults.h
+	$(CC) $(MELLUM_READ_CFLAGS) -include tests/mellum_read_run_faults.h tests/test_mellum_read_run.c tools/mellum_read_run.c tools/mellum_read_io.c -o $@
+
+.PHONY: test-mellum-read-run
+test-mellum-read-run: tests/test_mellum_read_run
+	./tests/test_mellum_read_run
+
+.PHONY: clean-mellum-read-run
+clean-mellum-read-run:
+	rm -f tests/test_mellum_read_run tools/mellum_read_bench
+clean: clean-mellum-read-run
