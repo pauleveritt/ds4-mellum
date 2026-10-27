@@ -271,6 +271,20 @@ def test_native_receipt_and_catalog_bounds():
             with raises('receipt'):
                 parser.read_receipt(path, exporter)
 
+
+def test_publication_requires_a_rebuilt_binary():
+    with publication() as (publisher, arguments, calls):
+        original = publisher._run
+        def no_build(command, *, cwd, env, log):
+            if command[0] == 'make':
+                log.write_text('compiler did not produce a binary\n')
+            else:
+                original(command, cwd=cwd, env=env, log=log)
+        with patch.object(publisher, '_run', no_build):
+            with raises('rebuilt'):
+                publisher.publish(**arguments)
+        assert not arguments['output'].exists()
+
 def load_tests(loader, tests, pattern):
     return unittest.TestSuite(unittest.FunctionTestCase(value) for name, value in sorted(globals().items())
                               if name.startswith('test_') and callable(value))
