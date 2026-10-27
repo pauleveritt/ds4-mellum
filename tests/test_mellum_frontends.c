@@ -268,6 +268,16 @@ static void check_pi_read(const char *dir) {
     PI_EXPECT(pi_run("read", "path", five, "offset", "#2", "limit", "#2", NULL),
               "l2\nl3\n\n[3 more lines in file. Use offset=4 to continue.]");
     PI_EXPECT(pi_run("read", "path", five, "offset", "#99", NULL), "Offset 99 is beyond end of file (6 lines total)");
+    /* absurd numbers are clamped to the file before any conversion: Pi's Math.min, without C's undefined cast */
+    PI_EXPECT(pi_run("read", "path", five, "limit", "#1e30", NULL), "l1\nl2\nl3\nl4\nl5\n");
+    PI_EXPECT(pi_run("read", "path", five, "offset", "#2", "limit", "#1e30", NULL), "l2\nl3\nl4\nl5\n");
+    PI_EXPECT(pi_run("read", "path", five, "offset", "#1e30", NULL), "Offset 1e30 is beyond end of file (6 lines total)");
+    PI_EXPECT(pi_run("read", "path", five, "offset", "#18446744073709551617", NULL),
+              "Offset 18446744073709551617 is beyond end of file (6 lines total)");
+    /* a negative limit reads nothing and says how much is left (Pi's own arithmetic would count past the start) */
+    PI_EXPECT(pi_run("read", "path", five, "limit", "#-3", NULL), "\n\n[6 more lines in file. Use offset=1 to continue.]");
+    PI_EXPECT(pi_run("read", "path", five, "offset", "#-4", "limit", "#1", NULL),
+              "l1\n\n[5 more lines in file. Use offset=2 to continue.]");
     char *missing = xmalloc(strlen(dir) + 16);
     sprintf(missing, "%s/nope.txt", dir);
     PI_EXPECT_PREFIX(pi_run("read", "path", missing, NULL), "ENOENT: no such file or directory, access '");
