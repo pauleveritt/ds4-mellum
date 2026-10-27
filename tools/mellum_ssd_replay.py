@@ -8,6 +8,7 @@ from dataclasses import asdict, dataclass
 from decimal import Decimal, InvalidOperation
 import hashlib
 import heapq
+import io
 import json
 import math
 import re
@@ -551,7 +552,7 @@ def main() -> None:
     try:
         raw = args.trace.read_bytes()
         digest = hashlib.sha256(raw).hexdigest()
-        trace = load_trace(raw.decode("utf-8").splitlines(keepends=True))
+        trace = load_trace(io.StringIO(raw.decode("utf-8"), newline=None))
         report = run_sweep(trace, args.cache_gib, trace_sha256=digest)
     except (OSError, ValueError) as exc:
         parser.error(str(exc))
