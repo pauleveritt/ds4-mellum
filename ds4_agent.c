@@ -10442,6 +10442,302 @@ static char *pi_tool_write(const agent_tool_call *call) {
     return msg;
 }
 
+/* ---- edit (edit.js, edit-diff.js) ---- */
+
+typedef struct {
+    char *old_text;
+    char *new_text;
+} pi_edit;
+
+typedef struct {
+    pi_edit *v;
+    size_t len;
+} pi_edits;
+
+static void pi_edits_free(pi_edits *e) {
+    for (size_t i = 0; i < e->len; i++) { free(e->v[i].old_text); free(e->v[i].new_text); }
+    free(e->v);
+    memset(e, 0, sizeof(*e));
+}
+
+static void pi_edits_add(pi_edits *e, char *old_text, char *new_text) {
+    e->v = xrealloc(e->v, (e->len + 1) * sizeof(e->v[0]));
+    e->v[e->len].old_text = old_text;
+    e->v[e->len].new_text = new_text;
+    e->len++;
+}
+
+/* One {"oldText": "...", "newText": "..."} object, with the cursor on its '{'. */
+static bool pi_parse_edit_object(const char **p, pi_edit *out) {
+    char *old_text = NULL, *new_text = NULL;
+    json_ws(p);
+    if (**p != '{') return false;
+    (*p)++;
+    json_ws(p);
+    while (**p && **p != '}') {
+        char *key = NULL;
+        if (!json_string(p, &key)) goto bad;
+        json_ws(p);
+        if (**p != ':') { free(key); goto bad; }
+        (*p)++;
+        json_ws(p);
+        if (!strcmp(key, "oldText") || !strcmp(key, "newText")) {
+            char *val = NULL;
+            if (!json_string(p, &val)) { free(key); goto bad; }
+            if (!strcmp(key, "oldText")) { free(old_text); old_text = val; }
+            else { free(new_text); new_text = val; }
+        } else if (!json_skip_value(p)) {
+            free(key);
+            goto bad;
+        }
+        free(key);
+        json_ws(p);
+        if (**p == ',') { (*p)++; json_ws(p); }
+        else if (**p != '}') goto bad;
+    }
+    if (**p != '}' || !old_text || !new_text) goto bad;
+    (*p)++;
+    out->old_text = old_text;
+    out->new_text = new_text;
+    return true;
+bad:
+    free(old_text);
+    free(new_text);
+    return false;
+}
+
+/* edits as Pi's prepareArguments accepts them: an array, or a single edit object. */
+static bool pi_parse_edits_json(const char *json, pi_edits *out) {
+    const char *p = json;
+    json_ws(&p);
+    if (*p == '{') {
+        pi_edit e;
+        if (!pi_parse_edit_object(&p, &e)) return false;
+        pi_edits_add(out, e.old_text, e.new_text);
+        json_ws(&p);
+        return *p == '\0';
+    }
+    if (*p != '[') return false;
+    p++;
+    json_ws(&p);
+    while (*p && *p != ']') {
+        pi_edit e;
+        if (!pi_parse_edit_object(&p, &e)) return false;
+        pi_edits_add(out, e.old_text, e.new_text);
+        json_ws(&p);
+        if (*p == ',') { p++; json_ws(&p); }
+        else if (*p != ']') return false;
+    }
+    if (*p != ']') return false;
+    p++;
+    json_ws(&p);
+    return *p == '\0';
+}
+
+static char *pi_normalize_to_lf(const char *s, size_t n, size_t *out_len) {
+    char *out = xmalloc(n + 1);
+    size_t o = 0;
+    for (size_t i = 0; i < n; i++) {
+        if (s[i] == '\r') {
+            out[o++] = '\n';
+            if (i + 1 < n && s[i + 1] == '\n') i++;
+        } else {
+            out[o++] = s[i];
+        }
+    }
+    out[o] = '\0';
+    if (out_len) *out_len = o;
+    return out;
+}
+
+typedef struct {
+    size_t index;
+    size_t length;
+    const char *new_text;
+    size_t new_len;
+    size_t edit_index;
+} pi_match;
+
+static int pi_match_cmp(const void *a, const void *b) {
+    const pi_match *x = a, *y = b;
+    return x->index < y->index ? -1 : x->index > y->index;
+}
+
+/* How many times needle occurs in hay, counted left to right without overlap (split().length - 1). */
+static size_t pi_count_occurrences(const char *hay, size_t hay_len, const char *needle, size_t needle_len) {
+    size_t count = 0;
+    const char *p = hay, *end = hay + hay_len;
+    while (p < end) {
+        const char *m = agent_memmem(p, (size_t)(end - p), needle, needle_len);
+        if (!m) break;
+        count++;
+        p = m + needle_len;
+    }
+    return count;
+}
+
+static void pi_apply_replacements(agent_buf *out, const char *content, size_t len,
+                                  const pi_match *m, size_t count, size_t offset) {
+    size_t pos = 0;
+    for (size_t i = 0; i < count; i++) {
+        size_t at = m[i].index - offset;
+        agent_buf_append(out, content + pos, at - pos);
+        agent_buf_append(out, m[i].new_text, m[i].new_len);
+        pos = at + m[i].length;
+    }
+    agent_buf_append(out, content + pos, len - pos);
+}
+
+/* applyEditsToNormalizedContent, exact matching: every edit is matched against the same original
+ * text; each must be found, unique and disjoint from the others.  (Pi's fuzzy pass, which counts
+ * occurrences on normalized text, is step 35.)  Returns the new text, or NULL with Pi's error
+ * message in *error. */
+static char *pi_apply_edits(const char *content, size_t content_len, const pi_edits *edits,
+                            const char *path, size_t *new_len, char **error) {
+    const size_t n = edits->len;
+    char **old_lf = xmalloc(n * sizeof(char *)), **new_lf = xmalloc(n * sizeof(char *));
+    size_t *old_len = xmalloc(n * sizeof(size_t)), *nlen = xmalloc(n * sizeof(size_t));
+    pi_match *matches = xmalloc(n * sizeof(pi_match));
+    char *result = NULL;
+    char msg[PATH_MAX + 256];
+    msg[0] = '\0';
+    for (size_t i = 0; i < n; i++) {
+        old_lf[i] = pi_normalize_to_lf(edits->v[i].old_text, strlen(edits->v[i].old_text), &old_len[i]);
+        new_lf[i] = pi_normalize_to_lf(edits->v[i].new_text, strlen(edits->v[i].new_text), &nlen[i]);
+    }
+    for (size_t i = 0; i < n; i++) {
+        if (old_len[i] == 0) {
+            if (n == 1) snprintf(msg, sizeof(msg), "oldText must not be empty in %s.", path);
+            else snprintf(msg, sizeof(msg), "edits[%zu].oldText must not be empty in %s.", i, path);
+            goto done;
+        }
+    }
+    for (size_t i = 0; i < n; i++) {
+        const char *at = agent_memmem(content, content_len, old_lf[i], old_len[i]);
+        if (!at) {
+            if (n == 1)
+                snprintf(msg, sizeof(msg), "Could not find the exact text in %s. The old text must match exactly including all whitespace and newlines.", path);
+            else
+                snprintf(msg, sizeof(msg), "Could not find edits[%zu] in %s. The oldText must match exactly including all whitespace and newlines.", i, path);
+            goto done;
+        }
+        const size_t occurrences = pi_count_occurrences(content, content_len, old_lf[i], old_len[i]);
+        if (occurrences > 1) {
+            if (n == 1)
+                snprintf(msg, sizeof(msg), "Found %zu occurrences of the text in %s. The text must be unique. Please provide more context to make it unique.", occurrences, path);
+            else
+                snprintf(msg, sizeof(msg), "Found %zu occurrences of edits[%zu] in %s. Each oldText must be unique. Please provide more context to make it unique.", occurrences, i, path);
+            goto done;
+        }
+        matches[i] = (pi_match){.index = (size_t)(at - content), .length = old_len[i],
+                                .new_text = new_lf[i], .new_len = nlen[i], .edit_index = i};
+    }
+    qsort(matches, n, sizeof(matches[0]), pi_match_cmp);
+    for (size_t i = 1; i < n; i++) {
+        if (matches[i - 1].index + matches[i - 1].length > matches[i].index) {
+            snprintf(msg, sizeof(msg), "edits[%zu] and edits[%zu] overlap in %s. Merge them into one edit or target disjoint regions.",
+                     matches[i - 1].edit_index, matches[i].edit_index, path);
+            goto done;
+        }
+    }
+    {
+        agent_buf out = {0};
+        pi_apply_replacements(&out, content, content_len, matches, n, 0);
+        const size_t rl = out.len;
+        result = agent_buf_take(&out);
+        if (rl == content_len && memcmp(result, content, rl) == 0) {
+            free(result);
+            result = NULL;
+            if (n == 1)
+                snprintf(msg, sizeof(msg), "No changes made to %s. The replacement produced identical content. This might indicate an issue with special characters or the text not existing as expected.", path);
+            else
+                snprintf(msg, sizeof(msg), "No changes made to %s. The replacements produced identical content.", path);
+            goto done;
+        }
+        *new_len = rl;
+    }
+done:
+    for (size_t i = 0; i < n; i++) { free(old_lf[i]); free(new_lf[i]); }
+    free(old_lf); free(new_lf); free(old_len); free(nlen); free(matches);
+    if (!result) *error = xstrdup(msg);
+    return result;
+}
+
+static char *pi_tool_edit(const agent_tool_call *call) {
+    const char *path_arg = agent_tool_arg_value(call, "path");
+    if (!path_arg || !path_arg[0]) return xstrdup("edit requires a path string.");
+    pi_edits edits = {0};
+    bool parsed = true;
+    const char *edits_arg = agent_tool_arg_value(call, "edits");
+    if (edits_arg) parsed = pi_parse_edits_json(edits_arg, &edits);
+    /* the legacy single-edit form: top-level oldText and newText */
+    const char *legacy_old = agent_tool_arg_value(call, "oldText");
+    const char *legacy_new = agent_tool_arg_value(call, "newText");
+    if (parsed && legacy_old && legacy_new) pi_edits_add(&edits, xstrdup(legacy_old), xstrdup(legacy_new));
+    if (!parsed) {
+        pi_edits_free(&edits);
+        return xstrdup("Edit tool input is invalid. edits must be an array of {oldText, newText} string pairs.");
+    }
+    if (edits.len == 0) {
+        pi_edits_free(&edits);
+        return xstrdup("Edit tool input is invalid. edits must contain at least one replacement.");
+    }
+    char *path = pi_resolve_path(path_arg);
+    if (access(path, R_OK | W_OK) != 0) {
+        char *msg = xmalloc(strlen(path_arg) + 96);
+        sprintf(msg, "Could not edit file: %s. Error code: %s.", path_arg, pi_errno_code(errno));
+        free(path);
+        pi_edits_free(&edits);
+        return msg;
+    }
+    agent_buf file = {0};
+    if (!pi_read_all(path, &file)) {
+        char *msg = pi_fs_error(errno, "open", path);
+        free(path);
+        free(file.ptr);
+        pi_edits_free(&edits);
+        return msg;
+    }
+    const char *raw = file.ptr ? file.ptr : "";
+    size_t raw_len = file.len;
+    /* splitBom: the model never includes the invisible BOM in oldText */
+    const bool bom = raw_len >= 3 && !memcmp(raw, "\xef\xbb\xbf", 3);
+    if (bom) { raw += 3; raw_len -= 3; }
+    /* detectLineEnding: whichever of \r\n and \n comes first */
+    const char *crlf = agent_memmem(raw, raw_len, "\r\n", 2);
+    const char *lf = memchr(raw, '\n', raw_len);
+    const bool crlf_file = crlf && lf && crlf < lf;
+    size_t lf_len = 0;
+    char *normalized = pi_normalize_to_lf(raw, raw_len, &lf_len);
+    char *error = NULL;
+    size_t new_len = 0;
+    const size_t blocks = edits.len;
+    char *updated = pi_apply_edits(normalized, lf_len, &edits, path_arg, &new_len, &error);
+    free(normalized);
+    pi_edits_free(&edits);
+    if (!updated) {
+        free(path);
+        free(file.ptr);
+        return error;
+    }
+    agent_buf out = {0};
+    if (bom) agent_buf_append(&out, "\xef\xbb\xbf", 3);
+    for (size_t i = 0; i < new_len; i++) {
+        if (crlf_file && updated[i] == '\n') agent_buf_append(&out, "\r\n", 2);
+        else agent_buf_append(&out, updated + i, 1);
+    }
+    free(updated);
+    char err[256];
+    int rc = agent_replace_file(path, out.ptr ? out.ptr : "", out.len, NULL, 0, err, sizeof(err));
+    free(out.ptr);
+    free(path);
+    free(file.ptr);
+    if (rc != 0) return xstrdup(err);
+    char *msg = xmalloc(strlen(path_arg) + 64);
+    sprintf(msg, "Successfully replaced %zu block(s) in %s.", blocks, path_arg);
+    return msg;
+}
+
 /* Execute one parsed DSML tool call and return the text that will be appended as
  * the tool-role result.  UI visualization already happened while streaming; this
  * function is only about side effects and the model-visible observation. */
@@ -10451,6 +10747,7 @@ static char *agent_execute_tool_call(agent_worker *w, const agent_tool_call *cal
     if (agent_tool_syntax_for_engine(w->engine) == AGENT_TOOL_SYNTAX_HERMES) {
         if (!strcmp(call->name, "read")) return pi_tool_read(call);
         if (!strcmp(call->name, "write")) return pi_tool_write(call);
+        if (!strcmp(call->name, "edit")) return pi_tool_edit(call);
     }
 
     if (!strcmp(call->name, "read")) return agent_tool_read(w, call);
