@@ -1533,6 +1533,25 @@ tests/mellum_routes_gpu: tests/mellum_routes_gpu.o $(filter-out ds4.o,$(CORE_OBJ
 test-mellum-routes-gpu: tests/mellum_routes_gpu
 	./tests/test_mellum_routes_gpu.sh
 
+# Allocation faults at C/Metal API boundaries, not physical driver OOM.
+ifeq ($(UNAME_S),Darwin)
+tests/mellum_capture_failures_gpu.o: tests/mellum_capture_failures_gpu.c ds4.c ds4.h ds4_gpu.h $(MELLUM_CAPTURE_HEADERS) ds4_mellum_unicode.inc ds4_ssd.h ds4_distributed.h ds4_gpu_copy.h ds4_gpu_tp.h ds4_deepseek41_gpu.h ds4_deepseek41_dspark.h ds4_linux_memory.h ds4_engram.h
+	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -I. -c -o $@ $<
+
+tests/mellum_capture_failures_gpu: tests/mellum_capture_failures_gpu.o $(filter-out ds4.o,$(CORE_OBJS))
+	$(CC) $(CFLAGS) -I. -o $@ $^ $(METAL_LDLIBS)
+
+.PHONY: test-mellum-capture-failures-gpu
+test-mellum-capture-failures-gpu: tests/mellum_capture_failures_gpu
+	@if [ -n "$$DS4_TEST_MELLUM_MODEL" ]; then \
+		./tests/mellum_capture_failures_gpu "$$DS4_TEST_MELLUM_MODEL"; \
+	else echo 'SKIP Mellum live capture failures: set DS4_TEST_MELLUM_MODEL'; fi
+else
+.PHONY: test-mellum-capture-failures-gpu
+test-mellum-capture-failures-gpu:
+	@echo 'SKIP Mellum live capture failures: macOS Metal required'
+endif
+
 # GPU-free recorder metadata core, explicitly C99.
 tests/test_mellum_profile: tests/test_mellum_profile.c ds4_mellum_profile.c ds4_mellum_profile.h
 	$(CC) $(filter-out -std=%,$(QUALITY_CFLAGS)) -std=c99 -I. -o $@ tests/test_mellum_profile.c ds4_mellum_profile.c
