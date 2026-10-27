@@ -94,4 +94,6 @@ def complete_header(header: dict, *, source: dict, binary: dict, receipt: dict, 
         raise ValueError('teacher-forced capture cannot declare sampling settings')
     if set(execution['capabilities']) != set(receipt['capabilities']):
         raise ValueError('capabilities must contain only observed flags')
+    if set(manifest['build']['source_inputs']) != set(source['files']):
+        raise ValueError('source_inputs must contain only observed files')
     return result
