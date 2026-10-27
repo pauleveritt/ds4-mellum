@@ -8219,6 +8219,45 @@ static void test_mellum_server_stream(void) {
         printf("mellum-server: a streamed answer sends reasoning, content as it comes, and the call as tool_calls\n");
 }
 
+/* P6-R6: while Mellum generates, the tool-marker tracker sees a Hermes call start and end (a </tool_call> inside one
+ * of its JSON strings is text), and a malformed call it saw start is recovered, not returned as an empty answer */
+static void test_mellum_server_tracker(void) {
+    const int failures_before = test_failures;
+    const char *raw = "<tool_call>\n{\"name\": \"write\", \"arguments\": {\"content\": \"a </tool_call> b\"}}\n</tool_call>";
+    dsml_decode_tracker dt;
+    dsml_decode_tracker_init(&dt);
+    dt.model_syntax = SERVER_MODEL_SYNTAX_HERMES;
+    bool start = false, end = false, orphan = false, saw_string = false, end_early = false;
+    const size_t len = strlen(raw);
+    for (size_t n = 1; n <= len; n++) {
+        dsml_decode_tracker_update(&dt, raw, n);
+        observe_tool_markers(&dt, raw, &start, &end, &orphan);
+        if (dt.decode == DSML_DECODE_JSON_STRING) saw_string = true;
+        if (end && n < len) end_early = true;
+    }
+    TEST_ASSERT(start && end && saw_string && !end_early && !orphan);
+
+    const char *bad = "<think>\nx\n</think>\n\n<tool_call>\n{\"name\": \"write\", \"arguments\": {bad}}\n</tool_call>";
+    dsml_decode_tracker_init(&dt);
+    dt.model_syntax = SERVER_MODEL_SYNTAX_HERMES;
+    dt.pos = (size_t)(strstr(bad, "</think>") + 8 - bad);
+    start = end = orphan = false;
+    dsml_decode_tracker_update(&dt, bad, strlen(bad));
+    observe_tool_markers(&dt, bad + dt.pos, &start, &end, &orphan);
+    TEST_ASSERT(start);
+    const char *finish = "stop";
+    char err[64] = "", *content = NULL, *reasoning = NULL;
+    tool_calls calls = {0};
+    bool recovered = false;
+    TEST_ASSERT(!parse_generated_message_for_response_for_syntax(SERVER_MODEL_SYNTAX_HERMES, bad, true, start, true,
+                                                                 &finish, err, sizeof(err), &content, &reasoning,
+                                                                 &calls, &recovered, NULL));
+    TEST_ASSERT(recovered && strcmp(finish, "stop") != 0);
+    free(content); free(reasoning); tool_calls_free(&calls);
+    if (test_failures == failures_before)
+        printf("mellum-server: the generation tracker follows a Hermes call, and a malformed one is recovered\n");
+}
+
 /* With the real vocabulary (DS4_TEST_MELLUM_MODEL): each rendered case, tokenized as the server tokenizes a prompt
  * (ds4_tokenize_rendered_chat), gives the template's ids. */
 static void test_mellum_server_ids(void) {
@@ -8267,6 +8306,7 @@ static void test_server_unit_group(void) {
     test_mellum_server_visible_text();
     test_mellum_server_continuations();
     test_mellum_server_stream();
+    test_mellum_server_tracker();
 }
 
 typedef void (*test_fn)(void);
