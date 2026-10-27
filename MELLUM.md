@@ -7,6 +7,8 @@ from the model's training, and what is not covered.
 
 ## Status
 
+The separate SSD investigation is tracked in [ROADMAP.md](ROADMAP.md).
+
 Phases 1 (recognize and load), 2 (text) and 3a up to the oracle (steps 15-20)
 are done: a `mellum` GGUF is detected, validated, bound and planned; the
 `mellum2` pre-tokenizer, the stop classes, the chat prefix and the sampling
