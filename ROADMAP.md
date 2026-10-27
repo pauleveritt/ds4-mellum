@@ -88,7 +88,7 @@ Exit met on M5 Max / 128 GiB: matching-path parity, no added per-layer host
 wait, bounded recorder storage and append-capable qualified collection. This
 establishes neither physical 8 GB peak memory nor SSD inference performance.
 
-### S3 — Locality and storage evidence: source frozen, storage pending
+### S3 — Source and warm-read evidence complete; SSD validation open
 
 The user selected `../ac-demo` and its roadmap as the workload source. The
 [S3a proposal](docs/superpowers/specs/2026-10-27-mellum-storage-evidence-design.md)
