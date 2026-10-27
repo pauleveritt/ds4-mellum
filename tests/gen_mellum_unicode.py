@@ -270,7 +270,7 @@ static bool mellum_unicode_in(const mellum_unicode_range *ranges, size_t n,
             f"                                 sizeof(mellum_{name}_ranges[0]), cp);\n"
             f"}}\n\n"
         )
-    return out
+    return out.rstrip("\n") + "\n"  # one newline at the end, no blank line
 
 
 # --------------------------------------------------------------------------

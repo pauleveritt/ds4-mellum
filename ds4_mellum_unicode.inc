@@ -18,7 +18,7 @@
  * unicode-version: unknown (tokenizers 0.23.3 exposes no Unicode version; the tables ARE this build's behaviour and their row counts and this file's sha256 are the fingerprint)
  * snapshot: Mellum2.1-12B-A2.5B-Thinking-6bit
  * codepoints: 0x0000-0x10FFFF
- * generator-sha256: d3f65d5118cec1e4a5566abaf65f7e82dc57233b84f03208011010d25e08e823
+ * generator-sha256: 627f61e97c540a6772835c40a32207ef48ac7686f95ea1b054211071d2b29896
  * generated: 2026-10-26
  * letter-ranges: 677
  * number-ranges: 146
@@ -900,4 +900,3 @@ static bool mellum_unicode_space(uint32_t cp) {
                              sizeof(mellum_space_ranges) /
                                  sizeof(mellum_space_ranges[0]), cp);
 }
-
