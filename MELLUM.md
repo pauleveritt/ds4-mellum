@@ -173,6 +173,32 @@ Phase 5 (tool calls in ds4-agent):
   still refuses it until step 34.
 - `e38b18d`, `7c44f0c` the earlier-reasoning divergence, at the code.
 
+Review fixes and experiment E1 (after step 33, before step 34; the outside
+review of `5aa742c`):
+
+- R1, the oracle rejects NaN and Inf: `a6ce058` the comparison moves to
+  `tests/mellum_logits_compare.py` with tests; `c99ac87` (red), `fc16a75`
+  every row of both runs finite first; `807c7be` (red), `28fdbd5` the trace
+  driver checks every listed position.
+- R2, per-position gates: `381d402` (red), `a3a7962` four held-out token
+  files, `fff47fc` worst-position KL and |d log p(top-1)| caps, the session
+  row counted once; `62dce64` the caps' source and the router-flip finding.
+- R4: `c95e0e8` (red), `5d75ebe` one `<|im_end|>` after an imported Mellum
+  assistant turn; `890da18` Flash Next's probable double close recorded.
+- R5: `6d60625` (red), `544d3d5` imported Mellum histories drop earlier
+  reasoning; `a468bfb` the divergence restated.
+- R6: `98f40bf`, `9bbf9fe` the deep-rewind contract (a fresh sync's logits),
+  tested and stated; `6eeade3` (red), `c479351` no DeepSeek max-effort
+  preamble for Mellum; `4e5fbf7` (red), `119001b` head and width shapes
+  refused at validation; `8fbd9b3` the `-n` cap message listed.
+- R3, fast-path coverage: `6bd685e` the trace driver's `prefill:N` and
+  greedy modes; `033dbf0` `tests/test_mellum_fastpath.sh`; `a8e5b4b` the record.
+- R7: `767a29a` the trace writes each layer's MoE input row; `11ed730` the
+  router and experts on real activations against this port's double
+  reference, with a half-staged reference for the tiled rows; `99c259d`.
+- R8: `f16a1dd` the Metal 4 record reconciled.
+- E1: `86fcd05`, `8e7b158` measured and reverted (no product code).
+
 From step 28 on, commits follow smaller rules: one concern each, the failing
 test committed red on its own, at most about 150 lines of product code.
 
