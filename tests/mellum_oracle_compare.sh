@@ -17,7 +17,10 @@
 # short file): from 32 rows this engine's projections and experts run as batched and tiled GEMMs
 # on half-staged activations (ds4.c, MELLUM_TILED_MIN_ROWS), so a longer prefill is compared
 # within a tolerance instead: the same top-1 token at every traced position, max|d logit| <= TOL
-# (MELLUM_ORACLE_TOL, default 10) and mean KL divergence <= KLTOL (MELLUM_ORACLE_KL, default 0.01).
+# (MELLUM_ORACLE_TOL, default 10), each position's KL divergence <= KLMAX (MELLUM_ORACLE_KLMAX,
+# default 1.0) and its change in log p of the old engine's top-1 token <= DLOGP (MELLUM_ORACLE_DLOGP,
+# default 1.0), and the mean KL over the traced positions <= KLTOL (MELLUM_ORACLE_KL, default 0.01).
+# MELLUM.md ("Oracle caps") says where the two per-position caps come from.
 # This engine's prefill against its own decode is held to the same rule.  Every prefill also runs
 # under the exact-prefill diagnostic (DS4_MELLUM_EXACT_PREFILL=1, "prefill-exact"), which must be
 # byte-equal to the old engine and to its own decode on all three files.  Then GREEDY_TOKENS
@@ -32,6 +35,8 @@ MODEL=$2
 GREEDY=${3:-64}
 TOL=${MELLUM_ORACLE_TOL:-10}
 KLTOL=${MELLUM_ORACLE_KL:-0.01}
+KLMAX=${MELLUM_ORACLE_KLMAX:-1.0}
+DLOGP=${MELLUM_ORACLE_DLOGP:-1.0}
 cd "$(dirname "$0")/.." || exit 2
 ROOT=$(pwd)
 [ -x tests/mellum_trace ] || { echo "build tests/mellum_trace first (make tests/mellum_trace)" >&2; exit 2; }
@@ -56,7 +61,7 @@ PY
 # compare A B POSITIONS EXACT: the logits of two traced runs at every position, and their session
 # logits (tests/mellum_logits_compare.py has the rules).  Prints one summary and returns 1 on failure.
 compare() {
-    python3 -I "$ROOT/tests/mellum_logits_compare.py" "$1" "$2" "$3" "$4" "$TOL" "$KLTOL"
+    python3 -I "$ROOT/tests/mellum_logits_compare.py" "$1" "$2" "$3" "$4" "$TOL" "$KLTOL" "$KLMAX" "$DLOGP"
 }
 
 # run ENGINE_DIR TOKENS MODE OUT_PREFIX [POSITIONS]: the session logits land in
