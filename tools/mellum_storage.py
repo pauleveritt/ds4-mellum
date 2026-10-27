@@ -1,0 +1,31 @@
+#!/usr/bin/env python3
+"""CPU-only Mellum storage preparation and evidence collection."""
+import argparse
+import importlib.util
+from pathlib import Path
+import sys
+
+_spec = importlib.util.spec_from_file_location('mellum_capture_identity', Path(__file__).with_name('mellum_capture_identity.py'))
+identity = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(identity)
+common = identity.sibling('mellum_storage_common')
+index_tools = identity.sibling('mellum_expert_index')
+
+
+def main() -> None:
+    if sys.version_info < (3, 14):
+        raise SystemExit('Python 3.14+ required')
+    parser = argparse.ArgumentParser(description=__doc__)
+    commands = parser.add_subparsers(dest='command', required=True)
+    index = commands.add_parser('index')
+    index.add_argument('--model', type=Path, required=True)
+    index.add_argument('--output', type=Path, required=True)
+    args = parser.parse_args()
+    if args.command == 'index':
+        value = index_tools.build_index(args.model)
+        result = common.publication.publish(args.output, lambda stage: common.write_json(stage / 'index.json', value))
+        print(result)
+
+
+if __name__ == '__main__':
+    main()
