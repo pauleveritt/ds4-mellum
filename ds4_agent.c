@@ -492,13 +492,13 @@ static bool agent_stop_is_clean_end(agent_tool_syntax syntax, int stop_class) {
     return true;
 }
 
-/* Whether the token cap cut a turn off (step 37; a stub until its fix). */
+/* A Mellum turn that the token cap ended (no stop token, no call, not interrupted) is a truncated
+ * turn, scored 0 in training, not a final answer.  The other syntaxes accept it, as before. */
 static bool agent_turn_cut_off(agent_tool_syntax syntax, bool model_stopped, bool got_tool,
                                bool malformed_tool, bool early_tool_error, bool interrupted,
                                int generated, int max_tokens) {
-    (void)syntax; (void)model_stopped; (void)got_tool; (void)malformed_tool; (void)early_tool_error;
-    (void)interrupted; (void)generated; (void)max_tokens;
-    return false;
+    return syntax == AGENT_TOOL_SYNTAX_HERMES && !model_stopped && !got_tool && !malformed_tool &&
+           !early_tool_error && !interrupted && generated >= max_tokens;
 }
 
 /* The [upto] forcer rewrites an edit's old text; Pi's edit takes edits[{oldText,newText}], which it
@@ -12544,16 +12544,25 @@ static int worker_run_turn(agent_worker *w, const char *user_text) {
                      "incomplete DSML tool call");
         }
 
-        if (model_stopped && stop_token >= 0 &&
-            !agent_stop_is_clean_end(tool_syntax, ds4_token_stop_class(w->engine, stop_token))) {
-            /* Mellum ends a turn on one token.  Any other stop (id 0, a protocol id) leaves the
-             * template's contract: record it, and neither run a call nor accept an answer that
-             * ended that way. */
-            char msg[200];
-            snprintf(msg, sizeof(msg),
-                     "model stopped on token %d (stop class %d), not the end-of-turn token",
-                     stop_token, ds4_token_stop_class(w->engine, stop_token));
-            agent_trace(w, "abnormal stop: %s", msg);
+        const bool abnormal_stop = model_stopped && stop_token >= 0 &&
+            !agent_stop_is_clean_end(tool_syntax, ds4_token_stop_class(w->engine, stop_token));
+        const bool cut_off = agent_turn_cut_off(tool_syntax, model_stopped, got_tool, malformed_tool,
+                                                early_tool_error, interrupted, generated, max_tokens);
+        if (abnormal_stop || cut_off) {
+            /* Mellum ends a turn on one token.  A stop on another (id 0, a protocol id), or a turn
+             * the token cap cut off, leaves the template's contract: record it, and neither run a
+             * call nor accept an answer that ended that way. */
+            char msg[240];
+            if (abnormal_stop)
+                snprintf(msg, sizeof(msg),
+                         "model stopped on token %d (stop class %d), not the end-of-turn token; "
+                         "%d complete call(s) discarded", stop_token,
+                         ds4_token_stop_class(w->engine, stop_token), dsml.calls.len);
+            else
+                snprintf(msg, sizeof(msg),
+                         "turn cut off by the token cap after %d tokens, before the end-of-turn token "
+                         "(raise --tokens)", generated);
+            agent_trace(w, "abnormal end: %s", msg);
             agent_publish_system_status(w, msg);
             agent_dsml_parser_free(&dsml);
             agent_worker_append_assistant_turn_end(w);
