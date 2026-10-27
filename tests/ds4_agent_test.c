@@ -1316,6 +1316,30 @@ static void test_hermes_upto_forcer_off(void) {
     AGENT_TEST_ASSERT(!agent_edit_upto_enabled(false, AGENT_TOOL_SYNTAX_QWEN));
 }
 
+/* step 36: the terminal projection of a Hermes call shows the decoded arguments, not their JSON escapes */
+static void test_hermes_visualizer_decodes(void) {
+    const char *chunks[] = {
+        "<tool_call>\n{\"name\": \"bash\", \"arguments\": {\"command\": \"printf \\\"a\\\\tb\\\"\\nls \\u00e9 \\ud83d\\ude00\", ",
+        "\"timeout\": 15}}\n</tool_call>",
+    };
+    agent_dsml_parser p;
+    char *out = agent_test_stream_capture(AGENT_TOOL_SYNTAX_HERMES, chunks, 2, &p, NULL);
+    AGENT_TEST_ASSERT(p.state == AGENT_DSML_DONE && p.calls.len == 1);
+    AGENT_TEST_ASSERT(strstr(out, "printf \"a\\tb\"\nls \xc3\xa9 \xf0\x9f\x98\x80") != NULL);
+    AGENT_TEST_ASSERT(strstr(out, "\\u00e9") == NULL && strstr(out, "\\n") == NULL);
+    AGENT_TEST_ASSERT(strstr(out, "15") != NULL);
+    AGENT_TEST_ASSERT(strstr(out, "<tool_call>") == NULL && strstr(out, "\"arguments\"") == NULL);
+    free(out);
+    agent_dsml_parser_free(&p);
+
+    /* a read shows Pi's path, offset and limit, the first digit included */
+    const char *read[] = {"<tool_call>\n{\"name\": \"read\", \"arguments\": {\"path\": \"src/a.py\", \"offset\": 120, \"limit\": 40}}\n</tool_call>"};
+    out = agent_test_stream_capture(AGENT_TOOL_SYNTAX_HERMES, read, 1, &p, NULL);
+    AGENT_TEST_ASSERT(strstr(out, "Reading src/a.py 120:40...") != NULL);
+    free(out);
+    agent_dsml_parser_free(&p);
+}
+
 static void test_hermes_tool_syntax(void) {
     test_hermes_syntax_basics();
     test_hermes_split_points();
@@ -1331,6 +1355,7 @@ static void test_hermes_tool_syntax(void) {
     test_hermes_turn_end();
     test_hermes_stop_classes();
     test_hermes_upto_forcer_off();
+    test_hermes_visualizer_decodes();
 }
 
 static void test_v41_tool_syntax(void) {
