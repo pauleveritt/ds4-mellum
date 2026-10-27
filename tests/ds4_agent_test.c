@@ -1117,6 +1117,38 @@ static void test_hermes_quote_repair_edit(void) {
                                        err, sizeof(err), &n) == AGENT_DSML_ERROR);
 }
 
+/* Step 48: the same repair for edit's older single-edit form, oldText and newText at the top of the arguments.
+ * Siblings: the strict form parses as before; a value holding another member's boundary, or an edits item's
+ * boundary, gives no call. */
+static void test_hermes_quote_repair_edit_legacy(void) {
+    const char *text = "<tool_call>\n{\"name\": \"edit\", \"arguments\": {\"path\": \"r.py\", "
+                       "\"oldText\": \"\",\".join(r)\", \"newText\": \"\", \".join(r)\"}}\n</tool_call>";
+    agent_dsml_parser p = hermes_parser();
+    for (size_t i = 0; text[i]; i++) {
+        agent_dsml_feed(&p, text + i, 1);
+        AGENT_TEST_ASSERT(p.state != AGENT_DSML_ERROR);
+        if (p.state == AGENT_DSML_ERROR) break;
+    }
+    agent_dsml_finish(&p);
+    AGENT_TEST_ASSERT(p.state == AGENT_DSML_DONE && p.calls.len == 1);
+    if (p.calls.len == 1) {
+        AGENT_TEST_ASSERT(!strcmp(agent_tool_arg_value(&p.calls.v[0], "oldText"), "\",\".join(r)"));
+        AGENT_TEST_ASSERT(!strcmp(agent_tool_arg_value(&p.calls.v[0], "newText"), "\", \".join(r)"));
+    }
+    agent_dsml_parser_free(&p);
+    char err[160];
+    int n = -1;
+    AGENT_TEST_ASSERT(hermes_parse_all("{\"name\": \"edit\", \"arguments\": {\"path\": \"r.py\", "
+                                       "\"oldText\": \"say \\\"a\\\"\", \"newText\": \"b\"}}\n</tool_call>",
+                                       err, sizeof(err), &n) == AGENT_DSML_DONE && n == 1);
+    AGENT_TEST_ASSERT(hermes_parse_all("{\"name\": \"edit\", \"arguments\": {\"path\": \"r.py\", "
+                                       "\"oldText\": \"say \"a\", \"path\": \"x\", \"newText\": \"b\"}}\n</tool_call>",
+                                       err, sizeof(err), &n) != AGENT_DSML_DONE && n == 0);
+    AGENT_TEST_ASSERT(hermes_parse_all("{\"name\": \"edit\", \"arguments\": {\"path\": \"r.py\", "
+                                       "\"oldText\": \"a\"\"}, {\"oldText\": \"c\", \"newText\": \"b\"}}\n</tool_call>",
+                                       err, sizeof(err), &n) != AGENT_DSML_DONE && n == 0);
+}
+
 /* Step 44 (pathology 148): a value delimited with backticks, as a JavaScript template string is, is reported, not
  * repaired, and at once: the error names the argument and says how a JSON string is written, and comes at the
  * backtick, not at </tool_call>.  Sibling: a backtick inside a JSON string is text. */
@@ -1500,6 +1532,7 @@ static void test_hermes_tool_syntax(void) {
     test_hermes_errors();
     test_hermes_quote_repair_write();
     test_hermes_quote_repair_edit();
+    test_hermes_quote_repair_edit_legacy();
     test_hermes_backtick_value();
     test_hermes_greedy_boundaries();
     test_hermes_raw_values();
