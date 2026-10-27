@@ -1,6 +1,7 @@
 # Mellum routing GPU proof
 
-Date: 2026-10-27. GPU window ends 19:13:49 UTC.
+Date: 2026-10-27. Status: completed diagnostic proof; S2b remains open.
+GPU window ended early after the resident gates passed; GPU released at 18:41 UTC.
 Baseline: e382350; isolated codex/mellum-ssd-replay worktree.
 
 ## Scope
@@ -55,3 +56,32 @@ Check copy placement before selected scratch reuse, offset/stride arithmetic,
 normal wait before CPU read, resource lifetime, phase labels, parity assertions,
 reference independence and default-build isolation. Do not grade test-only proof
 as a completed production recorder or locality/throughput evidence.
+
+## Completion record
+
+Eight matrix cases / 56 sessions pass, with complete matching route spools
+and matching per-operation logits. The controlled smoke passes 21/21 sessions
+under inherited chunk=1/exact=1. Resident trace, Metal kernels, fast-path and
+model-free Mellum gates pass. General `make test` cannot finish without the
+absent default `ds4flash.gguf`; a preceding attempt encountered a separate
+server's instance lock. GPU use has ended; no push, merge or worktree cleanup.
+
+Independent review accepted the core capture. Its smoke coverage findings
+were resolved by using >=32 rows for exact and clearing inherited controls.
+See the [evidence and limits](../research/2026-10-27-mellum-route-gpu-proof.md).
+
+Execution decisions and costs:
+
+- Deliver a test-only primitive first; replacing that harness may be necessary.
+- Extend evidence with raw-spool replay at the existing 3 GiB budget; discard
+  these exploratory counts if provenance is inadequate, with no feasibility verdict.
+- Defer public ownership/cancellation/rewind; this does not prove production safety.
+- Defer encoded-kernel provenance/v2 publication; new instrumentation may require recapture.
+- Defer representative locality, throughput, portability and physical 8 GB claims;
+  these fixtures cannot justify deployment decisions.
+- Rely on the existing port for absolute model/kernel correctness; parity can
+  share a baseline defect even though the existing kernel/fast-path gates pass.
+- Source-review the no-logits completion boundary, without separately observing
+  live no-logits/intermediate logits; add dedicated tests before S2b closure.
+- Parent validates retained matrix/smoke results; a provenance error would need
+  a log/source audit despite the independent implementation review.
