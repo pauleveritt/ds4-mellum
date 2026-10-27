@@ -333,11 +333,65 @@ static void check_pi_write(const char *dir) {
     puts("ok   agent: Pi's write for Mellum (parents created, the training-era text with Pi's count)");
 }
 
+/* edit, exact matching (Pi's fuzzy pass comes with step 35): every edit is matched against the original */
+static void check_pi_edit(const char *dir) {
+    char *f = pi_fixture(dir, "m.py", "def f():\n    return 1\n\ndef g():\n    return 2\n");
+    char want[PATH_MAX + 160];
+    snprintf(want, sizeof(want), "Successfully replaced 2 block(s) in %s.", f);
+    PI_EXPECT(pi_run("edit", "path", f, "edits",
+                     "#[{\"oldText\": \"return 1\", \"newText\": \"return 10\"}, {\"oldText\": \"return 2\", \"newText\": \"return 20\"}]",
+                     NULL), want);
+    char *back = pi_slurp(f);
+    CHECK(!strcmp(back, "def f():\n    return 10\n\ndef g():\n    return 20\n"));
+    free(back);
+    /* the refusals; the edit above is their success sibling, and none of them writes */
+    snprintf(want, sizeof(want), "Could not find the exact text in %s. The old text must match exactly including all "
+             "whitespace and newlines.", f);
+    PI_EXPECT(pi_run("edit", "path", f, "edits", "#[{\"oldText\": \"return 99\", \"newText\": \"x\"}]", NULL), want);
+    snprintf(want, sizeof(want), "Found 2 occurrences of the text in %s. The text must be unique. Please provide more "
+             "context to make it unique.", f);
+    PI_EXPECT(pi_run("edit", "path", f, "edits", "#[{\"oldText\": \"return\", \"newText\": \"x\"}]", NULL), want);
+    snprintf(want, sizeof(want), "edits[0] and edits[1] overlap in %s. Merge them into one edit or target disjoint regions.", f);
+    PI_EXPECT(pi_run("edit", "path", f, "edits",
+                     "#[{\"oldText\": \"return 10\\n\\ndef\", \"newText\": \"a\"}, {\"oldText\": \"\\n\\ndef g\", \"newText\": \"b\"}]",
+                     NULL), want);
+    snprintf(want, sizeof(want), "oldText must not be empty in %s.", f);
+    PI_EXPECT(pi_run("edit", "path", f, "edits", "#[{\"oldText\": \"\", \"newText\": \"b\"}]", NULL), want);
+    PI_EXPECT_PREFIX(pi_run("edit", "path", f, "edits", "#[{\"oldText\": \"return 10\", \"newText\": \"return 10\"}]", NULL),
+                     "No changes made to ");
+    PI_EXPECT(pi_run("edit", "path", f, "edits", "#[]", NULL),
+              "Edit tool input is invalid. edits must contain at least one replacement.");
+    back = pi_slurp(f);
+    CHECK(!strcmp(back, "def f():\n    return 10\n\ndef g():\n    return 20\n"));
+    free(back);
+    /* as Pi takes them: edits sent as a JSON string, or as one object */
+    snprintf(want, sizeof(want), "Successfully replaced 1 block(s) in %s.", f);
+    PI_EXPECT(pi_run("edit", "path", f, "edits", "[{\"oldText\": \"return 20\", \"newText\": \"return 2\"}]", NULL), want);
+    PI_EXPECT(pi_run("edit", "path", f, "edits", "#{\"oldText\": \"return 10\", \"newText\": \"return 1\"}", NULL), want);
+    back = pi_slurp(f);
+    CHECK(!strcmp(back, "def f():\n    return 1\n\ndef g():\n    return 2\n"));
+    free(back);
+    /* a BOM and CRLF line ends survive */
+    char *crlf = pi_fixture(dir, "w.txt", "\xef\xbb\xbf" "a\r\nb\r\nc\r\n");
+    PI_EXPECT_PREFIX(pi_run("edit", "path", crlf, "edits", "#[{\"oldText\": \"b\", \"newText\": \"B\"}]", NULL),
+                     "Successfully replaced 1 block(s)");
+    back = pi_slurp(crlf);
+    CHECK(!strcmp(back, "\xef\xbb\xbf" "a\r\nB\r\nc\r\n"));
+    free(back);
+    char *gone = xmalloc(strlen(dir) + 16);
+    sprintf(gone, "%s/gone.txt", dir);
+    snprintf(want, sizeof(want), "Could not edit file: %s. Error code: ENOENT.", gone);
+    PI_EXPECT(pi_run("edit", "path", gone, "edits", "#[{\"oldText\": \"a\", \"newText\": \"b\"}]", NULL), want);
+    free(f); free(crlf); free(gone);
+    puts("ok   agent: Pi's edit for Mellum, exact (edits[] against the original, Pi's refusals, BOM and CRLF kept)");
+}
+
 static void check_pi_tools(void) {
     char dir[] = "/tmp/ds4-mellum-pi-XXXXXX";
     CHECK(mkdtemp(dir) != NULL);
     check_pi_read(dir);
     check_pi_write(dir);
+    check_pi_edit(dir);
     char cmd[PATH_MAX + 16];
     snprintf(cmd, sizeof(cmd), "rm -rf %s", dir);
     CHECK(system(cmd) == 0);
