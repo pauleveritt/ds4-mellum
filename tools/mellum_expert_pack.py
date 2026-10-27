@@ -1,6 +1,7 @@
 """Exact-byte, bounded expert concatenation and independent copy verification."""
 import hashlib
 import importlib.util
+import os
 from pathlib import Path
 import shutil
 from typing import BinaryIO
@@ -120,6 +121,10 @@ def pack(index_path: Path, container: Path) -> Path:
                 if destination.tell() != size:
                     raise ValueError('packed size mismatch')
                 destination.flush()
+                packed_stat = common.stat_value(os.fstat(destination.fileno()))
+                common.check_open(destination, payload, packed_stat)
+            if identity.file_stat(payload) != packed_stat:
+                raise ValueError('packed payload path changed during close')
         if common.file_identity(index_path) != index_file:
             raise ValueError('source index changed during packing')
         manifest = dict(schema_version=1, kind='packed-experts', geometry=index['geometry'],
