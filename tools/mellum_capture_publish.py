@@ -2,11 +2,13 @@
 """Build, collect and publish source-checked teacher-forced Mellum route evidence."""
 import argparse
 from dataclasses import replace
+import hashlib
 import importlib.util
 import json
 import os
 from pathlib import Path
 import subprocess
+import struct
 import sys
 import tempfile
 
@@ -24,7 +26,7 @@ def _run(command: list[str], *, cwd: Path, env: dict[str, str], log: Path) -> No
         subprocess.run(command, cwd=cwd, env=env, stdout=output, stderr=subprocess.STDOUT, check=True)
 
 
-def _check_routes(reference: Path, owned: Path, cap: int) -> None:
+def _check_routes(reference: Path, owned: Path, cap: int, words: list[str], first: int) -> None:
     with reference.open('rb') as left, owned.open('rb') as right:
         a, b = exporter.SpoolReader(left), exporter.SpoolReader(right)
         if a.cap_tokens != cap or b.cap_tokens != cap:
@@ -34,9 +36,21 @@ def _check_routes(reference: Path, owned: Path, cap: int) -> None:
             if x is None or y is None:
                 if x is not None or y is not None:
                     raise ValueError('reference routes differ')
+                expected = hashlib.sha256()
+                for word in words:
+                    expected.update(struct.pack('<I', int(word)))
+                summary = b.summary()
+                if (summary['first_position'] != 0 or summary['positions'] != len(words) or
+                        summary['token_stream_sha256'] != expected.hexdigest()):
+                    raise ValueError('captured tokens differ from input')
                 return
             if replace(x, execution_id=0) != replace(y, execution_id=0):
                 raise ValueError('reference routes differ')
+            pos = y.first_position
+            rows, phase, segment = ((min(cap, first-pos), 1, 0) if pos < first else
+                                    (1, 1, 2) if pos == len(words)-1 else (1, 2, 1))
+            if (y.rows, y.phase, y.segment_id) != (rows, phase, segment):
+                raise ValueError('captured operation schedule differs from request')
 
 
 def publish(root: Path, *, model: Path, tokens: Path, first_prefill: int, context: int,
@@ -50,14 +64,16 @@ def publish(root: Path, *, model: Path, tokens: Path, first_prefill: int, contex
     data = metadata_tools.read_json(metadata, 2**20, exporter)
     if set(data) != {'header'} or not isinstance(data['header'], dict):
         raise ValueError('metadata must contain header only; profiles must be observed')
-    raw_tokens = metadata_tools.bounded_read(tokens, 16 * 2**20).decode('ascii')
-    words = ' '.join(line.partition('#')[0] for line in raw_tokens.splitlines()).split()
+    raw_tokens = metadata_tools.bounded_read(tokens, 16 * 2**20)
+    words = ' '.join(line.partition('#')[0] for line in raw_tokens.decode('ascii').splitlines()).split()
     if not words or any(not word.isascii() or not word.isdecimal() or len(word) > 10 or int(word) >= 98304 for word in words):
         raise ValueError('invalid token file')
     if type(first_prefill) is not int or not 1 <= first_prefill <= len(words)-2 or len(words)+64 > context:
         raise ValueError('initial prefill or token count exceeds context/protocol')
     source = identity.source_identity(root)
     token_file, model_stat = identity.file_identity(tokens), identity.file_stat(model)
+    if token_file['sha256'] != hashlib.sha256(raw_tokens).hexdigest():
+        raise ValueError('token file changed while parsing')
     with tempfile.TemporaryDirectory(prefix='.mellum-capture-', dir=output.parent) as directory:
         stage = Path(directory)
         build_log = stage / 'build.log'
@@ -77,7 +93,7 @@ def publish(root: Path, *, model: Path, tokens: Path, first_prefill: int, contex
         receipt = metadata_tools.read_receipt(stage / 'owned.runtime.json', exporter)
         if receipt['context_tokens'] != context or receipt['cap_tokens'] > prefill_chunk:
             raise ValueError('runtime receipt conflicts with requested context/chunk')
-        _check_routes(stage / 'reference.routes', stage / 'owned.routes', receipt['cap_tokens'])
+        _check_routes(stage / 'reference.routes', stage / 'owned.routes', receipt['cap_tokens'], words, first_prefill)
         profiles = metadata_tools.read_profiles(stage / 'owned.profiles')
         header = metadata_tools.complete_header(data['header'], source=source, binary=binary, receipt=receipt,
             token_file=token_file, model_stat=model_stat,

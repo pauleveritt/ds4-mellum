@@ -63,6 +63,7 @@ def source_identity(root: Path) -> dict:
 
 def checked_environment(env: dict[str, str]) -> dict[str, str]:
     for name in env:
-        if (name.startswith('DS4_') and name != 'DS4_TEST_MELLUM_MODEL') or name.startswith('MELLUM_TRACE_'):
+        if ((name.startswith('DS4_') and name != 'DS4_TEST_MELLUM_MODEL') or name.startswith('MELLUM_TRACE_') or
+                name in ('MAKEFLAGS', 'MFLAGS', 'MAKEFILES', 'MAKEOVERRIDES')):
             raise ValueError(f'inherited capture control is unsupported: {name}')
     return dict(env)
