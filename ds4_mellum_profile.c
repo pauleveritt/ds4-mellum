@@ -73,7 +73,50 @@ bool mellum_profile_valid(const mellum_profile *p) {
     return (roles&required)==required && ((roles>>MELLUM_ROLE_HEAD)&1u)==p->with_head;
 }
 
-bool mellum_profiles_init(mellum_profiles *r,const mellum_kernel_catalog *c) {(void)r;(void)c;return false;}
-bool mellum_profile_scope_enter(mellum_profile_scope *s,mellum_profiles *r,bool h) {(void)s;(void)r;(void)h;return false;}
-bool mellum_profile_scope_record(mellum_profile_scope *s,mellum_kernel_descriptor d) {(void)s;(void)d;return false;}
-bool mellum_profile_scope_exit(mellum_profile_scope *s,mellum_profiles *r,bool ok,uint32_t *id) {(void)s;(void)r;(void)ok;(void)id;return false;}
+bool mellum_profiles_init(mellum_profiles *r, const mellum_kernel_catalog *c) {
+    if (!r) return false;
+    *r=(mellum_profiles){.catalog=c,.failed=true};
+    if (!mellum_profile_init(&r->current,c,false)) return false;
+    r->failed=false;
+    return true;
+}
+
+bool mellum_profile_scope_enter(mellum_profile_scope *s, mellum_profiles *r, bool head) {
+    /* Refusing a foreign/nested scope must not poison its current owner. */
+    if (!s || s->owner || !r || r->failed || r->active) return false;
+    if (!mellum_profile_init(&r->current,r->catalog,head)) { r->failed=true; return false; }
+    r->active=true;
+    s->owner=r;
+    return true;
+}
+
+bool mellum_profile_scope_record(mellum_profile_scope *s, mellum_kernel_descriptor d) {
+    if (!s || !s->owner || s->owner->failed) return false;
+    if (mellum_profile_record(&s->owner->current,d)) return true;
+    s->owner->failed=true;
+    return false;
+}
+
+static bool profile_equal(const mellum_profile *a, const mellum_profile *b) {
+    if (a->with_head!=b->with_head || a->count!=b->count) return false;
+    for (unsigned i=0;i<a->count;i++)
+        if (descriptor_compare(&a->items[i],&b->items[i])) return false;
+    return true;
+}
+
+bool mellum_profile_scope_exit(mellum_profile_scope *s, mellum_profiles *r, bool ok, uint32_t *id) {
+    if (!s || !r || s->owner!=r) return false;
+    s->owner=NULL;
+    r->active=false;
+    if (!ok || !id || r->failed || !mellum_profile_valid(&r->current)) {
+        r->failed=true;
+        return false;
+    }
+    for (unsigned i=0;i<r->count;i++) {
+        if (profile_equal(&r->current,&r->profiles[i])) { *id=i; return true; }
+    }
+    if (r->count==MELLUM_PROFILE_LIMIT) { r->failed=true; return false; }
+    *id=r->count;
+    r->profiles[r->count++]=r->current;
+    return true;
+}
