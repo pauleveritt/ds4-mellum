@@ -7999,6 +7999,41 @@ static void test_mellum_server_parse(void) {
         free(text);
         chat_msgs_free(&msgs);
     }
+    {   /* P6-R7: tool memory keeps the sampled two-call block under both ids.  The render uses it only when the
+         * client sends back exactly those calls (names, order, decoded arguments); a subset or an edited call is
+         * rendered as sent, and the cache misses */
+        static const char raw[] = "<tool_call>\n{\"name\": \"bash\", \"arguments\": {\"command\": \"OLD\"}}\n</tool_call>\n"
+                                  "<tool_call>\n{\"name\": \"read\", \"arguments\": {\"path\": \"b.txt\"}}\n</tool_call>";
+        static const struct { int n; const char *args0, *want, *not_want; } cases[] = {
+            {2, "{\"command\":\"OLD\"}", raw, "{\"command\":\"OLD\"}"},                     /* the same calls: the raw block */
+            {1, "{\"command\":\"OLD\"}", "{\"command\":\"OLD\"}}\n</tool_call><|im_end|>", "b.txt"},  /* c1 alone */
+            {2, "{\"command\":\"NEW\"}", "{\"command\":\"NEW\"}", "OLD"},                   /* c1 edited */
+        };
+        for (size_t k = 0; k < sizeof(cases) / sizeof(cases[0]); k++) {
+            server srv = {0};
+            pthread_mutex_init(&srv.tool_mu, NULL);
+            tool_memory_put(&srv, "c1", raw);
+            tool_memory_put(&srv, "c2", raw);
+            chat_msgs msgs = {0};
+            chat_msgs_push(&msgs, (chat_msg){.role = xstrdup("user"), .content = xstrdup("Q")});
+            chat_msg a = {.role = xstrdup("assistant"), .content = xstrdup("")};
+            tool_calls_push(&a.calls, (tool_call){.id = xstrdup("c1"), .name = xstrdup("bash"), .arguments = xstrdup(cases[k].args0)});
+            if (cases[k].n == 2)
+                tool_calls_push(&a.calls, (tool_call){.id = xstrdup("c2"), .name = xstrdup("read"),
+                                                      .arguments = xstrdup("{\"path\":\"b.txt\"}")});
+            chat_msgs_push(&msgs, a);
+            chat_msgs_push(&msgs, (chat_msg){.role = xstrdup("tool"), .content = xstrdup("OUT")});
+            tool_memory_attach_to_messages(&srv, &msgs, NULL);
+            char *text = render_chat_prompt_text_for_syntax(SERVER_MODEL_SYNTAX_HERMES, &msgs, NULL, NULL, DS4_THINK_HIGH);
+            if (!text || !strstr(text, cases[k].want) || strstr(text, cases[k].not_want))
+                fprintf(stderr, "mellum-server: tool memory case %zu rendered %s\n", k, text ? text : "(null)");
+            TEST_ASSERT(text && strstr(text, cases[k].want) && !strstr(text, cases[k].not_want));
+            free(text);
+            chat_msgs_free(&msgs);
+            tool_memory_free(&srv.tool_mem);
+            pthread_mutex_destroy(&srv.tool_mu);
+        }
+    }
     /* content, then two calls; a call's end marker inside a JSON string is text */
     mellum_parse("<think>\nTwo.\n</think>\n\nWriting.\n<tool_call>\n{\"name\": \"write\", \"arguments\": {\"path\": \"a\", \"content\": \"x </tool_call> y\"}}\n</tool_call>\n<tool_call>\n{\"name\": \"bash\", \"arguments\": {\"command\": \"ls\"}}\n</tool_call>",
                  true, &content, &reasoning, &calls);
