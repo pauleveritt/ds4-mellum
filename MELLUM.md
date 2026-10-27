@@ -103,6 +103,17 @@ Step 22, M5 Max, Q8_0, `--temp 0`, n = 1 each:
   code. So with thinking off Mellum 2.1 does not answer directly; the CLI's
   handling of that is step 28.
 
+## Known divergences from training
+
+- `--nothink` (the template's `enable_thinking=false`, an empty think block in
+  the prompt): simple questions get a direct answer ("Paris", "Buongiorno",
+  "17 times 23 is 391."), but asked to write a Fibonacci function the model
+  still reasoned in plain text, wrote `</think>` as ordinary text (byte pieces,
+  not the special token, so nothing stops), then answered. The prompt equals
+  the template's; this is the model's own behavior, handled as for other
+  families: the CLI prints it as it comes (`tests/test_mellum_cli.sh` checks a
+  direct answer on the simple question).
+
 ## Measured
 
 | what | command | result | n |
