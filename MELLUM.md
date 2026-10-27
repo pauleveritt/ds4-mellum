@@ -97,6 +97,10 @@ and `chat_template.jinja` are byte-identical to the Hugging Face snapshot
   - `server_engine_refusal` refuses no model now.
   - `server_session_option_refusal` is new, and refuses only Mellum's options.
   - `send_models` names Mellum before the qwen4 check.
+- The rewind frontier (after phase 6). `ds4_session_rewind_frontier` is new public API; it
+  returns -1 for every model but Mellum, so the server's new last tier in
+  `slot_probe_reuse_locked` never fires for them. The memory-rewind materialization's log
+  names the model; GLM's lines read as before.
 - `ds4_prompt_prefix_append` (`ds4_prompt_prefix.h`, review fix R4): for Mellum
   it no longer pushes EOS after an imported assistant turn, because
   `ds4_chat_append_message` has already closed the turn with `<|im_end|>\n`.
@@ -294,7 +298,40 @@ shows `common=24`, the whole first prompt). Mellum has no tier that rewinds
 the KV to a common prefix (upstream rewinds only for GLM), so the server
 prefills the template's render. Before P6-R1 it continued from a KV that
 lacked the `<|im_end|>`. Each new user turn after a thinking answer now
-prefills the whole history.
+prefills the whole history. (The rewind frontier, below, restores the reuse.)
+
+The rewind frontier (after phase 6, before phase 7). A rewind more than one
+token back cannot just truncate Mellum's KV: the sliding rings hold only the
+last 1,024 positions, and a rewind to a common prefix would have reset the
+session and prefilled the kept tokens anyway. So the session saves its rings
+(K, V and tags) and logits where each sync ends, a copy of 44,126,208 B
+counted in the memory plan as KV, and a rewind to exactly there restores
+them at any length. A reset, or a rewind below the frontier, makes the copy
+stale. The server's last reuse tier rewinds a Mellum slot to its frontier
+when the prompt keeps that prefix and goes past it, as the next user turn
+after a thinking answer does.
+
+- `7280304` red, `61c9654` fix: the engine. `--mellum-rewind` on the real
+  model: sync 1,100 tokens (past the window), decode 40, rewind to 1,100.
+  The graph stays at 1,100, 0 of 98,304 logit words differ from the sync's,
+  and a next sync of 5 equals a fresh session's sync and extension word for
+  word. A rewind below the frontier and a different token there make a later
+  rewind to the old frontier reset.
+- `e480f46` red, `2825298` fix: the server tier, with siblings (no frontier,
+  a prompt leaving below it, a prompt stopping at it). An exact replay of
+  the previous prompt, with no token past the frontier, still prefills it.
+
+Live check with the frontier (same server and requests, 2026-10-27):
+
+- Plain chat: `42`, then `84` with 24 of 49 tokens cached (log: "rewound
+  Mellum live prefix from 56 to 24, where its last sync ended").
+- Responses: `Paris`, then `Rome` with 17 of 36 cached (rewound from 129
+  to 17).
+- Bash tool round trip: unchanged, 480 of 499 cached.
+- Past the window: a system prompt of 150 facts (2,953 tokens), "What is the
+  code word for item 12?" gave `w444`. The second user turn, "And for item
+  40?", gave `w480` with 2,953 of 2,980 cached (rewound from 3,066 to 2,953).
+  Both answers are correct.
 
 Review fixes and experiment E1 (after step 33, before step 34; the outside
 review of `5aa742c`):
@@ -439,6 +476,7 @@ fixed in `379aa54` (red) and `cfc9eab`.
 | oracle with per-position caps (R2), fff47fc | `tests/mellum_oracle_compare.sh ORACLE_DIR $MODEL 64` | release prefill vs the old engine and vs decode: 1,100 tokens mean KL 2.1e-3, worst KL 4.2e-2 (p802), worst \|d log p(top-1)\| 0.268; 2,200: 1.7e-3, 2.2e-2 (p803), 0.161; top-1 65/65 both; exact prefill and decode byte-equal; 64/64 greedy equal; PASS | 1 |
 | fast paths at chunk and window edges (R3), 033dbf0 | `DS4_TEST_MELLUM_MODEL=... make test-mellum-fastpath` (prefixes of `tests/mellum_heldout_long.tokens`: 31, 32, 1023, 1024, 1025, 2048 tokens; chunks 1024, 512, 100) | 45 of 45 pass. Untraced = traced, byte for byte, in all 18 count and chunk pairs. Release vs exact at the edges (0, 31, 99, 100, 511, 512, 1022-1024, last): byte-equal at 31 tokens; otherwise top-1 equal everywhere, worst KL 4.7e-3, worst \|d log p(top-1)\| 0.136. Eight decode steps after a release prefill of 32, 1023, 1024, 1025: worst KL 4.9e-3, top-1 9/9 each. 32 greedy tokens from a release-prefilled 1,024-token cache equal the exact path's, and each is the top token under the exact path. Chunks of 512 and 1024 gave byte-identical logits on 1,023 tokens (every row tiled either way; observed, not asserted); chunk 100 differs (its last chunk is 23 exact rows) | 1 |
 | deep rewind contract (R6) | `DS4_TEST_MELLUM_MODEL=... ./ds4_test --mellum-rewind` | sync 31, eval 3, rewind to 32, eval: 0 of 98,304 logit words differ from a fresh sync of the 32 kept tokens, 98,304 from the straight run (the replay's 32-row chunk is tiled; the original was 31 exact rows and a decode step) | 1 |
+| rewind frontier, 61c9654 | `DS4_TEST_MELLUM_MODEL=... ./ds4_test --mellum-rewind` | sync 1,100, decode 40, rewind to 1,100: graph at 1,100, 0 of 98,304 logit words differ from the sync's; the next sync of 5 tokens differs in 0 from a fresh session's; a stale frontier resets (graph at 0). Prompt 1,100, k 3, now back to the sync's end: 0 of 294,912 words from the straight decode. The session line: 417,902,848 B allocated = planned at 4,096 context (was 373,776,640) | 1 |
 | router and experts on real activations vs this port's double reference (R7), 11ed730 | `DS4_TEST_MELLUM_MODEL=... ./ds4_test --mellum-moe` (MoE input rows of `tests/mellum_heldout_unicode.tokens` at 64 positions, layers 0/6/10/13/14/27, 384 rows per path) | selection equals the reference in every row; 1 near-tie (8th/9th router logit gap < 1e-4), broken the same way. Exact rows: output 1.2e-6, weights 3.2e-7. Tiled rows: 1.1e-4 from a reference that stages as the tiled kernels do (input, half(d * q) weights, SwiGLU output as half), and 2.5e-3 from the unstaged one at layer 27 (max \|x\| 21.8): about 96% of the tiled path's error on real rows is the half staging. The random-row check's 1.0e-3 understated that cost | 1 |
 | E1 landed (tensor-tile experts on by default) vs `DS4_MELLUM_MOE_NAX=0`, 2d0756d, 2,200 tokens | `abba.sh` (session scratchpad; copy in `misc/e1-q8-tensor-tiles/`): A/B/B/A, arm A `DS4_MELLUM_MOE_NAX=0`, arm B default, 6 runs per process, first dropped, 45 s between processes, AC, Automatic, no thermal or performance warning before or after any process | second round: A median 2,045 t/s (1,897-2,057), B 2,881 (2,814-2,893), **+41%**. A first round gave A 1,628 and B 2,742 (+68%), but its first A process ran at 1,253-1,423 against 1,832-1,994 for the same arm at the round's end, so that round is not used. Each arm's two processes gave byte-identical logits in both rounds | 10 per arm, x2 |
 | the same, 6,000 tokens (`mellum_heldout_long`) | the same, 4 runs per process, first dropped | A median 1,596 t/s (1,389-1,719), B 2,057 (1,828-2,220), **+29%** | 6 per arm |
