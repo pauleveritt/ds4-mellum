@@ -7948,6 +7948,47 @@ static void test_mellum_server_render(void) {
     if (!bad) printf("mellum-server: %zu renders equal 2.1's template text\n", sizeof(msc_cases) / sizeof(msc_cases[0]));
 }
 
+/* With the real vocabulary (DS4_TEST_MELLUM_MODEL): each rendered case, tokenized as the server tokenizes a prompt
+ * (ds4_tokenize_rendered_chat), gives the template's ids. */
+static void test_mellum_server_ids(void) {
+    const char *model = getenv("DS4_TEST_MELLUM_MODEL");
+    if (!model || !model[0]) {
+        puts("mellum-server-ids: DS4_TEST_MELLUM_MODEL unset, skipped");
+        return;
+    }
+    ds4_engine *engine = NULL;
+    ds4_engine_options opt = { .model_path = model, .backend = DS4_BACKEND_METAL, .context_size = 2048 };
+    TEST_ASSERT(ds4_engine_open(&engine, &opt) == 0 && engine != NULL);
+    if (!engine) return;
+    int bad = 0;
+    for (size_t i = 0; i < sizeof(msc_cases) / sizeof(msc_cases[0]); i++) {
+        const msc_case *c = &msc_cases[i];
+        chat_msgs msgs;
+        char *schemas;
+        tool_schema_orders orders;
+        mellum_server_case_request(c, &msgs, &schemas, &orders);
+        char *text = render_chat_prompt_text_for_syntax(SERVER_MODEL_SYNTAX_HERMES, &msgs, schemas, &orders,
+                                                        c->think ? DS4_THINK_HIGH : DS4_THINK_NONE);
+        ds4_tokens got = {0};
+        ds4_tokenize_rendered_chat(engine, text ? text : "", &got);
+        bool same = got.len == c->nids;
+        for (int k = 0; same && k < c->nids; k++) same = got.v[k] == c->ids[k];
+        if (!same) {
+            fprintf(stderr, "mellum-server-ids: \"%s\": %d ids, the template's %d\n", c->name, got.len, c->nids);
+            bad++;
+        }
+        ds4_tokens_free(&got);
+        free(text);
+        free(schemas);
+        tool_schema_orders_free(&orders);
+        chat_msgs_free(&msgs);
+    }
+    TEST_ASSERT(bad == 0);
+    if (!bad) printf("mellum-server-ids: %zu rendered requests tokenize to 2.1's template ids\n",
+                     sizeof(msc_cases) / sizeof(msc_cases[0]));
+    ds4_engine_close(engine);
+}
+
 static void test_server_unit_group(void) {
     ds4_server_unit_tests_run();
     test_mellum_server_render();
@@ -7968,6 +8009,7 @@ static const ds4_test_entry test_entries[] = {
     {"--mellum-session", "mellum-session", "Mellum session allocation equals its plan (DS4_TEST_MELLUM_MODEL)", test_mellum_session_allocation},
     {"--mellum-exact-prefill", "mellum-exact-prefill", "Mellum prefill equals decode byte for byte under DS4_MELLUM_EXACT_PREFILL=1 (DS4_TEST_MELLUM_MODEL)", test_mellum_exact_prefill},
     {"--mellum-rewind", "mellum-rewind", "Mellum session rewind: one token keeps the caches, deeper replays; logits equal a straight decode (DS4_TEST_MELLUM_MODEL)", test_mellum_rewind},
+    {"--mellum-server-ids", "mellum-server-ids", "Mellum server renders against the template's ids (DS4_TEST_MELLUM_MODEL)", test_mellum_server_ids},
     {"--mellum-moe", "mellum-moe", "Mellum MoE driver on the real model's layers against a double reference (DS4_TEST_MELLUM_MODEL)", test_mellum_moe_real},
     {"--qwen4-restore-reuse", "qwen4-restore-reuse", "Qwen restore discards old verifier state and rejects truncated payloads", test_qwen_restore_reused_session},
     {"--session-snapshot", "session-snapshot", "session snapshot and recurrent-state round trip", test_session_snapshot_roundtrip},
