@@ -35,7 +35,8 @@ t/s; a 3,235-token prompt prefills at 1,842-1,871 t/s and then generates at
 116.2-117.8 t/s. The trace driver's 2,200-token prefill: about 2,000 t/s. Since E1 (routed Q8_0
 experts on the Metal 4 tensor tiles), about 2,880 t/s at 2,200 tokens and 2,060 at 6,000. The M4
 Max was not measured. Session save/load refuses by name, and ds4-server
-and ds4-agent refuse a Mellum engine at startup (no Hermes tool syntax yet).
+refuses a Mellum engine at startup (no Hermes tool syntax there yet). Since
+step 34, ds4-agent runs Mellum with the Hermes syntax and Pi's four tools.
 
 Model-free tests: `make test-mellum`. With `DS4_TEST_MELLUM_MODEL` set,
 `./tests/test_mellum_config` also validates, binds and renders against the real
@@ -180,6 +181,16 @@ Phase 5 (tool calls in ds4-agent):
 - `3ad12c3` (red), `5ffbfe3` a Mellum engine gets the Hermes syntax; the agent
   still refuses it until step 34.
 - `e38b18d`, `7c44f0c` the earlier-reasoning divergence, at the code.
+- Step 34, Pi's four tools (ported from the old port's `a5a7e82`, split into
+  pairs):
+  - `96289c4` (red), `c80bdfe` a round's results are one user turn, a raw
+    `<tool_response>` block per call;
+  - `3dd86ba` (red), `8c85dae` `read`;
+  - `315c411` (red), `d9b6ecf` `write`;
+  - `45f77b0` (red), `4d062f9` `edit`, exact matching;
+  - `627672d` (red), `d3c562d` `bash`;
+  - `194dbf8` (red), `5a0b4b0` other tool names get "Tool X not found",
+    and the agent no longer refuses Mellum.
 
 Review fixes and experiment E1 (after step 33, before step 34; the outside
 review of `5aa742c`):
@@ -256,6 +267,15 @@ Step 22, M5 Max, Q8_0, `--temp 0`, n = 1 each:
   `<tool_call>` typed in a user message as token 29; ds4 keeps user text plain
   BPE, as for every model. System text (the tools block, `-sys`) and assistant
   text match special tokens, as the template's tokenizer does.
+
+- Pi's tool texts by version. The training contract (Paul's ds4-engine research notes) puts training
+  on Pi 0.84.4. Two copies of Pi are installed here: 0.80.10 (bundled by pi-xcode) and 1.1.0. The
+  agent's texts are 0.80.10's, which the contract says 1.1.0 changed only in `write`. `write` says
+  "Successfully wrote N bytes to P", with N being JavaScript's `content.length` (UTF-16 units); 1.1.0
+  says "Successfully wrote to P". `bash`'s "Command terminated without an exit code" is 1.1.0's:
+  0.80.10 has no such case. An unknown tool gets Pi's agent-loop text, "Tool X not found". `edit`'s
+  texts are the same in both versions. Until step 35, `edit` matches exactly; Pi also tries a fuzzy
+  match and counts occurrences on normalized text.
 
 ## Measured
 
