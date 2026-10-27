@@ -297,10 +297,47 @@ static void check_pi_read(const char *dir) {
     puts("ok   agent: Pi's read for Mellum (raw text, offset and limit, Pi's footers and errors)");
 }
 
+static char *pi_slurp(const char *path) {
+    FILE *fp = fopen(path, "rb");
+    if (!fp) return xstrdup("<unreadable>");
+    agent_buf b = {0};
+    char tmp[4096];
+    size_t n;
+    while ((n = fread(tmp, 1, sizeof(tmp), fp)) > 0) agent_buf_append(&b, tmp, n);
+    fclose(fp);
+    return b.ptr ? agent_buf_take(&b) : xstrdup("");
+}
+
+/* write: the training-era text (Pi 0.84.4, as 0.80.10 here; 1.1.0 dropped the count), whose count is the
+ * JavaScript string length, UTF-16 units: "é" is one, an emoji two */
+static void check_pi_write(const char *dir) {
+    char *nested = xmalloc(strlen(dir) + 32), want[PATH_MAX + 64];
+    sprintf(nested, "%s/a/b/new.py", dir);
+    snprintf(want, sizeof(want), "Successfully wrote 9 bytes to %s", nested);
+    PI_EXPECT(pi_run("write", "path", nested, "content", "print(1)\n", NULL), want);
+    char *back = pi_slurp(nested);
+    CHECK(!strcmp(back, "print(1)\n"));
+    free(back);
+    snprintf(want, sizeof(want), "Successfully wrote 4 bytes to %s", nested);
+    PI_EXPECT(pi_run("write", "path", nested, "content", "\xc3\xa9\xf0\x9f\x98\x80!", NULL), want);
+    back = pi_slurp(nested);
+    CHECK(!strcmp(back, "\xc3\xa9\xf0\x9f\x98\x80!"));
+    free(back);
+    /* a missing content is refused, and the file is left as it was */
+    PI_EXPECT(pi_run("write", "path", nested, NULL), "write requires a content string.");
+    back = pi_slurp(nested);
+    CHECK(!strcmp(back, "\xc3\xa9\xf0\x9f\x98\x80!"));
+    free(back);
+    PI_EXPECT(pi_run("write", "content", "x", NULL), "write requires a path string.");
+    free(nested);
+    puts("ok   agent: Pi's write for Mellum (parents created, the training-era text with Pi's count)");
+}
+
 static void check_pi_tools(void) {
     char dir[] = "/tmp/ds4-mellum-pi-XXXXXX";
     CHECK(mkdtemp(dir) != NULL);
     check_pi_read(dir);
+    check_pi_write(dir);
     char cmd[PATH_MAX + 16];
     snprintf(cmd, sizeof(cmd), "rm -rf %s", dir);
     CHECK(system(cmd) == 0);
