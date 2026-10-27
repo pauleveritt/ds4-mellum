@@ -1626,3 +1626,16 @@ test-mellum-workload-source:
 	python3 -I tests/test_mellum_workload_bundle.py
 
 test-mellum: test-mellum-workload-source
+
+MELLUM_READ_CFLAGS = -std=c99 -O2 -D_POSIX_C_SOURCE=200809L -D_DARWIN_C_SOURCE -Wall -Wextra -Werror -pthread
+
+tests/test_mellum_read_plan: tests/test_mellum_read_plan.c tools/mellum_read_plan.c tools/mellum_read.h tests/mellum_read_faults.h
+	$(CC) $(MELLUM_READ_CFLAGS) -include tests/mellum_read_faults.h tests/test_mellum_read_plan.c tools/mellum_read_plan.c -o $@
+
+.PHONY: test-mellum-read-plan
+test-mellum-read-plan: tests/test_mellum_read_plan
+	./tests/test_mellum_read_plan
+
+clean-mellum-read:
+	rm -f tests/test_mellum_read_plan
+clean: clean-mellum-read
