@@ -1690,3 +1690,12 @@ test-mellum-storage: test-mellum-read-plan test-mellum-read-io test-mellum-read-
 	python3 -I tests/test_mellum_read_batch.py
 
 test-mellum: test-mellum-storage
+
+.PHONY: test-mellum-read-gate
+tests/test_mellum_read_gate: tests/test_mellum_read_gate.c tools/mellum_read_gate.c tools/mellum_read.h tests/mellum_read_gate_faults.h
+	$(CC) $(MELLUM_READ_CFLAGS) -include tests/mellum_read_gate_faults.h tests/test_mellum_read_gate.c tools/mellum_read_gate.c -o $@
+test-mellum-read-gate: tests/test_mellum_read_gate
+	./tests/test_mellum_read_gate
+clean-mellum-read-gate:
+	rm -f tests/test_mellum_read_gate
+clean: clean-mellum-read-gate

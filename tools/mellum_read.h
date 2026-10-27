@@ -38,4 +38,7 @@ typedef struct {
 } mellum_read_observers;
 int mellum_read_execute_observed(int, const mellum_read_plan *, unsigned, mellum_read_sample *,
     mellum_read_summary *, const mellum_read_observers *, char *, size_t);
+typedef struct { int control_fd, event_fd; } mellum_read_gate;
+int mellum_read_gate_ready(void *, char *, size_t);
+int mellum_read_gate_done(void *, char *, size_t);
 #endif
