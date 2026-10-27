@@ -382,8 +382,11 @@ Phase 7b, the gaps left at Checkpoint 5 (steps 48-50, 2026-10-27):
 - Step 49, `a711ace` red, `0d3b8f2` fix: the missed-edit departure is found
   under Pi's fuzzy normalisation and mapped back to the file's bytes, so a
   curly quote typed straight or dropped trailing spaces are no departure.
-- Step 50, NFKC in Pi's fuzzy edit: stopped at the table's size, as the
-  brief says, and nothing committed. A generator that takes the decompositions
+- Step 50, NFKC in Pi's fuzzy edit: skipped by Paul's decision at
+  Checkpoint 5b, on its table's size. NFKC stays a recorded divergence from
+  Pi (Known divergences, below). The generator and its table are kept in
+  `misc/step50-nfkc/`, which is git-ignored, so they are not in the
+  repository. The generator takes the decompositions
   and compositions from node (Pi's runtime, Unicode 17.0) and the combining
   classes from Python (Unicode 16.0) matches node's NFKC on all 1,112,063 code
   points and 8,519 probes. Its table is 5,914 decompositions (9,193 code
@@ -497,8 +500,10 @@ fixed in `379aa54` (red) and `cfc9eab`.
   says "Successfully wrote to P". `bash`'s "Command terminated without an exit code" is 1.1.0's:
   0.80.10 has no such case. An unknown tool gets Pi's agent-loop text, "Tool X not found". `edit`'s
   texts are the same in both versions. Since step 35, `edit` matches as Pi does, except that its
-  fuzzy pass has no NFKC step: C has no Unicode normalization here, so compatibility forms such as
-  full-width letters and ligatures don't match their ASCII spelling.
+  fuzzy pass has no NFKC step, by Paul's decision at Checkpoint 5b (step 50): a verified generator
+  exists (`misc/step50-nfkc/`, git-ignored), but its table, 219 KB, was not taken into the
+  repository. So compatibility forms such as full-width letters and ligatures don't match their
+  ASCII spelling.
 - `read` with an offset or limit past the file's end reads as Pi does. A negative limit reads
   nothing and reports how many lines remain; Pi's own arithmetic would count from before the
   start.
