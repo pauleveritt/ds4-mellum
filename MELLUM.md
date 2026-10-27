@@ -386,6 +386,125 @@ held-out prompts, but the gate is the oracle's top-1 rule, and changing that rul
 The patches (Q8_0 raw words, a Mellum-only opt-in through `DS4_MELLUM_MOE_NAX`, a red test) and the
 runner are in the session notes folder, `e1-q8-tensor-tiles/`, with a README.
 
+## Rebase onto ee7e840 (review step RB, 2026-10-27)
+
+`mellum` was rebased from upstream `5379c1c` onto antirez `ee7e840`, upstream `main` that day. That adds two
+upstream commits off Mellum's path: `a101246`, MXFP4 downloads and a shard-merge script, and `ee7e840`, CUDA
+SSD prefetch made opt-in inside a `!__APPLE__` guard in `ds4.c`. The rebase had no conflicts. The rebased
+tree differs from the old head by exactly those two commits' changed lines. The full gate and the CPU build
+pass, and the oracle passes, with exact prefill, decode and the 64 greedy tokens byte-equal.
+
+The SHAs above this section were written before the rebase. The tag `mellum-pre-ee7e840` (the old head,
+`afaf7c8`) keeps them resolving, and measurements cited at an old SHA were taken on that tree. The commits
+cited here map to the rebased branch as follows (all 108 commits kept their order and subjects):
+
+<details><summary>old SHA to new SHA</summary>
+
+| before | after | subject |
+|---|---|---|
+| `15824be` | `0bb2432` | MELLUM.md: the Mellum port's notes, with the baseline at 5379c1c |
+| `57278db` | `4720ffe` | MELLUM.md: dependency audit of the old Mellum port against 5379c1c |
+| `e8ba0ac` | `83e39b6` | mellum: recognize general.architecture = mellum, refuse it by name |
+| `5109a6d` | `0428a4c` | mellum: validate the hyperparameters, each refusal naming its key |
+| `34b5d44` | `06b13f8` | mellum: bind the tensors by name and check their Q8_0 layout |
+| `f4d1ef1` | `5b6758e` | mellum: memory plan and session allocation; the forward entries refuse |
+| `e398212` | `b5f0530` | mellum: generated Unicode classes for the pre-tokenizer, with the generator |
+| `5e4884d` | `fd46752` | test: Mellum 2.1 tokenizer cases from its own tokenizer, with the generator |
+| `a7f0b4f` | `70fb4d5` | mellum: the mellum2 pre-tokenizer |
+| `79922e5` | `5cdf14c` | mellum: special tokens classed, corpus markers are content |
+| `8021751` | `9710f50` | test: Mellum 2.1 chat ids from its own template, with the generator |
+| `20a696c` | `835c6b0` | mellum: its own system turn and assistant prefix |
+| `dd0d997` | `1d9b628` | mellum: sampling defaults from the engine, read by the CLI, agent and server |
+| `a74bafe` | `d3892ee` | mellum: session save and load refuse Mellum by name |
+| `f58b776` | `5c3b117` | mellum: q/k norm and RoPE kernel, YaRN on full layers only |
+| `bb2a2f3` | `d1c144d` | mellum: ring commit and sliding-window attention kernels |
+| `f0332e3` | `9df140f` | mellum: ungated full attention on upstream's qwen4 decode kernels |
+| `2712e56` | `c6cb6fb` | mellum: MoE, top-8 of 64 routed experts, no shared expert |
+| `b3f9897` | `68f818a` | mellum: the forward pass, behind DS4_MELLUM_TRACE, and its trace driver |
+| `f86c6b4` | `b7e3a9f` | test: the oracle's three token files, from the model's own template |
+| `46d7d79` | `b547dda` | mellum: oracle comparison script; the forward pass matches the old engine |
+| `48296f7` | `ac8cf98` | mellum: the Unicode table ends with one newline |
+| `51e898c` | `f83b888` | MELLUM.md: the oracle script, shown failing against a perturbed old tree |
+| `9d2ff02` | `b62ebc9` | test: Mellum prefill equals decode, op by op |
+| `a27783e` | `e1885c7` | mellum: lift the forward-pass refusal; the CLI runs Mellum chats |
+| `322389e` | `17de1a4` | mellum: compaction resumes an open reasoning block with <think> |
+| `63c647f` | `36c8ea9` | mellum: session rewind keeps both caches one token back |
+| `e4a6595` | `f975919` | mellum: prefill experts as tiled GEMMs from 32 rows (2.4x prefill) |
+| `219ac0a` | `66c40c1` | mellum: Q8_0 prefill projections batched from 32 rows (another 2.4x) |
+| `c5c4e57` | `f9c1229` | test: the ds4 CLI with Mellum (red: the -n cap is not reported) |
+| `a6c2eb0` | `0d5f2e7` | ds4: the CLI says when a turn stops at the -n cap |
+| `907094d` | `4a9f5ee` | MELLUM.md: what --nothink does with Mellum 2.1 |
+| `be82f23` | `2f0217f` | test: the CLI's speed line names Mellum (red: it says Qwen3.8) |
+| `b9dbf42` | `d356669` | mellum: the CLI's speed line and session errors name Mellum |
+| `36fe842` | `2642d76` | MELLUM.md: step 29 speed, and the commit list through phase 4 |
+| `5aa742c` | `6f7e22a` | test: a long Mellum prefill equals decode under DS4_MELLUM_EXACT_PREFILL=1 (red) |
+| `4bdb7b5` | `73544c9` | mellum: DS4_MELLUM_EXACT_PREFILL=1 keeps long prefills exact (a diagnostic) |
+| `9e77c2d` | `24e0ec1` | test: the oracle checks every prefill both ways |
+| `4c5ef02` | `6b377f2` | test: a Mellum tool message renders <tool_response> as tokens 31 and 32 (red) |
+| `98a5bc6` | `d1a98ca` | mellum: a tool message's <tool_response> wrapper renders as tokens 31 and 32 |
+| `a821dd7` | `006983d` | test: Mellum's text-only tool observation renders the same tokens 31 and 32 (red) |
+| `cdc5b10` | `0df1620` | mellum: the multimodal tool path uses the same <tool_response> tags |
+| `7514d1f` | `81050b3` | ds4_chat_append_tool_results: append one assistant turn's n tool results |
+| `11684de` | `19054eb` | test: Mellum's two tool results are one user turn (red) |
+| `ba1c0e0` | `05cddb2` | mellum: one turn's tool results render as one user turn |
+| `b2134ce` | `41bfdd8` | ds4_json.h: the server's JSON string readers move to a shared header |
+| `d5cb032` | `0bcdc29` | ds4_json.h: the number readers and value skippers join the shared header |
+| `a81de8d` | `9d70d86` | ds4-agent: AGENT_TOOL_SYNTAX_HERMES, Mellum's tool-call syntax, not yet selected |
+| `534ef56` | `e1c8a6f` | test: the Hermes parser's call object, string arguments and errors (red) |
+| `e2958cc` | `29b06f3` | test: the Hermes markers test expects the call at the final byte (still red) |
+| `a440f79` | `a5caaf4` | ds4-agent: the Hermes parser, call object and string arguments |
+| `6ddb1b2` | `305fdf2` | test: the Hermes parser keeps numbers, literals and nested values raw (red) |
+| `42e4717` | `b1c667d` | ds4-agent: the Hermes parser keeps numbers, literals and nested values raw |
+| `91f5be0` | `0409aab` | test: the Hermes parser reads what json.loads reads, and refuses what it refuses (red) |
+| `53b9441` | `c579913` | ds4-agent: the Hermes parser reads the call object as json.loads does |
+| `aaebdde` | `9eff81e` | test: prose around Hermes calls neither ends the turn early nor drops a call (red) |
+| `d2d2b32` | `dafd5a3` | ds4-agent: the Hermes parser tolerates prose around calls |
+| `9b6aa77` | `cf63c43` | test: Mellum's tool-bearing renders, Pi's tools in the system turn (red) |
+| `c98441c` | `2eda52f` | mellum: a system message renders special-token text as its tokens |
+| `a59b281` | `892bd7b` | test: the CLI's Mellum system prompt renders as a system message does (red) |
+| `0cc60c9` | `88cb9ac` | mellum: the CLI's system prompt uses the same tokenizer as a system message |
+| `80ae163` | `0bf4fa5` | test: ds4-agent's Hermes system turn equals the template's (red) |
+| `5482d43` | `d44f1fa` | ds4-agent: the Hermes system turn, Pi's tools block as 2.1's template writes it |
+| `24e2ce5` | `e6ee4fd` | test: Hermes think state, turn end, stop classes and the [upto] forcer (red) |
+| `285cfdf` | `295db94` | ds4-agent: Hermes think state, turn end and stop classes |
+| `3ad12c3` | `24a5e9b` | test: ds4-agent selects the Hermes syntax for a Mellum engine (red) |
+| `5ffbfe3` | `a8bd1d0` | ds4-agent: a Mellum engine gets the Hermes syntax, ahead of the qwen4 check |
+| `e38b18d` | `a5c6401` | ds4-agent: say where Mellum's earlier reasoning diverges from the template |
+| `7c44f0c` | `4189df7` | ds4-agent: drop an unchecked claim about the Qwen templates from that comment |
+| `a6ce058` | `822749e` | test: move the oracle's logits comparison into a script the tests can run |
+| `c99ac87` | `4485d0d` | test: the oracle comparison rejects NaN and Inf in every row (red) |
+| `fc16a75` | `9af4e3f` | test: the oracle comparison rejects NaN and Inf before anything else |
+| `807c7be` | `72f6a5c` | test: the trace driver checks every listed position's logits finite (red) |
+| `28fdbd5` | `322cb52` | test: the trace driver checks every listed position's logits finite |
+| `381d402` | `95dd91f` | test: the oracle comparison caps each position, and counts the session row once (red) |
+| `a3a7962` | `044594e` | test: four held-out token files for setting the oracle's per-position caps |
+| `fff47fc` | `2ffd0ba` | test: the oracle caps each position's KL and top-1 log-probability change |
+| `62dce64` | `d9fec50` | MELLUM.md: the oracle's per-position caps, where they come from, and router flips |
+| `c95e0e8` | `4ba0969` | test: an imported history closes each assistant turn once for Mellum (red) |
+| `5d75ebe` | `77b6ac8` | ds4_prompt_prefix: no second <\|im_end\|> after an imported Mellum assistant turn |
+| `890da18` | `f1c7f75` | MELLUM.md: the prompt-prefix close fix, and Flash Next's probable double close |
+| `6d60625` | `1d8af56` | test: an imported Mellum history drops earlier reasoning, as the template does (red) |
+| `544d3d5` | `c8f8198` | ds4_prompt_prefix: drop the reasoning of imported Mellum assistant turns |
+| `a468bfb` | `ed63238` | MELLUM.md: rendered histories drop earlier reasoning; live transcripts keep it |
+| `98f40bf` | `fbd4ec4` | test: a deep Mellum rewind gives a fresh sync's logits, not the straight run's |
+| `9bbf9fe` | `181e3a7` | ds4: say what a deep Mellum rewind's replay gives |
+| `6eeade3` | `910fc7b` | test: max thinking prefixes no DeepSeek preamble for Mellum (red) |
+| `c479351` | `aef990e` | ds4: no DeepSeek max-effort preamble in a Mellum prompt |
+| `4e5fbf7` | `c9d63e0` | test: Mellum metadata refuses head and width shapes the kernels refuse (red) |
+| `119001b` | `7eef70b` | ds4: Mellum metadata refuses the head and width shapes its kernels refuse |
+| `8fbd9b3` | `5876d68` | MELLUM.md: list the -n cap message and the skipped max-effort preamble as upstream changes |
+| `6bd685e` | `5374e1c` | test: the trace driver syncs a prefix and decodes the rest, and decodes greedy tokens |
+| `033dbf0` | `225d981` | test: the release prefill's fast paths at chunk and window edges, with the model |
+| `a8e5b4b` | `fe15699` | MELLUM.md: fast-path coverage at chunk and window edges, and the deep-rewind contract |
+| `767a29a` | `0b7f707` | ds4: the Mellum trace writes each layer's MoE input row |
+| `11ed730` | `efd8981` | test: the Mellum router and experts on real activations against the double reference |
+| `99c259d` | `54b41f4` | MELLUM.md: the router and experts on real activations, and what half staging costs there |
+| `f16a1dd` | `53cfc5e` | MELLUM.md: reconcile the Metal 4 record (R8): on is +11.5% at 99c259d |
+| `86fcd05` | `d1be955` | MELLUM.md: experiment E1, routed Q8_0 experts on the tensor tiles, measured and reverted |
+| `8e7b158` | `59fa06c` | MELLUM.md: E1's held-out drift is about the same as now, not lower on five files |
+
+</details>
+
 ## Backends covered
 
 Metal only, on Apple Silicon. CUDA, ROCm, the CPU reference path and
