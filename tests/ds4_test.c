@@ -7889,8 +7889,68 @@ static void test_dspark_verify_depth(void) {
 }
 #endif
 
+/* ---- ds4-server and Mellum 2.1: the Hermes syntax, pinned against the model's own template ---- */
+
+typedef struct { const char *name, *arguments; } msc_call;
+typedef struct { const char *role, *content, *reasoning; int ncalls; const msc_call *calls; } msc_msg;
+typedef struct { const char *name; bool think, tools; int nmsg; const msc_msg *msgs; const char *text; int nids;
+                 const int *ids; } msc_case;
+#include "mellum_server_cases.inc"
+
+/* a case's request as the server holds it: its messages, and its tools as parse_tools_value keeps them */
+static void mellum_server_case_request(const msc_case *c, chat_msgs *msgs, char **schemas, tool_schema_orders *orders) {
+    memset(msgs, 0, sizeof(*msgs));
+    memset(orders, 0, sizeof(*orders));
+    *schemas = NULL;
+    for (int j = 0; j < c->nmsg; j++) {
+        const msc_msg *m = &c->msgs[j];
+        chat_msg msg = {0};
+        msg.role = xstrdup(m->role);
+        msg.content = xstrdup(m->content);
+        if (m->reasoning) msg.reasoning = xstrdup(m->reasoning);
+        for (int k = 0; k < m->ncalls; k++) {
+            char id[16];
+            snprintf(id, sizeof(id), "c%d", k + 1);
+            tool_calls_push(&msg.calls, (tool_call){.id = xstrdup(id), .name = xstrdup(m->calls[k].name),
+                                                    .arguments = xstrdup(m->calls[k].arguments)});
+        }
+        chat_msgs_push(msgs, msg);
+    }
+    if (c->tools) {
+        const char *p = msc_tools_json;
+        TEST_ASSERT(parse_tools_value(&p, schemas, orders));
+    }
+}
+
+/* each case renders to the template's text, byte for byte */
+static void test_mellum_server_render(void) {
+    int bad = 0;
+    for (size_t i = 0; i < sizeof(msc_cases) / sizeof(msc_cases[0]); i++) {
+        const msc_case *c = &msc_cases[i];
+        chat_msgs msgs;
+        char *schemas;
+        tool_schema_orders orders;
+        mellum_server_case_request(c, &msgs, &schemas, &orders);
+        char *got = render_chat_prompt_text_for_syntax(SERVER_MODEL_SYNTAX_HERMES, &msgs, schemas, &orders,
+                                                       c->think ? DS4_THINK_HIGH : DS4_THINK_NONE);
+        if (!got || strcmp(got, c->text) != 0) {
+            size_t at = 0;
+            while (got && got[at] && got[at] == c->text[at]) at++;
+            fprintf(stderr, "mellum-server: render \"%s\" differs from the template at byte %zu\n", c->name, at);
+            bad++;
+        }
+        free(got);
+        free(schemas);
+        tool_schema_orders_free(&orders);
+        chat_msgs_free(&msgs);
+    }
+    TEST_ASSERT(bad == 0);
+    if (!bad) printf("mellum-server: %zu renders equal 2.1's template text\n", sizeof(msc_cases) / sizeof(msc_cases[0]));
+}
+
 static void test_server_unit_group(void) {
     ds4_server_unit_tests_run();
+    test_mellum_server_render();
 }
 
 typedef void (*test_fn)(void);
