@@ -1349,6 +1349,8 @@ test-cuda-mixed-batch: tests/test_cuda_mixed_batch
 	DS4_TEST_MODEL="$(DS4_TEST_MODEL)" ./tests/test_cuda_mixed_batch
 endif
 
+tools/mellum_s4_measure: tools/mellum_s4_measure.c ds4.h ds4_help.o $(CORE_OBJS)
+	$(CC) $(CFLAGS) -I. -o $@ tools/mellum_s4_measure.c ds4_help.o $(CORE_OBJS) $(METAL_LDLIBS)
 ds4_test: ds4_test.o ds4_help.o ds4_kvstore.o rax.o $(CORE_OBJS)
 ifeq ($(UNAME_S),Darwin)
 	$(CC) $(CFLAGS) -o $@ ds4_test.o ds4_help.o ds4_kvstore.o rax.o $(CORE_OBJS) $(METAL_LDLIBS)
@@ -1738,6 +1740,8 @@ tests/test_mellum_stream: tests/test_mellum_stream.c ds4_mellum_stream.c ds4_mel
 test-mellum-stream: tests/test_mellum_stream
 	./tests/test_mellum_stream
 test-mellum: test-mellum-stream
+# S4 measurement driver: built here, run only with the model (tests/test_mellum_s4_driver.py)
+test-mellum: tools/mellum_s4_measure
 clean-mellum-stream:
 	rm -f tests/test_mellum_stream
 clean: clean-mellum-stream

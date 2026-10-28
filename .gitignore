@@ -151,3 +151,4 @@ __pycache__/
 /tools/mellum_generate
 /tests/test_mellum_generate_driver
 /tests/test_mellum_generate_prepare
+/tools/mellum_s4_measure
