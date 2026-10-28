@@ -48336,6 +48336,18 @@ enum {
     QWEN4_K_MOE_MM_DOWN_NT2_ADDR,
     QWEN4_K_MOE_MM_DOWN_ADDR,
     QWEN4_K_MOE_MM_DOWN_NT8_ADDR,
+    QWEN4_K_MOE_MM_MID_NAX_ADDR,
+    QWEN4_K_MOE_MM_MID_NAX64_ADDR,
+    QWEN4_K_MOE_MM_DOWN_NAX_ADDR,
+    QWEN4_K_MOE_MM_DOWN_NAX64_ADDR,
+    QWEN4_K_MOE_MM_MID_NAXF_ADDR,
+    QWEN4_K_MOE_MM_MID_NAXF64_ADDR,
+    QWEN4_K_MOE_MM_DOWN_NAXF_ADDR,
+    QWEN4_K_MOE_MM_DOWN_NAXF64_ADDR,
+    QWEN4_K_MOE_MM_MID_NAXC_ADDR,
+    QWEN4_K_MOE_MM_MID_NAXC64_ADDR,
+    QWEN4_K_MOE_MM_DOWN_NAXC_ADDR,
+    QWEN4_K_MOE_MM_DOWN_NAXC64_ADDR,
     QWEN4_K_COUNT,
 };
 
@@ -48451,6 +48463,18 @@ static const char *const qwen4_kernel_names[QWEN4_K_COUNT] = {
     "kernel_qwen4_moe_mm_down_nt2_addr",
     "kernel_qwen4_moe_mm_down_addr",
     "kernel_qwen4_moe_mm_down_nt8_addr",
+    "kernel_qwen4_moe_mm_mid_nax_addr",
+    "kernel_qwen4_moe_mm_mid_nax64_addr",
+    "kernel_qwen4_moe_mm_down_nax_addr",
+    "kernel_qwen4_moe_mm_down_nax64_addr",
+    "kernel_qwen4_moe_mm_mid_naxf_addr",
+    "kernel_qwen4_moe_mm_mid_naxf64_addr",
+    "kernel_qwen4_moe_mm_down_naxf_addr",
+    "kernel_qwen4_moe_mm_down_naxf64_addr",
+    "kernel_qwen4_moe_mm_mid_naxc_addr",
+    "kernel_qwen4_moe_mm_mid_naxc64_addr",
+    "kernel_qwen4_moe_mm_down_naxc_addr",
+    "kernel_qwen4_moe_mm_down_naxc64_addr",
 };
 
 typedef struct {
@@ -48546,7 +48570,7 @@ static int qwen4_dispatch_resident(int kernel, const void *args, size_t args_len
                 [g_pipeline_cache setObject:pipeline forKey:key];
             }
         } else if ((kernel >= QWEN4_K_MOE_MM_MID && kernel <= QWEN4_K_MOE_MM_DOWN_NAXC64) ||
-                   (kernel >= QWEN4_K_MOE_MM_MID_NT1_ADDR && kernel <= QWEN4_K_MOE_MM_DOWN_NT8_ADDR)) {
+                   (kernel >= QWEN4_K_MOE_MM_MID_NT1_ADDR && kernel <= QWEN4_K_MOE_MM_DOWN_NAXC64_ADDR)) {
             /* Keep each quantization's dequantizer constant through the K
              * loop. M3 Ultra and M5 have balanced full-model measurements;
              * other devices can opt in, and zero restores the generic kernel. */
@@ -50215,6 +50239,18 @@ static int qwen4_mm_addr_kernel(int kernel) {
     case QWEN4_K_MOE_MM_DOWN_NT2: return QWEN4_K_MOE_MM_DOWN_NT2_ADDR;
     case QWEN4_K_MOE_MM_DOWN: return QWEN4_K_MOE_MM_DOWN_ADDR;
     case QWEN4_K_MOE_MM_DOWN_NT8: return QWEN4_K_MOE_MM_DOWN_NT8_ADDR;
+    case QWEN4_K_MOE_MM_MID_NAX: return QWEN4_K_MOE_MM_MID_NAX_ADDR;
+    case QWEN4_K_MOE_MM_MID_NAX64: return QWEN4_K_MOE_MM_MID_NAX64_ADDR;
+    case QWEN4_K_MOE_MM_DOWN_NAX: return QWEN4_K_MOE_MM_DOWN_NAX_ADDR;
+    case QWEN4_K_MOE_MM_DOWN_NAX64: return QWEN4_K_MOE_MM_DOWN_NAX64_ADDR;
+    case QWEN4_K_MOE_MM_MID_NAXF: return QWEN4_K_MOE_MM_MID_NAXF_ADDR;
+    case QWEN4_K_MOE_MM_MID_NAXF64: return QWEN4_K_MOE_MM_MID_NAXF64_ADDR;
+    case QWEN4_K_MOE_MM_DOWN_NAXF: return QWEN4_K_MOE_MM_DOWN_NAXF_ADDR;
+    case QWEN4_K_MOE_MM_DOWN_NAXF64: return QWEN4_K_MOE_MM_DOWN_NAXF64_ADDR;
+    case QWEN4_K_MOE_MM_MID_NAXC: return QWEN4_K_MOE_MM_MID_NAXC_ADDR;
+    case QWEN4_K_MOE_MM_MID_NAXC64: return QWEN4_K_MOE_MM_MID_NAXC64_ADDR;
+    case QWEN4_K_MOE_MM_DOWN_NAXC: return QWEN4_K_MOE_MM_DOWN_NAXC_ADDR;
+    case QWEN4_K_MOE_MM_DOWN_NAXC64: return QWEN4_K_MOE_MM_DOWN_NAXC64_ADDR;
     default: return -1;
     }
 }

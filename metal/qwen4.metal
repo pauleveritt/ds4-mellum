@@ -4031,7 +4031,7 @@ inline void qwen4_nax_stage8(threadgroup XT *dst, device const XT *src) {
 template <bool COMP, typename XT> struct qwen4_nax_btype { using type = XT; };
 template <typename XT> struct qwen4_nax_btype<true, XT> { using type = half; };
 
-template <int NR1, typename XT, bool COMP>
+template <int NR1, typename XT, bool COMP, bool ADDR = false>
 kernel void kernel_qwen4_moe_mm_mid_nax_t(
         constant ds4_metal_args_qwen4_moe_mm & args,
         device const char    *gate_base,
@@ -4075,8 +4075,9 @@ kernel void kernel_qwen4_moe_mm_mid_nax_t(
     threadgroup BT *Bs = (threadgroup BT *)(shmem + 8192);            /* [NR1][32] */
     threadgroup half *Br = (threadgroup half *)(shmem + 8192 + NR1 * 64); /* [NR1][32] residual (COMP) */
     threadgroup float *Cs = (threadgroup float *)shmem;               /* [NR1 tok][64 row] after the K loop */
-    device const char *gbase = gate_base + (uint64_t)e * args.expert_bytes;
-    device const char *ubase = up_base + (uint64_t)e * args.expert_bytes;
+    device const char *gbase = ADDR ? qwen4_addr_expert(gate_base, e) : gate_base + (uint64_t)e * args.expert_bytes;
+    device const char *ubase = ADDR ? qwen4_addr_expert(up_base, e) : up_base + (uint64_t)e * args.expert_bytes;
+    if (ADDR && (!gbase || !ubase)) return;
     device const int32_t *list = lists + (uint64_t)e * args.list_cap;
     const uint row0 = rb * NR0;
     const uint nk = args.in_dim / NK;
@@ -4192,7 +4193,7 @@ kernel void kernel_qwen4_moe_mm_mid_nax_t(
     }
 }
 
-template <int NR1, typename XT, bool COMP>
+template <int NR1, typename XT, bool COMP, bool ADDR = false>
 kernel void kernel_qwen4_moe_mm_down_nax_t(
         constant ds4_metal_args_qwen4_moe_mm & args,
         device const char    *down_base,
@@ -4232,7 +4233,8 @@ kernel void kernel_qwen4_moe_mm_down_nax_t(
     threadgroup XT *Bs = (threadgroup XT *)(shmem + 4096);            /* [NR1][32] */
     threadgroup half *Br = (threadgroup half *)(shmem + 4096 + NR1 * 64); /* [NR1][32] residual (COMP) */
     threadgroup float *Cs = (threadgroup float *)shmem;               /* [NR1 tok][64 row] after the K loop */
-    device const char *dbase = down_base + (uint64_t)e * args.expert_bytes;
+    device const char *dbase = ADDR ? qwen4_addr_expert(down_base, e) : down_base + (uint64_t)e * args.expert_bytes;
+    if (ADDR && !dbase) return;
     device const int32_t *list = lists + (uint64_t)e * args.list_cap;
     const uint row0 = rb * NR0;
     const uint nk = args.in_dim / NK;
@@ -4317,17 +4319,29 @@ kernel void kernel_qwen4_moe_mm_down_nax_t(
 #define QWEN4_NAX_DOWN_SIG_HALF constant ds4_metal_args_qwen4_moe_mm &, device const char *, device const int32_t *, device const int32_t *, device const half *, device float *, device const half *, threadgroup char *, uint3, ushort, ushort, ushort
 #define QWEN4_NAX_DOWN_SIG_FLOAT constant ds4_metal_args_qwen4_moe_mm &, device const char *, device const int32_t *, device const int32_t *, device const float *, device float *, device const half *, threadgroup char *, uint3, ushort, ushort, ushort
 template [[host_name("kernel_qwen4_moe_mm_mid_nax")]] kernel void kernel_qwen4_moe_mm_mid_nax_t<32, half, false>(QWEN4_NAX_MID_SIG_HALF);
+template [[host_name("kernel_qwen4_moe_mm_mid_nax_addr")]] kernel void kernel_qwen4_moe_mm_mid_nax_t<32, half, false, true>(QWEN4_NAX_MID_SIG_HALF);
 template [[host_name("kernel_qwen4_moe_mm_mid_nax64")]] kernel void kernel_qwen4_moe_mm_mid_nax_t<64, half, false>(QWEN4_NAX_MID_SIG_HALF);
+template [[host_name("kernel_qwen4_moe_mm_mid_nax64_addr")]] kernel void kernel_qwen4_moe_mm_mid_nax_t<64, half, false, true>(QWEN4_NAX_MID_SIG_HALF);
 template [[host_name("kernel_qwen4_moe_mm_down_nax")]] kernel void kernel_qwen4_moe_mm_down_nax_t<32, half, false>(QWEN4_NAX_DOWN_SIG_HALF);
+template [[host_name("kernel_qwen4_moe_mm_down_nax_addr")]] kernel void kernel_qwen4_moe_mm_down_nax_t<32, half, false, true>(QWEN4_NAX_DOWN_SIG_HALF);
 template [[host_name("kernel_qwen4_moe_mm_down_nax64")]] kernel void kernel_qwen4_moe_mm_down_nax_t<64, half, false>(QWEN4_NAX_DOWN_SIG_HALF);
+template [[host_name("kernel_qwen4_moe_mm_down_nax64_addr")]] kernel void kernel_qwen4_moe_mm_down_nax_t<64, half, false, true>(QWEN4_NAX_DOWN_SIG_HALF);
 template [[host_name("kernel_qwen4_moe_mm_mid_naxf")]] kernel void kernel_qwen4_moe_mm_mid_nax_t<32, float, false>(QWEN4_NAX_MID_SIG_FLOAT);
+template [[host_name("kernel_qwen4_moe_mm_mid_naxf_addr")]] kernel void kernel_qwen4_moe_mm_mid_nax_t<32, float, false, true>(QWEN4_NAX_MID_SIG_FLOAT);
 template [[host_name("kernel_qwen4_moe_mm_mid_naxf64")]] kernel void kernel_qwen4_moe_mm_mid_nax_t<64, float, false>(QWEN4_NAX_MID_SIG_FLOAT);
+template [[host_name("kernel_qwen4_moe_mm_mid_naxf64_addr")]] kernel void kernel_qwen4_moe_mm_mid_nax_t<64, float, false, true>(QWEN4_NAX_MID_SIG_FLOAT);
 template [[host_name("kernel_qwen4_moe_mm_down_naxf")]] kernel void kernel_qwen4_moe_mm_down_nax_t<32, float, false>(QWEN4_NAX_DOWN_SIG_FLOAT);
+template [[host_name("kernel_qwen4_moe_mm_down_naxf_addr")]] kernel void kernel_qwen4_moe_mm_down_nax_t<32, float, false, true>(QWEN4_NAX_DOWN_SIG_FLOAT);
 template [[host_name("kernel_qwen4_moe_mm_down_naxf64")]] kernel void kernel_qwen4_moe_mm_down_nax_t<64, float, false>(QWEN4_NAX_DOWN_SIG_FLOAT);
+template [[host_name("kernel_qwen4_moe_mm_down_naxf64_addr")]] kernel void kernel_qwen4_moe_mm_down_nax_t<64, float, false, true>(QWEN4_NAX_DOWN_SIG_FLOAT);
 template [[host_name("kernel_qwen4_moe_mm_mid_naxc")]] kernel void kernel_qwen4_moe_mm_mid_nax_t<32, float, true>(QWEN4_NAX_MID_SIG_FLOAT);
+template [[host_name("kernel_qwen4_moe_mm_mid_naxc_addr")]] kernel void kernel_qwen4_moe_mm_mid_nax_t<32, float, true, true>(QWEN4_NAX_MID_SIG_FLOAT);
 template [[host_name("kernel_qwen4_moe_mm_mid_naxc64")]] kernel void kernel_qwen4_moe_mm_mid_nax_t<64, float, true>(QWEN4_NAX_MID_SIG_FLOAT);
+template [[host_name("kernel_qwen4_moe_mm_mid_naxc64_addr")]] kernel void kernel_qwen4_moe_mm_mid_nax_t<64, float, true, true>(QWEN4_NAX_MID_SIG_FLOAT);
 template [[host_name("kernel_qwen4_moe_mm_down_naxc")]] kernel void kernel_qwen4_moe_mm_down_nax_t<32, half, true>(QWEN4_NAX_DOWN_SIG_HALF);
+template [[host_name("kernel_qwen4_moe_mm_down_naxc_addr")]] kernel void kernel_qwen4_moe_mm_down_nax_t<32, half, true, true>(QWEN4_NAX_DOWN_SIG_HALF);
 template [[host_name("kernel_qwen4_moe_mm_down_naxc64")]] kernel void kernel_qwen4_moe_mm_down_nax_t<64, half, true>(QWEN4_NAX_DOWN_SIG_HALF);
+template [[host_name("kernel_qwen4_moe_mm_down_naxc64_addr")]] kernel void kernel_qwen4_moe_mm_down_nax_t<64, half, true, true>(QWEN4_NAX_DOWN_SIG_HALF);
 #undef QWEN4_NAX_MID_SIG_HALF
 #undef QWEN4_NAX_MID_SIG_FLOAT
 #undef QWEN4_NAX_DOWN_SIG_HALF
