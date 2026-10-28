@@ -29,7 +29,7 @@ int mellum_generated_turn(mellum_generated_backend *b,ds4_tokens *history,int li
             fprintf(emitted,"%u %d %llu\n",segment,token,(unsigned long long)t.tv_sec*1000000000+(unsigned long long)t.tv_nsec)<0) return -1;
         (*count)++;
         int stop=b->stop_class(b->context,token);
-        if(stop==DS4_STOP_PROTOCOL) return -1;
+        if(stop==DS4_STOP_PROTOCOL) { *reason=stop;return -1; }
         if(stop==DS4_STOP_EOS || stop==DS4_STOP_EOS_ALT) { *reason=stop;break; }
     }
     return 0;
