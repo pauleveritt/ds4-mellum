@@ -35,6 +35,10 @@ baseline is `b1994c6`. Raw outputs: `/Users/pauleveritt/.codex/visualizations/20
 
 ## Why the reads did not reach the device (inference, not verified)
 
+**Superseded by the [cached-reads spike](2026-10-28-mellum-s4-cached-reads-spike.md):** the main cause was
+`fresh_copy` reading each copy back to verify it, which cached it before the run. The unaligned-read
+inference below is withdrawn; F_NOCACHE re-reads are also partly cached here.
+
 Streamed reads `pread` through an `F_NOCACHE` descriptor (`ds4_metal.m:13509`, with `g_model_fd` set at
 engine open), and each run read a fresh uncached copy, written in 3.0–3.2 s.
 
