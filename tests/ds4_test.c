@@ -589,6 +589,92 @@ static int test_mellum_token(int i) {
     return 40 + (int)(((uint32_t)i * 7919u) % 90000u);   /* ordinary byte-level and merge ids */
 }
 
+/* S4 streamed decode (DS4_TEST_MELLUM_MODEL): a session run from a bounded expert-slot cache must give the
+ * resident session's logits word for word at every step.  The prompt is fed one token at a time (decode only;
+ * streamed prefill is its own test), then 64 greedy tokens.  At a 64-slot cache nearly every token stops. */
+bool ds4_test_mellum_stream_stops(ds4_session *s, uint64_t *stops);   /* ds4.c test hook */
+
+enum { MELLUM_STREAM_PROMPT = 24, MELLUM_STREAM_GEN = 64, MELLUM_STREAM_STEPS = MELLUM_STREAM_PROMPT + MELLUM_STREAM_GEN };
+
+static int mellum_stream_argmax(const float *l) {
+    int best = 0;
+    for (int i = 1; i < 98304; i++) if (l[i] > l[best]) best = i;
+    return best;
+}
+
+/* toks[0..steps) are fed; when record, toks[PROMPT..) are chosen greedily and logits[step] kept; otherwise
+ * each step's logits are compared with logits[step].  Returns the number of differing words, or -1. */
+static int64_t mellum_stream_run(const char *model, bool streaming, uint32_t cache_experts, uint64_t cache_bytes,
+                                 int *toks, float *logits, bool record, uint64_t *stops, uint32_t *stopped_tokens) {
+    ds4_engine *engine = NULL;
+    ds4_engine_options opt = {
+        .model_path = model, .backend = DS4_BACKEND_METAL, .context_size = 8192,
+        .ssd_streaming = streaming, .ssd_streaming_cache_experts = cache_experts, .ssd_streaming_cache_bytes = cache_bytes,
+    };
+    if (ds4_engine_open(&engine, &opt) != 0 || !engine) return -1;
+    ds4_session *s = NULL;
+    if (ds4_session_create(&s, engine, 8192) != 0 || !s) { ds4_engine_close(engine); return -1; }
+    char err[256] = {0};
+    float *got = malloc(98304u * sizeof(float));
+    int64_t diff = 0;
+    uint64_t last = 0;
+    if (stopped_tokens) *stopped_tokens = 0;
+    for (int i = 0; i < MELLUM_STREAM_STEPS && diff >= 0; i++) {
+        int rc;
+        if (i == 0) {
+            ds4_tokens one = {0};
+            ds4_tokens_push(&one, toks[0]);
+            rc = ds4_session_sync(s, &one, err, sizeof(err));
+            ds4_tokens_free(&one);
+        } else {
+            rc = ds4_session_eval(s, toks[i], err, sizeof(err));
+        }
+        if (rc != 0 || ds4_session_copy_logits(s, got, 98304) != 98304) { fprintf(stderr, "mellum-stream: step %d: %s\n", i, err); diff = -1; break; }
+        float *want = logits + (size_t)i * 98304u;
+        if (record) memcpy(want, got, 98304u * sizeof(float));
+        else for (uint32_t w = 0; w < 98304u; w++) diff += memcmp(&got[w], &want[w], sizeof(float)) != 0;
+        if (record && i + 1 >= MELLUM_STREAM_PROMPT && i + 1 < MELLUM_STREAM_STEPS) toks[i + 1] = mellum_stream_argmax(got);
+        if (streaming && stops) {
+            uint64_t now = 0;
+            if (!ds4_test_mellum_stream_stops(s, &now)) { diff = -1; break; }
+            if (stopped_tokens && now > last) (*stopped_tokens)++;
+            last = now;
+        }
+    }
+    if (stops) *stops = last;
+    free(got);
+    ds4_session_free(s);
+    ds4_engine_close(engine);
+    return diff;
+}
+
+static void test_mellum_stream_identity(void) {
+    const char *model = getenv("DS4_TEST_MELLUM_MODEL");
+    if (!model || !model[0]) {
+        puts("mellum-stream-identity: DS4_TEST_MELLUM_MODEL unset, skipped");
+        return;
+    }
+    int toks[MELLUM_STREAM_STEPS];
+    for (int i = 0; i < MELLUM_STREAM_PROMPT; i++) toks[i] = test_mellum_token(i);
+    float *ref = malloc((size_t)MELLUM_STREAM_STEPS * 98304u * sizeof(float));
+    TEST_ASSERT(ref != NULL);
+    if (!ref) return;
+    TEST_ASSERT(mellum_stream_run(model, false, 0, 0, toks, ref, true, NULL, NULL) == 0);
+    static const struct { const char *name; uint32_t experts; uint64_t bytes; } arms[] = {
+        { "6 GiB", 0, 6ull << 30 }, { "64 slots", 64, 0 },
+    };
+    for (size_t a = 0; a < sizeof(arms) / sizeof(arms[0]); a++) {
+        uint64_t stops = 0;
+        uint32_t stopped = 0;
+        const int64_t diff = mellum_stream_run(model, true, arms[a].experts, arms[a].bytes, toks, ref, false, &stops, &stopped);
+        TEST_ASSERT(diff == 0);
+        if (arms[a].experts == 64) TEST_ASSERT(stopped * 2u >= MELLUM_STREAM_STEPS);
+        printf("mellum-stream-identity: %s: %lld of %d logit words differ; %llu stops over %d tokens, %u tokens stopped\n",
+               arms[a].name, (long long)diff, MELLUM_STREAM_STEPS * 98304, (unsigned long long)stops, MELLUM_STREAM_STEPS, stopped);
+    }
+    free(ref);
+}
+
 static void test_mellum_rewind_case(ds4_engine *engine, int len, int k) {
     ds4_session *s = NULL;
     TEST_ASSERT(ds4_session_create(&s, engine, 4096) == 0 && s != NULL);
@@ -7907,6 +7993,7 @@ static const ds4_test_entry test_entries[] = {
     {"--qwen4-prefill-checkpoints", "qwen4-prefill-checkpoints", "Qwen chunk checkpoints restore matching logits and state", test_qwen_prefill_checkpoints},
     {"--mellum-session", "mellum-session", "Mellum session allocation equals its plan (DS4_TEST_MELLUM_MODEL)", test_mellum_session_allocation},
     {"--mellum-exact-prefill", "mellum-exact-prefill", "Mellum prefill equals decode byte for byte under DS4_MELLUM_EXACT_PREFILL=1 (DS4_TEST_MELLUM_MODEL)", test_mellum_exact_prefill},
+    {"--mellum-stream-identity", "mellum-stream-identity", "S4: Mellum decode from a bounded expert-slot cache equals resident, word for word, at 6 GiB and 64 slots (DS4_TEST_MELLUM_MODEL)", test_mellum_stream_identity},
     {"--mellum-rewind", "mellum-rewind", "Mellum session rewind: one token keeps the caches, deeper replays; logits equal a straight decode (DS4_TEST_MELLUM_MODEL)", test_mellum_rewind},
     {"--mellum-moe", "mellum-moe", "Mellum MoE driver on the real model's layers against a double reference (DS4_TEST_MELLUM_MODEL)", test_mellum_moe_real},
     {"--qwen4-restore-reuse", "qwen4-restore-reuse", "Qwen restore discards old verifier state and rejects truncated payloads", test_qwen_restore_reused_session},
