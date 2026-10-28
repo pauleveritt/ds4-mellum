@@ -2042,6 +2042,9 @@ static void test_moe(void) {
     test_moe_q8_tiles_mellum_only(a);
     test_moe_addr_decode(a);
     test_moe_addr_tiled(a, 0u);
+    /* E1 tensor tiles: level 2 is Mellum's default (64-wide half); 1, 3-6 cover the 32-wide, float and
+     * compensated variants the same encoder can pick */
+    for (uint32_t level = 1; level <= 6; level++) test_moe_addr_tiled(a, level);
     for (int batched = 0; batched <= 1; batched++) {
         g_batched = batched != 0;
         test_moe_rows_equal_singles(a);
