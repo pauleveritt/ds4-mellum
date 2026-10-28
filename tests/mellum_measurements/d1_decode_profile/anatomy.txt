@@ -1,0 +1,140 @@
+command: python3 -I tests/mellum_decode_profile_summary.py tests/mellum_measurements/d1_decode_profile ~/models/Mellum2.1-12B-A2.5B-Thinking-Q8_0.gguf 575.4
+head: 421bc35; raw logs from tests/mellum_decode_profile.sh at ea0f37b
+
+read bandwidth 575.4 GB/s (tests/mellum_copy_bandwidth)
+
+length 100: 100 prompt tokens, ctx 1024
+  speed: n 3, generation median 133.15 t/s (132.82-134.45), wall 7.510 ms per token
+  cb times: 257 command buffers, 255 decode (trailing); per decode buffer median GPU 6.908 ms, gap from the previous GPU end 0.591 ms, driver 0.054 ms; GPU / (GPU + gap) 92.1%
+  per decode step (medians): completion to completion 7.500 ms; encode 0.3 ms; commit to done 7.1 ms; GPU 6.908 ms = 92.1% of the step; the rest 0.100 ms (logits read, sampling, output, waits)
+  bytes per step at context 228: 2376.5 MB; at the median GPU time 344.0 GB/s, 59.8% of 575.4; the read floor 4.130 ms (242 t/s)
+  timeline: 255 decode buffers; per buffer median 535 encoders, 535 dispatches, GPU span 7.098 ms, encoder durations 8.095 ms, gaps between encoders 0.297 ms
+    experts                              42.7%  3.458 ms per step
+    projections (Q8_0 matvec)            27.4%  2.214 ms per step
+    norms, rope, adds, copies            10.3%  0.832 ms per step
+    router + top-k                        7.5%  0.609 ms per step
+    attention                             7.0%  0.565 ms per step
+    output head                           5.1%  0.415 ms per step
+    kernel and grid (threadgroups): dispatches per step, median us each, us per step
+      kernel_qwen4_moe_mid                         112x8x1     28.0     77.38    2211.9
+      kernel_qwen4_moe_down                        288x8x1     28.0     39.08    1107.9
+      kernel_mul_mv_q8_0_f32                       256x1x1     56.0     15.48     796.4
+      kernel_mul_mv_q8_0_f32                       2048x1x1    28.0     26.17     777.2
+      kernel_mul_mv_q8_0_f32                       1152x1x1    28.0     21.96     640.8
+      kernel_qwen4_multi_gemv                      8x1x1       28.0     14.96     422.5
+      head:kernel_mul_mv_q8_0_f32                  49152x1x1    1.0    413.83     412.0
+      kernel_mellum_attn_swa                       32x1x1      21.0     15.71     332.9
+      kernel_rms_norm_mul_f32_4                    1x1x1       57.0      4.38     253.0
+      kernel_qwen4_router_topk                     1x1x1       28.0      6.62     186.8
+      kernel_mellum_qk_norm_rope                   32x1x1      28.0      6.04     170.4
+      kernel_mellum_qk_norm_rope                   4x1x1       28.0      5.92     167.4
+      kernel_qwen4_moe_reduce                      9x1x1       28.0      4.88     138.3
+      kernel_add2_f32                              9x1x1       56.0      2.17     124.5
+      kernel_cpy_contig_f32_f16_4                  1x1x1       56.0      2.00     112.0
+      kernel_mellum_ring_commit                    2x1x1       21.0      2.79      66.1
+      kernel_qwen4_attn_merge_wide_npt4            32x1x1       7.0      7.12      49.8
+      kernel_qwen4_attn_decode_npt4                11x4x1       0.9     17.04      15.0
+      kernel_qwen4_attn_decode_npt4                10x4x1       0.9     17.00      14.9
+      kernel_qwen4_attn_decode_npt4                9x4x1        0.9     16.92      14.9
+
+length 2048: 2056 prompt tokens, ctx 3072
+  speed: n 3, generation median 119.08 t/s (118.80-119.14), wall 8.398 ms per token
+  cb times: 259 command buffers, 255 decode (trailing); per decode buffer median GPU 7.920 ms, gap from the previous GPU end 0.598 ms, driver 0.056 ms; GPU / (GPU + gap) 93.0%
+  per decode step (medians): completion to completion 8.500 ms; encode 0.3 ms; commit to done 8.1 ms; GPU 7.920 ms = 93.2% of the step; the rest 0.100 ms (logits read, sampling, output, waits)
+  bytes per step at context 2184: 2438.8 MB; at the median GPU time 307.9 GB/s, 53.5% of 575.4; the read floor 4.238 ms (236 t/s)
+  timeline: 255 decode buffers; per buffer median 535 encoders, 535 dispatches, GPU span 8.213 ms, encoder durations 9.216 ms, gaps between encoders 0.298 ms
+    experts                              38.2%  3.520 ms per step
+    projections (Q8_0 matvec)            25.4%  2.342 ms per step
+    attention                            16.0%  1.472 ms per step
+    norms, rope, adds, copies             9.2%  0.845 ms per step
+    router + top-k                        6.8%  0.624 ms per step
+    output head                           4.5%  0.415 ms per step
+    kernel and grid (threadgroups): dispatches per step, median us each, us per step
+      kernel_qwen4_moe_mid                         112x8x1     28.0     78.21    2267.1
+      kernel_mellum_attn_swa                       32x1x1      21.0     52.88    1136.9
+      kernel_qwen4_moe_down                        288x8x1     28.0     39.62    1117.6
+      kernel_mul_mv_q8_0_f32                       256x1x1     56.0     16.96     850.7
+      kernel_mul_mv_q8_0_f32                       2048x1x1    28.0     26.17     832.3
+      kernel_mul_mv_q8_0_f32                       1152x1x1    28.0     21.88     659.1
+      kernel_qwen4_multi_gemv                      8x1x1       28.0     15.08     426.1
+      head:kernel_mul_mv_q8_0_f32                  49152x1x1    1.0    414.29     411.5
+      kernel_rms_norm_mul_f32_4                    1x1x1       57.0      4.46     258.6
+      kernel_qwen4_router_topk                     1x1x1       28.0      7.00     197.6
+      kernel_mellum_qk_norm_rope                   4x1x1       28.0      5.96     171.0
+      kernel_mellum_qk_norm_rope                   32x1x1      28.0      5.96     169.7
+      kernel_qwen4_attn_decode_npt4                64x4x1       7.0     20.67     144.3
+      kernel_qwen4_moe_reduce                      9x1x1       28.0      4.83     135.0
+      kernel_add2_f32                              9x1x1       56.0      2.21     124.5
+      kernel_qwen4_attn_merge_wide_npt4            32x1x1       7.0     17.38     121.8
+      kernel_cpy_contig_f32_f16_4                  1x1x1       56.0      2.00     114.3
+      kernel_mellum_ring_commit                    2x1x1       21.0      2.71      68.5
+      kernel_get_rows_q8_0_f32                     72x1x1       1.0      6.67       6.7
+      head:kernel_mul_mv_q8_0_f32+kernel_dsv4_tp_keepalive 49152x1x1    0.0    413.29       3.2
+
+length 8192: 8195 prompt tokens, ctx 9216
+  speed: n 3, generation median 116.67 t/s (116.51-117.24), wall 8.571 ms per token
+  cb times: 265 command buffers, 256 decode (trailing); per decode buffer median GPU 8.314 ms, gap from the previous GPU end 0.620 ms, driver 0.056 ms; GPU / (GPU + gap) 93.1%
+  per decode step (medians): completion to completion 9.000 ms; encode 0.3 ms; commit to done 8.6 ms; GPU 8.314 ms = 92.4% of the step; the rest 0.100 ms (logits read, sampling, output, waits)
+  bytes per step at context 8323: 2526.8 MB; at the median GPU time 303.9 GB/s, 52.8% of 575.4; the read floor 4.391 ms (228 t/s)
+  timeline: 256 decode buffers; per buffer median 535 encoders, 535 dispatches, GPU span 8.392 ms, encoder durations 9.436 ms, gaps between encoders 0.294 ms
+    experts                              37.7%  3.561 ms per step
+    projections (Q8_0 matvec)            23.3%  2.201 ms per step
+    attention                            18.6%  1.758 ms per step
+    norms, rope, adds, copies             9.1%  0.863 ms per step
+    router + top-k                        6.7%  0.628 ms per step
+    output head                           4.5%  0.425 ms per step
+    kernel and grid (threadgroups): dispatches per step, median us each, us per step
+      kernel_qwen4_moe_mid                         112x8x1     27.9     79.83    2259.8
+      kernel_qwen4_moe_down                        288x8x1     27.9     40.08    1132.3
+      kernel_mellum_attn_swa                       32x1x1      20.9     52.96    1110.6
+      kernel_mul_mv_q8_0_f32                       256x1x1     55.8     16.54     791.6
+      kernel_mul_mv_q8_0_f32                       2048x1x1    27.9     26.46     769.4
+      kernel_mul_mv_q8_0_f32                       1152x1x1    27.9     22.17     628.5
+      kernel_qwen4_attn_decode_npt4                64x4x1       7.0     64.42     449.3
+      kernel_qwen4_multi_gemv                      8x1x1       27.9     15.25     426.9
+      head:kernel_mul_mv_q8_0_f32                  49152x1x1    1.0    415.92     425.0
+      kernel_rms_norm_mul_f32_4                    1x1x1       56.8      4.42     262.4
+      kernel_qwen4_router_topk                     1x1x1       27.9      6.92     199.0
+      kernel_mellum_qk_norm_rope                   32x1x1      27.9      6.12     172.6
+      kernel_mellum_qk_norm_rope                   4x1x1       27.9      5.92     168.7
+      kernel_qwen4_moe_reduce                      9x1x1       27.9      4.96     140.0
+      kernel_add2_f32                              9x1x1       55.8      2.21     132.2
+      kernel_qwen4_attn_merge_wide_npt4            32x1x1       7.0     17.33     123.5
+      kernel_cpy_contig_f32_f16_4                  1x1x1       56.0      2.00     116.3
+      kernel_mellum_ring_commit                    2x1x1       20.9      2.75      64.9
+      kernel_qwen4_moe_mid                         112x8x3      0.1    162.17      18.4
+      kernel_qwen4_moe_down                        288x8x3      0.1     83.52      10.0
+
+length 32768: 32778 prompt tokens, ctx 33792
+  speed: n 3, generation median 98.15 t/s (96.02-98.90), wall 10.188 ms per token
+  cb times: 289 command buffers, 255 decode (trailing); per decode buffer median GPU 9.495 ms, gap from the previous GPU end 0.626 ms, driver 0.058 ms; GPU / (GPU + gap) 93.8%
+  per decode step (medians): completion to completion 10.100 ms; encode 0.3 ms; commit to done 9.7 ms; GPU 9.495 ms = 94.0% of the step; the rest 0.100 ms (logits read, sampling, output, waits)
+  bytes per step at context 32906: 2879.3 MB; at the median GPU time 303.2 GB/s, 52.7% of 575.4; the read floor 5.004 ms (200 t/s)
+  timeline: 255 decode buffers; per buffer median 535 encoders, 535 dispatches, GPU span 10.542 ms, encoder durations 11.621 ms, gaps between encoders 0.319 ms
+    experts                              33.1%  3.845 ms per step
+    attention                            28.4%  3.300 ms per step
+    projections (Q8_0 matvec)            20.3%  2.356 ms per step
+    norms, rope, adds, copies             8.4%  0.982 ms per step
+    router + top-k                        6.1%  0.710 ms per step
+    output head                           3.7%  0.429 ms per step
+    kernel and grid (threadgroups): dispatches per step, median us each, us per step
+      kernel_qwen4_moe_mid                         112x8x1     28.0     83.62    2398.5
+      kernel_qwen4_attn_decode_npt4                64x4x1       7.0    254.79    1805.7
+      kernel_qwen4_moe_down                        288x8x1     28.0     41.50    1230.7
+      kernel_mellum_attn_swa                       32x1x1      21.0     56.96    1220.3
+      kernel_mul_mv_q8_0_f32                       256x1x1     56.0     15.56     842.7
+      kernel_mul_mv_q8_0_f32                       2048x1x1    28.0     27.00     804.0
+      kernel_mul_mv_q8_0_f32                       1152x1x1    28.0     23.17     709.4
+      kernel_qwen4_multi_gemv                      8x1x1       28.0     16.46     466.3
+      head:kernel_mul_mv_q8_0_f32                  49152x1x1    1.0    422.60     423.7
+      kernel_rms_norm_mul_f32_4                    1x1x1       57.0      5.00     291.9
+      kernel_qwen4_router_topk                     1x1x1       28.0      7.75     243.5
+      kernel_qwen4_moe_reduce                      9x1x1       28.0      5.46     215.5
+      kernel_mellum_qk_norm_rope                   32x1x1      28.0      6.71     196.6
+      kernel_mellum_qk_norm_rope                   4x1x1       28.0      6.50     189.3
+      kernel_qwen4_attn_merge_wide_npt4            32x1x1       7.0     22.04     173.2
+      kernel_add2_f32                              9x1x1       56.0      2.50     170.9
+      kernel_cpy_contig_f32_f16_4                  1x1x1       56.0      2.21     127.7
+      kernel_mellum_ring_commit                    2x1x1       21.0      3.04     101.1
+      kernel_get_rows_q8_0_f32                     72x1x1       1.0      4.29       5.1
+      head:kernel_mul_mv_q8_0_f32+kernel_dsv4_tp_keepalive 49152x1x1    0.0    421.33       5.0

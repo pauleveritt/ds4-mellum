@@ -1,0 +1,794 @@
+ds4: Metal device Apple M5 Max, 128.00 GiB RAM
+ds4: Metal 4 tensor API enabled for Tensor kernels
+ds4: drift-patch flags hc_stable=on norm_unify=on kv_raw_f32=off rope_exp2_log2=off math_safe=off tensor_matmul=on
+ds4: Metal model views created in 0.569 ms, residency requested in 100.429 ms, warmup 3.585 ms (mapped 12323.22 MiB from offset 3.42 MiB)
+ds4: Metal mapped mmaped model as 1 overlapping shared buffers
+ds4: metal backend initialized for graph diagnostics
+ds4: memory: KV 0.12 GiB (raw 0.12 + compressed 0.00) + buffers 0.25 GiB + resident model 12.03 GiB = 12.41 GiB planned
+ds4: memory detail: ctx=3072 prefill_cap=1024 raw_kv_rows=3072 compressed_kv_rows=0 backend=metal
+ds4: memory: KV 0.12 GiB (raw 0.12 + compressed 0.00) + buffers 0.25 GiB = 0.38 GiB context
+ds4: memory detail: ctx=3072 prefill_cap=1024 raw_kv_rows=3072 compressed_kv_rows=0 backend=metal
+ds4: using GPU graph generation with graph prefill
+mellum: session allocated 403222784 bytes, planned 403222784 bytes
+ds4: cb synchronize: driver 2 us, queue-wait 1 us, gpu 0 us, gap-from-prev-gpu-end 0 us
+ds4: cb 'synchronize': mono 111260011.5 ms: encode 111260011.5 ms, commit->done 0.0 ms, gpu span 0.0 ms, gpu start +-29972857.1 ms, caller 0x10016333c
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 8806 us, queue-wait 59 us, gpu 220809 us, gap-from-prev-gpu-end 9746 us
+ds4: cb 'command batch': mono 111260242.2 ms: encode 0.8 ms, commit->done 229.8 ms, gpu span 220.8 ms, gpu start +-29972848.3 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+processing 2056 input tokens: 1024/2056 (49.8%)
+ds4: cb command batch: driver 75 us, queue-wait 52 us, gpu 251169 us, gap-from-prev-gpu-end 689 us
+ds4: cb 'command batch': mono 111260494.1 ms: encode 0.4 ms, commit->done 251.5 ms, gpu span 251.2 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+processing 2056 input tokens: 2048/2056 (99.6%)
+ds4: cb command batch: driver 1114 us, queue-wait 59 us, gpu 24313 us, gap-from-prev-gpu-end 2113 us
+ds4: cb 'command batch': mono 111260520.5 ms: encode 0.7 ms, commit->done 25.6 ms, gpu span 24.3 ms, gpu start +-29972856.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+processing 2056 input tokens: 2056/2056 (100.0%)
+ds4: cb command batch: driver 56 us, queue-wait 59 us, gpu 7683 us, gap-from-prev-gpu-end 710 us
+ds4: cb 'command batch': mono 111260528.8 ms: encode 0.4 ms, commit->done 7.9 ms, gpu span 7.7 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 58 us, queue-wait 60 us, gpu 7678 us, gap-from-prev-gpu-end 604 us
+ds4: cb 'command batch': mono 111260537.2 ms: encode 0.3 ms, commit->done 8.0 ms, gpu span 7.7 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 55 us, queue-wait 61 us, gpu 7664 us, gap-from-prev-gpu-end 631 us
+ds4: cb 'command batch': mono 111260545.4 ms: encode 0.3 ms, commit->done 7.9 ms, gpu span 7.7 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 54 us, queue-wait 57 us, gpu 7969 us, gap-from-prev-gpu-end 590 us
+ds4: cb 'command batch': mono 111260554.1 ms: encode 0.3 ms, commit->done 8.3 ms, gpu span 8.0 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 57 us, queue-wait 59 us, gpu 7718 us, gap-from-prev-gpu-end 639 us
+ds4: cb 'command batch': mono 111260562.4 ms: encode 0.3 ms, commit->done 8.0 ms, gpu span 7.7 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 57 us, queue-wait 57 us, gpu 7908 us, gap-from-prev-gpu-end 617 us
+ds4: cb 'command batch': mono 111260570.8 ms: encode 0.3 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 55 us, queue-wait 61 us, gpu 7664 us, gap-from-prev-gpu-end 524 us
+ds4: cb 'command batch': mono 111260579.1 ms: encode 0.3 ms, commit->done 7.9 ms, gpu span 7.7 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 59 us, queue-wait 57 us, gpu 7877 us, gap-from-prev-gpu-end 603 us
+ds4: cb 'command batch': mono 111260587.5 ms: encode 0.3 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 55 us, queue-wait 61 us, gpu 7642 us, gap-from-prev-gpu-end 585 us
+ds4: cb 'command batch': mono 111260595.8 ms: encode 0.3 ms, commit->done 7.9 ms, gpu span 7.6 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 59 us, queue-wait 60 us, gpu 7670 us, gap-from-prev-gpu-end 626 us
+ds4: cb 'command batch': mono 111260604.1 ms: encode 0.3 ms, commit->done 7.9 ms, gpu span 7.7 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 54 us, queue-wait 62 us, gpu 7657 us, gap-from-prev-gpu-end 610 us
+ds4: cb 'command batch': mono 111260612.3 ms: encode 0.3 ms, commit->done 7.9 ms, gpu span 7.7 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 56 us, queue-wait 55 us, gpu 7896 us, gap-from-prev-gpu-end 586 us
+ds4: cb 'command batch': mono 111260620.8 ms: encode 0.3 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 57 us, queue-wait 61 us, gpu 7717 us, gap-from-prev-gpu-end 604 us
+ds4: cb 'command batch': mono 111260629.1 ms: encode 0.3 ms, commit->done 8.0 ms, gpu span 7.7 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 55 us, queue-wait 58 us, gpu 7701 us, gap-from-prev-gpu-end 600 us
+ds4: cb 'command batch': mono 111260637.4 ms: encode 0.3 ms, commit->done 7.9 ms, gpu span 7.7 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 53 us, queue-wait 61 us, gpu 7659 us, gap-from-prev-gpu-end 599 us
+ds4: cb 'command batch': mono 111260645.7 ms: encode 0.3 ms, commit->done 7.9 ms, gpu span 7.7 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 56 us, queue-wait 57 us, gpu 7894 us, gap-from-prev-gpu-end 519 us
+ds4: cb 'command batch': mono 111260654.1 ms: encode 0.3 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 51 us, queue-wait 60 us, gpu 7637 us, gap-from-prev-gpu-end 565 us
+ds4: cb 'command batch': mono 111260662.4 ms: encode 0.3 ms, commit->done 7.9 ms, gpu span 7.6 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 56 us, queue-wait 61 us, gpu 7634 us, gap-from-prev-gpu-end 631 us
+ds4: cb 'command batch': mono 111260670.6 ms: encode 0.3 ms, commit->done 7.8 ms, gpu span 7.6 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 56 us, queue-wait 72 us, gpu 7681 us, gap-from-prev-gpu-end 550 us
+ds4: cb 'command batch': mono 111260678.8 ms: encode 0.3 ms, commit->done 7.9 ms, gpu span 7.7 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 54 us, queue-wait 56 us, gpu 7892 us, gap-from-prev-gpu-end 593 us
+ds4: cb 'command batch': mono 111260687.3 ms: encode 0.3 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 57 us, queue-wait 62 us, gpu 7669 us, gap-from-prev-gpu-end 595 us
+ds4: cb 'command batch': mono 111260695.5 ms: encode 0.3 ms, commit->done 7.9 ms, gpu span 7.7 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 55 us, queue-wait 62 us, gpu 7668 us, gap-from-prev-gpu-end 532 us
+ds4: cb 'command batch': mono 111260703.8 ms: encode 0.3 ms, commit->done 7.9 ms, gpu span 7.7 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 55 us, queue-wait 57 us, gpu 7671 us, gap-from-prev-gpu-end 593 us
+ds4: cb 'command batch': mono 111260712.0 ms: encode 0.3 ms, commit->done 7.9 ms, gpu span 7.7 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 54 us, queue-wait 60 us, gpu 7890 us, gap-from-prev-gpu-end 592 us
+ds4: cb 'command batch': mono 111260720.5 ms: encode 0.3 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 56 us, queue-wait 63 us, gpu 7664 us, gap-from-prev-gpu-end 600 us
+ds4: cb 'command batch': mono 111260728.8 ms: encode 0.3 ms, commit->done 7.9 ms, gpu span 7.7 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 55 us, queue-wait 61 us, gpu 7679 us, gap-from-prev-gpu-end 596 us
+ds4: cb 'command batch': mono 111260737.0 ms: encode 0.3 ms, commit->done 7.9 ms, gpu span 7.7 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 54 us, queue-wait 57 us, gpu 7700 us, gap-from-prev-gpu-end 592 us
+ds4: cb 'command batch': mono 111260745.3 ms: encode 0.3 ms, commit->done 7.9 ms, gpu span 7.7 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 54 us, queue-wait 57 us, gpu 7932 us, gap-from-prev-gpu-end 505 us
+ds4: cb 'command batch': mono 111260753.8 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 56 us, queue-wait 60 us, gpu 7663 us, gap-from-prev-gpu-end 596 us
+ds4: cb 'command batch': mono 111260762.0 ms: encode 0.3 ms, commit->done 7.9 ms, gpu span 7.7 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 54 us, queue-wait 61 us, gpu 7667 us, gap-from-prev-gpu-end 598 us
+ds4: cb 'command batch': mono 111260770.3 ms: encode 0.3 ms, commit->done 7.9 ms, gpu span 7.7 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 55 us, queue-wait 60 us, gpu 7629 us, gap-from-prev-gpu-end 595 us
+ds4: cb 'command batch': mono 111260778.5 ms: encode 0.3 ms, commit->done 7.9 ms, gpu span 7.6 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 54 us, queue-wait 55 us, gpu 7907 us, gap-from-prev-gpu-end 586 us
+ds4: cb 'command batch': mono 111260787.0 ms: encode 0.3 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 55 us, queue-wait 58 us, gpu 7674 us, gap-from-prev-gpu-end 592 us
+ds4: cb 'command batch': mono 111260795.3 ms: encode 0.3 ms, commit->done 7.9 ms, gpu span 7.7 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 57 us, queue-wait 56 us, gpu 7694 us, gap-from-prev-gpu-end 569 us
+ds4: cb 'command batch': mono 111260803.6 ms: encode 0.3 ms, commit->done 8.0 ms, gpu span 7.7 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 69 us, queue-wait 56 us, gpu 7684 us, gap-from-prev-gpu-end 709 us
+ds4: cb 'command batch': mono 111260812.0 ms: encode 0.4 ms, commit->done 8.0 ms, gpu span 7.7 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 64 us, queue-wait 56 us, gpu 7935 us, gap-from-prev-gpu-end 685 us
+ds4: cb 'command batch': mono 111260820.6 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 54 us, queue-wait 61 us, gpu 7685 us, gap-from-prev-gpu-end 604 us
+ds4: cb 'command batch': mono 111260828.9 ms: encode 0.3 ms, commit->done 7.9 ms, gpu span 7.7 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 55 us, queue-wait 60 us, gpu 7646 us, gap-from-prev-gpu-end 615 us
+ds4: cb 'command batch': mono 111260837.1 ms: encode 0.3 ms, commit->done 7.9 ms, gpu span 7.6 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 54 us, queue-wait 59 us, gpu 7666 us, gap-from-prev-gpu-end 542 us
+ds4: cb 'command batch': mono 111260845.3 ms: encode 0.3 ms, commit->done 7.9 ms, gpu span 7.7 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 57 us, queue-wait 57 us, gpu 7927 us, gap-from-prev-gpu-end 544 us
+ds4: cb 'command batch': mono 111260853.8 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 59 us, queue-wait 55 us, gpu 7983 us, gap-from-prev-gpu-end 612 us
+ds4: cb 'command batch': mono 111260862.4 ms: encode 0.3 ms, commit->done 8.3 ms, gpu span 8.0 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 61 us, queue-wait 57 us, gpu 7892 us, gap-from-prev-gpu-end 655 us
+ds4: cb 'command batch': mono 111260870.9 ms: encode 0.3 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 56 us, queue-wait 56 us, gpu 7884 us, gap-from-prev-gpu-end 614 us
+ds4: cb 'command batch': mono 111260879.4 ms: encode 0.3 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 66 us, queue-wait 16 us, gpu 7782 us, gap-from-prev-gpu-end 581 us
+ds4: cb 'command batch': mono 111260887.8 ms: encode 0.3 ms, commit->done 8.0 ms, gpu span 7.8 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 57 us, queue-wait 56 us, gpu 7902 us, gap-from-prev-gpu-end 641 us
+ds4: cb 'command batch': mono 111260896.3 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 55 us, queue-wait 58 us, gpu 7823 us, gap-from-prev-gpu-end 619 us
+ds4: cb 'command batch': mono 111260904.8 ms: encode 0.3 ms, commit->done 8.1 ms, gpu span 7.8 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 51 us, queue-wait 56 us, gpu 7983 us, gap-from-prev-gpu-end 605 us
+ds4: cb 'command batch': mono 111260913.3 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 8.0 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 61 us, queue-wait 56 us, gpu 7712 us, gap-from-prev-gpu-end 609 us
+ds4: cb 'command batch': mono 111260921.7 ms: encode 0.3 ms, commit->done 7.9 ms, gpu span 7.7 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 61 us, queue-wait 45 us, gpu 7957 us, gap-from-prev-gpu-end 621 us
+ds4: cb 'command batch': mono 111260930.3 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 8.0 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 59 us, queue-wait 61 us, gpu 7980 us, gap-from-prev-gpu-end 665 us
+ds4: cb 'command batch': mono 111260938.9 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 8.0 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 57 us, queue-wait 61 us, gpu 8021 us, gap-from-prev-gpu-end 637 us
+ds4: cb 'command batch': mono 111260947.6 ms: encode 0.3 ms, commit->done 8.3 ms, gpu span 8.0 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 55 us, queue-wait 61 us, gpu 7902 us, gap-from-prev-gpu-end 617 us
+ds4: cb 'command batch': mono 111260956.1 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 60 us, queue-wait 59 us, gpu 7904 us, gap-from-prev-gpu-end 623 us
+ds4: cb 'command batch': mono 111260964.6 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 56 us, queue-wait 61 us, gpu 7917 us, gap-from-prev-gpu-end 615 us
+ds4: cb 'command batch': mono 111260973.2 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 56 us, queue-wait 61 us, gpu 7922 us, gap-from-prev-gpu-end 619 us
+ds4: cb 'command batch': mono 111260981.7 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 59 us, queue-wait 55 us, gpu 7975 us, gap-from-prev-gpu-end 607 us
+ds4: cb 'command batch': mono 111260990.3 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 8.0 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 59 us, queue-wait 56 us, gpu 7981 us, gap-from-prev-gpu-end 665 us
+ds4: cb 'command batch': mono 111260998.9 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 8.0 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 163 us, queue-wait 19 us, gpu 8001 us, gap-from-prev-gpu-end 675 us
+ds4: cb 'command batch': mono 111261007.6 ms: encode 0.3 ms, commit->done 8.3 ms, gpu span 8.0 ms, gpu start +-29972856.9 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 56 us, queue-wait 65 us, gpu 7905 us, gap-from-prev-gpu-end 576 us
+ds4: cb 'command batch': mono 111261016.0 ms: encode 0.3 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 55 us, queue-wait 57 us, gpu 7945 us, gap-from-prev-gpu-end 552 us
+ds4: cb 'command batch': mono 111261024.5 ms: encode 0.3 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 57 us, queue-wait 51 us, gpu 7907 us, gap-from-prev-gpu-end 586 us
+ds4: cb 'command batch': mono 111261033.0 ms: encode 0.3 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 56 us, queue-wait 58 us, gpu 7909 us, gap-from-prev-gpu-end 537 us
+ds4: cb 'command batch': mono 111261041.5 ms: encode 0.3 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 57 us, queue-wait 58 us, gpu 7940 us, gap-from-prev-gpu-end 533 us
+ds4: cb 'command batch': mono 111261049.9 ms: encode 0.3 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 56 us, queue-wait 55 us, gpu 7909 us, gap-from-prev-gpu-end 535 us
+ds4: cb 'command batch': mono 111261058.4 ms: encode 0.3 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 55 us, queue-wait 57 us, gpu 7925 us, gap-from-prev-gpu-end 545 us
+ds4: cb 'command batch': mono 111261066.9 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 55 us, queue-wait 61 us, gpu 7945 us, gap-from-prev-gpu-end 571 us
+ds4: cb 'command batch': mono 111261075.4 ms: encode 0.3 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 55 us, queue-wait 62 us, gpu 7929 us, gap-from-prev-gpu-end 537 us
+ds4: cb 'command batch': mono 111261083.9 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 55 us, queue-wait 56 us, gpu 7929 us, gap-from-prev-gpu-end 613 us
+ds4: cb 'command batch': mono 111261092.4 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 55 us, queue-wait 60 us, gpu 7909 us, gap-from-prev-gpu-end 567 us
+ds4: cb 'command batch': mono 111261100.9 ms: encode 0.3 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 55 us, queue-wait 61 us, gpu 7910 us, gap-from-prev-gpu-end 597 us
+ds4: cb 'command batch': mono 111261109.4 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 54 us, queue-wait 58 us, gpu 7916 us, gap-from-prev-gpu-end 629 us
+ds4: cb 'command batch': mono 111261117.9 ms: encode 0.3 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 56 us, queue-wait 62 us, gpu 7945 us, gap-from-prev-gpu-end 534 us
+ds4: cb 'command batch': mono 111261126.4 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 54 us, queue-wait 61 us, gpu 7909 us, gap-from-prev-gpu-end 593 us
+ds4: cb 'command batch': mono 111261134.9 ms: encode 0.3 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 57 us, queue-wait 64 us, gpu 7997 us, gap-from-prev-gpu-end 604 us
+ds4: cb 'command batch': mono 111261143.5 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 8.0 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 56 us, queue-wait 58 us, gpu 7947 us, gap-from-prev-gpu-end 613 us
+ds4: cb 'command batch': mono 111261152.1 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 54 us, queue-wait 59 us, gpu 7918 us, gap-from-prev-gpu-end 574 us
+ds4: cb 'command batch': mono 111261160.6 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 53 us, queue-wait 57 us, gpu 7938 us, gap-from-prev-gpu-end 578 us
+ds4: cb 'command batch': mono 111261169.1 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 51 us, queue-wait 57 us, gpu 8013 us, gap-from-prev-gpu-end 625 us
+ds4: cb 'command batch': mono 111261177.8 ms: encode 0.3 ms, commit->done 8.3 ms, gpu span 8.0 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 43 us, queue-wait 57 us, gpu 7921 us, gap-from-prev-gpu-end 571 us
+ds4: cb 'command batch': mono 111261186.2 ms: encode 0.3 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 49 us, queue-wait 50 us, gpu 7900 us, gap-from-prev-gpu-end 553 us
+ds4: cb 'command batch': mono 111261194.7 ms: encode 0.3 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 52 us, queue-wait 55 us, gpu 7915 us, gap-from-prev-gpu-end 582 us
+ds4: cb 'command batch': mono 111261203.2 ms: encode 0.3 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 37 us, queue-wait 61 us, gpu 7922 us, gap-from-prev-gpu-end 561 us
+ds4: cb 'command batch': mono 111261211.7 ms: encode 0.3 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 51 us, queue-wait 58 us, gpu 7938 us, gap-from-prev-gpu-end 601 us
+ds4: cb 'command batch': mono 111261220.2 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 55 us, queue-wait 57 us, gpu 7953 us, gap-from-prev-gpu-end 627 us
+ds4: cb 'command batch': mono 111261228.8 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 8.0 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 56 us, queue-wait 57 us, gpu 7904 us, gap-from-prev-gpu-end 611 us
+ds4: cb 'command batch': mono 111261237.3 ms: encode 0.3 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 55 us, queue-wait 57 us, gpu 8002 us, gap-from-prev-gpu-end 595 us
+ds4: cb 'command batch': mono 111261245.9 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 8.0 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 65 us, queue-wait 49 us, gpu 7922 us, gap-from-prev-gpu-end 600 us
+ds4: cb 'command batch': mono 111261254.4 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 52 us, queue-wait 39 us, gpu 7690 us, gap-from-prev-gpu-end 573 us
+ds4: cb 'command batch': mono 111261262.7 ms: encode 0.3 ms, commit->done 7.9 ms, gpu span 7.7 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 55 us, queue-wait 17 us, gpu 7671 us, gap-from-prev-gpu-end 560 us
+ds4: cb 'command batch': mono 111261270.9 ms: encode 0.3 ms, commit->done 7.9 ms, gpu span 7.7 ms, gpu start +-29972857.1 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 57 us, queue-wait 17 us, gpu 7735 us, gap-from-prev-gpu-end 556 us
+ds4: cb 'command batch': mono 111261279.2 ms: encode 0.3 ms, commit->done 7.9 ms, gpu span 7.7 ms, gpu start +-29972857.1 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 55 us, queue-wait 55 us, gpu 7944 us, gap-from-prev-gpu-end 585 us
+ds4: cb 'command batch': mono 111261287.7 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 73 us, queue-wait 33 us, gpu 7888 us, gap-from-prev-gpu-end 597 us
+ds4: cb 'command batch': mono 111261296.2 ms: encode 0.3 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 46 us, queue-wait 20 us, gpu 7906 us, gap-from-prev-gpu-end 525 us
+ds4: cb 'command batch': mono 111261304.7 ms: encode 0.3 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.1 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 70 us, queue-wait 27 us, gpu 7947 us, gap-from-prev-gpu-end 656 us
+ds4: cb 'command batch': mono 111261313.2 ms: encode 0.4 ms, commit->done 8.2 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 81 us, queue-wait 34 us, gpu 7948 us, gap-from-prev-gpu-end 655 us
+ds4: cb 'command batch': mono 111261321.8 ms: encode 0.4 ms, commit->done 8.2 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 58 us, queue-wait 68 us, gpu 7930 us, gap-from-prev-gpu-end 625 us
+ds4: cb 'command batch': mono 111261330.4 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 56 us, queue-wait 62 us, gpu 7923 us, gap-from-prev-gpu-end 602 us
+ds4: cb 'command batch': mono 111261338.9 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 57 us, queue-wait 60 us, gpu 7912 us, gap-from-prev-gpu-end 623 us
+ds4: cb 'command batch': mono 111261347.5 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 57 us, queue-wait 57 us, gpu 7931 us, gap-from-prev-gpu-end 605 us
+ds4: cb 'command batch': mono 111261356.0 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 57 us, queue-wait 59 us, gpu 7926 us, gap-from-prev-gpu-end 611 us
+ds4: cb 'command batch': mono 111261364.5 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 59 us, queue-wait 59 us, gpu 7914 us, gap-from-prev-gpu-end 597 us
+ds4: cb 'command batch': mono 111261373.0 ms: encode 0.3 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 57 us, queue-wait 60 us, gpu 7916 us, gap-from-prev-gpu-end 590 us
+ds4: cb 'command batch': mono 111261381.5 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 56 us, queue-wait 61 us, gpu 7866 us, gap-from-prev-gpu-end 591 us
+ds4: cb 'command batch': mono 111261390.0 ms: encode 0.3 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 62 us, queue-wait 56 us, gpu 7908 us, gap-from-prev-gpu-end 598 us
+ds4: cb 'command batch': mono 111261398.5 ms: encode 0.3 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 57 us, queue-wait 67 us, gpu 7929 us, gap-from-prev-gpu-end 621 us
+ds4: cb 'command batch': mono 111261407.1 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 55 us, queue-wait 52 us, gpu 7974 us, gap-from-prev-gpu-end 643 us
+ds4: cb 'command batch': mono 111261415.6 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 8.0 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 53 us, queue-wait 52 us, gpu 7921 us, gap-from-prev-gpu-end 572 us
+ds4: cb 'command batch': mono 111261424.1 ms: encode 0.3 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 55 us, queue-wait 60 us, gpu 7952 us, gap-from-prev-gpu-end 521 us
+ds4: cb 'command batch': mono 111261432.6 ms: encode 0.3 ms, commit->done 8.1 ms, gpu span 8.0 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 56 us, queue-wait 58 us, gpu 7936 us, gap-from-prev-gpu-end 512 us
+ds4: cb 'command batch': mono 111261441.1 ms: encode 0.3 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 60 us, queue-wait 54 us, gpu 7915 us, gap-from-prev-gpu-end 600 us
+ds4: cb 'command batch': mono 111261449.6 ms: encode 0.4 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 54 us, queue-wait 62 us, gpu 7900 us, gap-from-prev-gpu-end 531 us
+ds4: cb 'command batch': mono 111261458.0 ms: encode 0.3 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 56 us, queue-wait 62 us, gpu 7893 us, gap-from-prev-gpu-end 568 us
+ds4: cb 'command batch': mono 111261466.5 ms: encode 0.3 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 54 us, queue-wait 59 us, gpu 7958 us, gap-from-prev-gpu-end 517 us
+ds4: cb 'command batch': mono 111261475.0 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 8.0 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 55 us, queue-wait 61 us, gpu 7897 us, gap-from-prev-gpu-end 609 us
+ds4: cb 'command batch': mono 111261483.4 ms: encode 0.3 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 55 us, queue-wait 61 us, gpu 7923 us, gap-from-prev-gpu-end 539 us
+ds4: cb 'command batch': mono 111261492.0 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 54 us, queue-wait 62 us, gpu 7964 us, gap-from-prev-gpu-end 634 us
+ds4: cb 'command batch': mono 111261500.6 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 8.0 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 55 us, queue-wait 60 us, gpu 7882 us, gap-from-prev-gpu-end 611 us
+ds4: cb 'command batch': mono 111261509.0 ms: encode 0.3 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 57 us, queue-wait 60 us, gpu 7920 us, gap-from-prev-gpu-end 571 us
+ds4: cb 'command batch': mono 111261517.5 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 54 us, queue-wait 62 us, gpu 7987 us, gap-from-prev-gpu-end 593 us
+ds4: cb 'command batch': mono 111261526.1 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 8.0 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 60 us, queue-wait 62 us, gpu 8068 us, gap-from-prev-gpu-end 625 us
+ds4: cb 'command batch': mono 111261534.8 ms: encode 0.4 ms, commit->done 8.4 ms, gpu span 8.1 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 82 us, queue-wait 53 us, gpu 7975 us, gap-from-prev-gpu-end 1006 us
+ds4: cb 'command batch': mono 111261543.8 ms: encode 0.5 ms, commit->done 8.3 ms, gpu span 8.0 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 58 us, queue-wait 56 us, gpu 7947 us, gap-from-prev-gpu-end 644 us
+ds4: cb 'command batch': mono 111261552.4 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 51 us, queue-wait 57 us, gpu 7955 us, gap-from-prev-gpu-end 630 us
+ds4: cb 'command batch': mono 111261561.0 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 8.0 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 49 us, queue-wait 57 us, gpu 7975 us, gap-from-prev-gpu-end 611 us
+ds4: cb 'command batch': mono 111261569.5 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 8.0 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 47 us, queue-wait 48 us, gpu 7947 us, gap-from-prev-gpu-end 554 us
+ds4: cb 'command batch': mono 111261578.1 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 51 us, queue-wait 57 us, gpu 7941 us, gap-from-prev-gpu-end 616 us
+ds4: cb 'command batch': mono 111261586.6 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 51 us, queue-wait 63 us, gpu 7969 us, gap-from-prev-gpu-end 611 us
+ds4: cb 'command batch': mono 111261595.2 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 8.0 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 69 us, queue-wait 56 us, gpu 7968 us, gap-from-prev-gpu-end 620 us
+ds4: cb 'command batch': mono 111261603.8 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 8.0 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 63 us, queue-wait 45 us, gpu 7947 us, gap-from-prev-gpu-end 629 us
+ds4: cb 'command batch': mono 111261612.4 ms: encode 0.4 ms, commit->done 8.2 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 57 us, queue-wait 55 us, gpu 7952 us, gap-from-prev-gpu-end 664 us
+ds4: cb 'command batch': mono 111261620.9 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 8.0 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 56 us, queue-wait 24 us, gpu 7928 us, gap-from-prev-gpu-end 535 us
+ds4: cb 'command batch': mono 111261629.4 ms: encode 0.3 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.1 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 56 us, queue-wait 28 us, gpu 7844 us, gap-from-prev-gpu-end 562 us
+ds4: cb 'command batch': mono 111261637.8 ms: encode 0.3 ms, commit->done 8.0 ms, gpu span 7.8 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 118 us, queue-wait 78 us, gpu 7700 us, gap-from-prev-gpu-end 648 us
+ds4: cb 'command batch': mono 111261646.2 ms: encode 0.3 ms, commit->done 8.0 ms, gpu span 7.7 ms, gpu start +-29972856.9 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 56 us, queue-wait 30 us, gpu 7721 us, gap-from-prev-gpu-end 583 us
+ds4: cb 'command batch': mono 111261654.4 ms: encode 0.3 ms, commit->done 7.9 ms, gpu span 7.7 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 53 us, queue-wait 31 us, gpu 7741 us, gap-from-prev-gpu-end 534 us
+ds4: cb 'command batch': mono 111261662.7 ms: encode 0.3 ms, commit->done 7.9 ms, gpu span 7.7 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 59 us, queue-wait 54 us, gpu 7751 us, gap-from-prev-gpu-end 612 us
+ds4: cb 'command batch': mono 111261671.1 ms: encode 0.4 ms, commit->done 8.0 ms, gpu span 7.8 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 54 us, queue-wait 68 us, gpu 7976 us, gap-from-prev-gpu-end 622 us
+ds4: cb 'command batch': mono 111261679.7 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 8.0 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 51 us, queue-wait 57 us, gpu 7734 us, gap-from-prev-gpu-end 596 us
+ds4: cb 'command batch': mono 111261688.0 ms: encode 0.3 ms, commit->done 7.9 ms, gpu span 7.7 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 58 us, queue-wait 43 us, gpu 7749 us, gap-from-prev-gpu-end 581 us
+ds4: cb 'command batch': mono 111261696.4 ms: encode 0.3 ms, commit->done 8.0 ms, gpu span 7.7 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 59 us, queue-wait 21 us, gpu 8154 us, gap-from-prev-gpu-end 554 us
+ds4: cb 'command batch': mono 111261705.0 ms: encode 0.3 ms, commit->done 8.3 ms, gpu span 8.2 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 57 us, queue-wait 56 us, gpu 7728 us, gap-from-prev-gpu-end 597 us
+ds4: cb 'command batch': mono 111261713.4 ms: encode 0.3 ms, commit->done 7.9 ms, gpu span 7.7 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 56 us, queue-wait 41 us, gpu 7965 us, gap-from-prev-gpu-end 576 us
+ds4: cb 'command batch': mono 111261721.9 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 8.0 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 58 us, queue-wait 59 us, gpu 7986 us, gap-from-prev-gpu-end 580 us
+ds4: cb 'command batch': mono 111261730.5 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 8.0 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 60 us, queue-wait 58 us, gpu 7933 us, gap-from-prev-gpu-end 588 us
+ds4: cb 'command batch': mono 111261739.0 ms: encode 0.4 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 59 us, queue-wait 54 us, gpu 7934 us, gap-from-prev-gpu-end 613 us
+ds4: cb 'command batch': mono 111261747.5 ms: encode 0.4 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 59 us, queue-wait 57 us, gpu 7928 us, gap-from-prev-gpu-end 574 us
+ds4: cb 'command batch': mono 111261756.0 ms: encode 0.3 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 58 us, queue-wait 56 us, gpu 7923 us, gap-from-prev-gpu-end 577 us
+ds4: cb 'command batch': mono 111261764.6 ms: encode 0.3 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 57 us, queue-wait 61 us, gpu 7913 us, gap-from-prev-gpu-end 576 us
+ds4: cb 'command batch': mono 111261773.0 ms: encode 0.3 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 55 us, queue-wait 60 us, gpu 7940 us, gap-from-prev-gpu-end 559 us
+ds4: cb 'command batch': mono 111261781.5 ms: encode 0.3 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 55 us, queue-wait 47 us, gpu 7922 us, gap-from-prev-gpu-end 545 us
+ds4: cb 'command batch': mono 111261790.0 ms: encode 0.3 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 55 us, queue-wait 59 us, gpu 7938 us, gap-from-prev-gpu-end 548 us
+ds4: cb 'command batch': mono 111261798.5 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 60 us, queue-wait 55 us, gpu 7968 us, gap-from-prev-gpu-end 663 us
+ds4: cb 'command batch': mono 111261807.1 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 8.0 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 53 us, queue-wait 51 us, gpu 7991 us, gap-from-prev-gpu-end 580 us
+ds4: cb 'command batch': mono 111261815.7 ms: encode 0.4 ms, commit->done 8.2 ms, gpu span 8.0 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 50 us, queue-wait 54 us, gpu 7995 us, gap-from-prev-gpu-end 563 us
+ds4: cb 'command batch': mono 111261824.3 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 8.0 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 48 us, queue-wait 51 us, gpu 8012 us, gap-from-prev-gpu-end 619 us
+ds4: cb 'command batch': mono 111261832.9 ms: encode 0.4 ms, commit->done 8.2 ms, gpu span 8.0 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 56 us, queue-wait 56 us, gpu 7967 us, gap-from-prev-gpu-end 640 us
+ds4: cb 'command batch': mono 111261841.5 ms: encode 0.4 ms, commit->done 8.2 ms, gpu span 8.0 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 61 us, queue-wait 60 us, gpu 8007 us, gap-from-prev-gpu-end 658 us
+ds4: cb 'command batch': mono 111261850.2 ms: encode 0.4 ms, commit->done 8.2 ms, gpu span 8.0 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 56 us, queue-wait 57 us, gpu 7994 us, gap-from-prev-gpu-end 645 us
+ds4: cb 'command batch': mono 111261858.8 ms: encode 0.4 ms, commit->done 8.2 ms, gpu span 8.0 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 68 us, queue-wait 54 us, gpu 8039 us, gap-from-prev-gpu-end 693 us
+ds4: cb 'command batch': mono 111261867.5 ms: encode 0.4 ms, commit->done 8.3 ms, gpu span 8.0 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 65 us, queue-wait 62 us, gpu 8045 us, gap-from-prev-gpu-end 669 us
+ds4: cb 'command batch': mono 111261876.3 ms: encode 0.4 ms, commit->done 8.3 ms, gpu span 8.0 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 83 us, queue-wait 55 us, gpu 8025 us, gap-from-prev-gpu-end 857 us
+ds4: cb 'command batch': mono 111261885.1 ms: encode 0.5 ms, commit->done 8.3 ms, gpu span 8.0 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 73 us, queue-wait 55 us, gpu 8094 us, gap-from-prev-gpu-end 675 us
+ds4: cb 'command batch': mono 111261893.9 ms: encode 0.4 ms, commit->done 8.3 ms, gpu span 8.1 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 73 us, queue-wait 57 us, gpu 8138 us, gap-from-prev-gpu-end 653 us
+ds4: cb 'command batch': mono 111261902.7 ms: encode 0.4 ms, commit->done 8.4 ms, gpu span 8.1 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 73 us, queue-wait 54 us, gpu 7978 us, gap-from-prev-gpu-end 736 us
+ds4: cb 'command batch': mono 111261911.4 ms: encode 0.4 ms, commit->done 8.2 ms, gpu span 8.0 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 66 us, queue-wait 54 us, gpu 7932 us, gap-from-prev-gpu-end 619 us
+ds4: cb 'command batch': mono 111261920.0 ms: encode 0.4 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 53 us, queue-wait 56 us, gpu 7948 us, gap-from-prev-gpu-end 578 us
+ds4: cb 'command batch': mono 111261928.5 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 52 us, queue-wait 57 us, gpu 7973 us, gap-from-prev-gpu-end 596 us
+ds4: cb 'command batch': mono 111261937.1 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 8.0 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 70 us, queue-wait 56 us, gpu 7913 us, gap-from-prev-gpu-end 632 us
+ds4: cb 'command batch': mono 111261945.6 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 52 us, queue-wait 56 us, gpu 7932 us, gap-from-prev-gpu-end 622 us
+ds4: cb 'command batch': mono 111261954.2 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 39 us, queue-wait 16 us, gpu 7780 us, gap-from-prev-gpu-end 560 us
+ds4: cb 'command batch': mono 111261962.5 ms: encode 0.3 ms, commit->done 8.0 ms, gpu span 7.8 ms, gpu start +-29972857.1 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 52 us, queue-wait 56 us, gpu 7910 us, gap-from-prev-gpu-end 638 us
+ds4: cb 'command batch': mono 111261971.1 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 64 us, queue-wait 56 us, gpu 7933 us, gap-from-prev-gpu-end 702 us
+ds4: cb 'command batch': mono 111261979.7 ms: encode 0.4 ms, commit->done 8.2 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 60 us, queue-wait 67 us, gpu 7682 us, gap-from-prev-gpu-end 699 us
+ds4: cb 'command batch': mono 111261988.0 ms: encode 0.4 ms, commit->done 7.9 ms, gpu span 7.7 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 58 us, queue-wait 35 us, gpu 7727 us, gap-from-prev-gpu-end 586 us
+ds4: cb 'command batch': mono 111261996.4 ms: encode 0.4 ms, commit->done 8.0 ms, gpu span 7.7 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 65 us, queue-wait 18 us, gpu 7697 us, gap-from-prev-gpu-end 694 us
+ds4: cb 'command batch': mono 111262004.8 ms: encode 0.4 ms, commit->done 7.9 ms, gpu span 7.7 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 60 us, queue-wait 57 us, gpu 8079 us, gap-from-prev-gpu-end 723 us
+ds4: cb 'command batch': mono 111262013.7 ms: encode 0.4 ms, commit->done 8.4 ms, gpu span 8.1 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 96 us, queue-wait 54 us, gpu 8079 us, gap-from-prev-gpu-end 973 us
+ds4: cb 'command batch': mono 111262022.7 ms: encode 0.5 ms, commit->done 8.4 ms, gpu span 8.1 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 76 us, queue-wait 54 us, gpu 7950 us, gap-from-prev-gpu-end 761 us
+ds4: cb 'command batch': mono 111262031.4 ms: encode 0.4 ms, commit->done 8.2 ms, gpu span 8.0 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 57 us, queue-wait 52 us, gpu 7933 us, gap-from-prev-gpu-end 687 us
+ds4: cb 'command batch': mono 111262040.0 ms: encode 0.4 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 59 us, queue-wait 55 us, gpu 7977 us, gap-from-prev-gpu-end 684 us
+ds4: cb 'command batch': mono 111262048.6 ms: encode 0.4 ms, commit->done 8.2 ms, gpu span 8.0 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 140 us, queue-wait 10 us, gpu 7916 us, gap-from-prev-gpu-end 767 us
+ds4: cb 'command batch': mono 111262057.3 ms: encode 0.4 ms, commit->done 8.2 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 58 us, queue-wait 55 us, gpu 7897 us, gap-from-prev-gpu-end 635 us
+ds4: cb 'command batch': mono 111262065.8 ms: encode 0.4 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 64 us, queue-wait 48 us, gpu 7992 us, gap-from-prev-gpu-end 711 us
+ds4: cb 'command batch': mono 111262074.5 ms: encode 0.4 ms, commit->done 8.2 ms, gpu span 8.0 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 61 us, queue-wait 61 us, gpu 7903 us, gap-from-prev-gpu-end 672 us
+ds4: cb 'command batch': mono 111262083.1 ms: encode 0.4 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 61 us, queue-wait 61 us, gpu 7960 us, gap-from-prev-gpu-end 766 us
+ds4: cb 'command batch': mono 111262091.8 ms: encode 0.5 ms, commit->done 8.2 ms, gpu span 8.0 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 61 us, queue-wait 61 us, gpu 7903 us, gap-from-prev-gpu-end 719 us
+ds4: cb 'command batch': mono 111262100.4 ms: encode 0.5 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 63 us, queue-wait 56 us, gpu 7939 us, gap-from-prev-gpu-end 714 us
+ds4: cb 'command batch': mono 111262109.1 ms: encode 0.5 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 62 us, queue-wait 60 us, gpu 7937 us, gap-from-prev-gpu-end 715 us
+ds4: cb 'command batch': mono 111262119.8 ms: encode 0.5 ms, commit->done 10.2 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 84 us, queue-wait 617 us, gpu 8340 us, gap-from-prev-gpu-end 3497 us
+ds4: cb 'command batch': mono 111262129.6 ms: encode 0.6 ms, commit->done 9.2 ms, gpu span 8.3 ms, gpu start +-29972856.4 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 75 us, queue-wait 23 us, gpu 7757 us, gap-from-prev-gpu-end 825 us
+ds4: cb 'command batch': mono 111262138.2 ms: encode 0.5 ms, commit->done 8.0 ms, gpu span 7.8 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 65 us, queue-wait 45 us, gpu 7945 us, gap-from-prev-gpu-end 827 us
+ds4: cb 'command batch': mono 111262146.9 ms: encode 0.5 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 62 us, queue-wait 56 us, gpu 7795 us, gap-from-prev-gpu-end 672 us
+ds4: cb 'command batch': mono 111262155.4 ms: encode 0.4 ms, commit->done 8.0 ms, gpu span 7.8 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 62 us, queue-wait 57 us, gpu 7958 us, gap-from-prev-gpu-end 738 us
+ds4: cb 'command batch': mono 111262164.1 ms: encode 0.4 ms, commit->done 8.2 ms, gpu span 8.0 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 63 us, queue-wait 57 us, gpu 7904 us, gap-from-prev-gpu-end 665 us
+ds4: cb 'command batch': mono 111262172.7 ms: encode 0.4 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 58 us, queue-wait 56 us, gpu 7909 us, gap-from-prev-gpu-end 622 us
+ds4: cb 'command batch': mono 111262181.2 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 55 us, queue-wait 60 us, gpu 7896 us, gap-from-prev-gpu-end 632 us
+ds4: cb 'command batch': mono 111262189.8 ms: encode 0.3 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 58 us, queue-wait 60 us, gpu 7926 us, gap-from-prev-gpu-end 595 us
+ds4: cb 'command batch': mono 111262198.3 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 57 us, queue-wait 61 us, gpu 7976 us, gap-from-prev-gpu-end 591 us
+ds4: cb 'command batch': mono 111262206.9 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 8.0 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 59 us, queue-wait 58 us, gpu 7958 us, gap-from-prev-gpu-end 619 us
+ds4: cb 'command batch': mono 111262215.4 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 8.0 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 126 us, queue-wait 70 us, gpu 7938 us, gap-from-prev-gpu-end 648 us
+ds4: cb 'command batch': mono 111262224.0 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 7.9 ms, gpu start +-29972856.9 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 55 us, queue-wait 54 us, gpu 7918 us, gap-from-prev-gpu-end 564 us
+ds4: cb 'command batch': mono 111262232.5 ms: encode 0.3 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 55 us, queue-wait 46 us, gpu 7948 us, gap-from-prev-gpu-end 553 us
+ds4: cb 'command batch': mono 111262241.0 ms: encode 0.3 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 55 us, queue-wait 60 us, gpu 7926 us, gap-from-prev-gpu-end 516 us
+ds4: cb 'command batch': mono 111262249.4 ms: encode 0.3 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 58 us, queue-wait 61 us, gpu 7998 us, gap-from-prev-gpu-end 516 us
+ds4: cb 'command batch': mono 111262257.9 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 8.0 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 58 us, queue-wait 61 us, gpu 7929 us, gap-from-prev-gpu-end 511 us
+ds4: cb 'command batch': mono 111262266.4 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 58 us, queue-wait 59 us, gpu 7915 us, gap-from-prev-gpu-end 631 us
+ds4: cb 'command batch': mono 111262275.0 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 56 us, queue-wait 61 us, gpu 7910 us, gap-from-prev-gpu-end 610 us
+ds4: cb 'command batch': mono 111262283.4 ms: encode 0.3 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 56 us, queue-wait 61 us, gpu 7912 us, gap-from-prev-gpu-end 520 us
+ds4: cb 'command batch': mono 111262291.8 ms: encode 0.3 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 54 us, queue-wait 62 us, gpu 7973 us, gap-from-prev-gpu-end 512 us
+ds4: cb 'command batch': mono 111262300.4 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 8.0 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 56 us, queue-wait 60 us, gpu 7939 us, gap-from-prev-gpu-end 572 us
+ds4: cb 'command batch': mono 111262308.8 ms: encode 0.3 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 60 us, queue-wait 56 us, gpu 7929 us, gap-from-prev-gpu-end 514 us
+ds4: cb 'command batch': mono 111262317.4 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 60 us, queue-wait 53 us, gpu 7974 us, gap-from-prev-gpu-end 617 us
+ds4: cb 'command batch': mono 111262325.9 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 8.0 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 57 us, queue-wait 63 us, gpu 7941 us, gap-from-prev-gpu-end 630 us
+ds4: cb 'command batch': mono 111262334.5 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 55 us, queue-wait 62 us, gpu 7923 us, gap-from-prev-gpu-end 626 us
+ds4: cb 'command batch': mono 111262343.0 ms: encode 0.3 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 55 us, queue-wait 61 us, gpu 7941 us, gap-from-prev-gpu-end 523 us
+ds4: cb 'command batch': mono 111262351.5 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 60 us, queue-wait 61 us, gpu 7932 us, gap-from-prev-gpu-end 601 us
+ds4: cb 'command batch': mono 111262360.0 ms: encode 0.3 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 55 us, queue-wait 48 us, gpu 7913 us, gap-from-prev-gpu-end 506 us
+ds4: cb 'command batch': mono 111262368.5 ms: encode 0.3 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 56 us, queue-wait 62 us, gpu 7932 us, gap-from-prev-gpu-end 571 us
+ds4: cb 'command batch': mono 111262377.0 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 59 us, queue-wait 50 us, gpu 7910 us, gap-from-prev-gpu-end 579 us
+ds4: cb 'command batch': mono 111262385.4 ms: encode 0.3 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 54 us, queue-wait 57 us, gpu 7931 us, gap-from-prev-gpu-end 598 us
+ds4: cb 'command batch': mono 111262394.0 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 55 us, queue-wait 57 us, gpu 7955 us, gap-from-prev-gpu-end 584 us
+ds4: cb 'command batch': mono 111262402.5 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 8.0 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 59 us, queue-wait 53 us, gpu 7929 us, gap-from-prev-gpu-end 582 us
+ds4: cb 'command batch': mono 111262411.0 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 57 us, queue-wait 57 us, gpu 7933 us, gap-from-prev-gpu-end 585 us
+ds4: cb 'command batch': mono 111262419.5 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 56 us, queue-wait 55 us, gpu 7961 us, gap-from-prev-gpu-end 554 us
+ds4: cb 'command batch': mono 111262428.1 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 8.0 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 55 us, queue-wait 56 us, gpu 7898 us, gap-from-prev-gpu-end 591 us
+ds4: cb 'command batch': mono 111262436.5 ms: encode 0.3 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 57 us, queue-wait 58 us, gpu 7926 us, gap-from-prev-gpu-end 585 us
+ds4: cb 'command batch': mono 111262445.0 ms: encode 0.3 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 56 us, queue-wait 57 us, gpu 7891 us, gap-from-prev-gpu-end 511 us
+ds4: cb 'command batch': mono 111262453.5 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 57 us, queue-wait 57 us, gpu 7912 us, gap-from-prev-gpu-end 605 us
+ds4: cb 'command batch': mono 111262462.0 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 56 us, queue-wait 58 us, gpu 7938 us, gap-from-prev-gpu-end 589 us
+ds4: cb 'command batch': mono 111262470.5 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 56 us, queue-wait 58 us, gpu 7956 us, gap-from-prev-gpu-end 584 us
+ds4: cb 'command batch': mono 111262479.0 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 8.0 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 58 us, queue-wait 57 us, gpu 7899 us, gap-from-prev-gpu-end 588 us
+ds4: cb 'command batch': mono 111262487.5 ms: encode 0.3 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 55 us, queue-wait 54 us, gpu 7919 us, gap-from-prev-gpu-end 583 us
+ds4: cb 'command batch': mono 111262496.0 ms: encode 0.3 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 54 us, queue-wait 30 us, gpu 7733 us, gap-from-prev-gpu-end 564 us
+ds4: cb 'command batch': mono 111262504.3 ms: encode 0.3 ms, commit->done 7.9 ms, gpu span 7.7 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 57 us, queue-wait 17 us, gpu 7781 us, gap-from-prev-gpu-end 552 us
+ds4: cb 'command batch': mono 111262512.7 ms: encode 0.3 ms, commit->done 8.0 ms, gpu span 7.8 ms, gpu start +-29972857.1 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 56 us, queue-wait 17 us, gpu 7722 us, gap-from-prev-gpu-end 548 us
+ds4: cb 'command batch': mono 111262520.9 ms: encode 0.3 ms, commit->done 7.9 ms, gpu span 7.7 ms, gpu start +-29972857.1 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 54 us, queue-wait 35 us, gpu 7728 us, gap-from-prev-gpu-end 577 us
+ds4: cb 'command batch': mono 111262529.2 ms: encode 0.3 ms, commit->done 7.9 ms, gpu span 7.7 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 54 us, queue-wait 28 us, gpu 7726 us, gap-from-prev-gpu-end 559 us
+ds4: cb 'command batch': mono 111262537.5 ms: encode 0.3 ms, commit->done 7.9 ms, gpu span 7.7 ms, gpu start +-29972857.1 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 62 us, queue-wait 48 us, gpu 7910 us, gap-from-prev-gpu-end 575 us
+ds4: cb 'command batch': mono 111262546.0 ms: encode 0.3 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 57 us, queue-wait 17 us, gpu 7752 us, gap-from-prev-gpu-end 487 us
+ds4: cb 'command batch': mono 111262554.3 ms: encode 0.3 ms, commit->done 8.0 ms, gpu span 7.8 ms, gpu start +-29972857.1 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 56 us, queue-wait 56 us, gpu 7962 us, gap-from-prev-gpu-end 620 us
+ds4: cb 'command batch': mono 111262562.8 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 8.0 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 116 us, queue-wait 30 us, gpu 7722 us, gap-from-prev-gpu-end 663 us
+ds4: cb 'command batch': mono 111262571.2 ms: encode 0.3 ms, commit->done 8.0 ms, gpu span 7.7 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 65 us, queue-wait 111 us, gpu 7719 us, gap-from-prev-gpu-end 611 us
+ds4: cb 'command batch': mono 111262579.6 ms: encode 0.3 ms, commit->done 8.0 ms, gpu span 7.7 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 57 us, queue-wait 45 us, gpu 7712 us, gap-from-prev-gpu-end 605 us
+ds4: cb 'command batch': mono 111262587.9 ms: encode 0.3 ms, commit->done 7.9 ms, gpu span 7.7 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 57 us, queue-wait 69 us, gpu 7656 us, gap-from-prev-gpu-end 620 us
+ds4: cb 'command batch': mono 111262596.1 ms: encode 0.3 ms, commit->done 7.9 ms, gpu span 7.7 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 57 us, queue-wait 34 us, gpu 7696 us, gap-from-prev-gpu-end 586 us
+ds4: cb 'command batch': mono 111262604.4 ms: encode 0.3 ms, commit->done 7.9 ms, gpu span 7.7 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 56 us, queue-wait 17 us, gpu 7710 us, gap-from-prev-gpu-end 563 us
+ds4: cb 'command batch': mono 111262612.7 ms: encode 0.3 ms, commit->done 7.9 ms, gpu span 7.7 ms, gpu start +-29972857.1 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 57 us, queue-wait 63 us, gpu 7737 us, gap-from-prev-gpu-end 604 us
+ds4: cb 'command batch': mono 111262621.0 ms: encode 0.3 ms, commit->done 8.0 ms, gpu span 7.7 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 57 us, queue-wait 16 us, gpu 7738 us, gap-from-prev-gpu-end 542 us
+ds4: cb 'command batch': mono 111262629.3 ms: encode 0.3 ms, commit->done 7.9 ms, gpu span 7.7 ms, gpu start +-29972857.1 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 55 us, queue-wait 18 us, gpu 7685 us, gap-from-prev-gpu-end 554 us
+ds4: cb 'command batch': mono 111262637.6 ms: encode 0.3 ms, commit->done 7.9 ms, gpu span 7.7 ms, gpu start +-29972857.1 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 71 us, queue-wait 25 us, gpu 7863 us, gap-from-prev-gpu-end 567 us
+ds4: cb 'command batch': mono 111262645.9 ms: encode 0.3 ms, commit->done 8.0 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 55 us, queue-wait 56 us, gpu 8206 us, gap-from-prev-gpu-end 505 us
+ds4: cb 'command batch': mono 111262654.7 ms: encode 0.3 ms, commit->done 8.4 ms, gpu span 8.2 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 54 us, queue-wait 56 us, gpu 7730 us, gap-from-prev-gpu-end 554 us
+ds4: cb 'command batch': mono 111262663.0 ms: encode 0.3 ms, commit->done 8.0 ms, gpu span 7.7 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 67 us, queue-wait 26 us, gpu 7873 us, gap-from-prev-gpu-end 602 us
+ds4: cb 'command batch': mono 111262671.5 ms: encode 0.3 ms, commit->done 8.1 ms, gpu span 7.9 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 80 us, queue-wait 86 us, gpu 7710 us, gap-from-prev-gpu-end 653 us
+ds4: cb 'command batch': mono 111262679.8 ms: encode 0.3 ms, commit->done 8.0 ms, gpu span 7.7 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: cb command batch: driver 57 us, queue-wait 42 us, gpu 7960 us, gap-from-prev-gpu-end 615 us
+ds4: cb 'command batch': mono 111262688.4 ms: encode 0.3 ms, commit->done 8.2 ms, gpu span 8.0 ms, gpu start +-29972857.0 ms, caller 0x100163190
+ds4: transient buffers this batch: 0 (0.0 MiB)
+ds4: Mellum prefill: 4039.31 t/s, generation: 118.09 t/s
+ds4: stopped at the -n cap of 256 tokens
