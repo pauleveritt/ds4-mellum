@@ -191,7 +191,13 @@ laptop is needed.
 Exit: measured limit and resident behavior on 16 GB, and the expert-cache
 budget derived from them. Requires borrowed hardware.
 
-### S4 — Cached execution and miss recovery proof: not started
+### S4 — Cached execution and miss recovery proof: designed and planned
+
+[Design](docs/superpowers/specs/2026-10-28-mellum-s4-cached-execution-design.md)
+(owner-approved) and [plan](docs/superpowers/plans/2026-10-28-mellum-s4-cached-execution.md).
+Decode stops only at missed layers; the [layer-sync spike](docs/superpowers/research/2026-10-28-mellum-layer-sync-spike.md)
+measured 164 µs per host sync (n=4 per arm). Implementation has not started.
+
 
 Prove GPU-readable Q8 slots through decode and E1 prefill. Specify address
 translation, slot ownership/readiness and the resume boundary before building
