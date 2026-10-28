@@ -48,7 +48,7 @@ PY
 { echo "machine: $(sysctl -n machdep.cpu.brand_string) $(sysctl -n hw.memsize) bytes"
   echo "head: $(git -C "$ROOT" rev-parse --short HEAD)  ds4: $(stat -f %Sm "$DS4")"
   echo "PER=$PER COOL=$COOL GAP=$GAP"
-  echo "A ($A_NAME): ${A_ARM[*]+${A_ARM[*]}}"; echo "B ($B_NAME): ${B_ARM[*]+${B_ARM[*]}}"; } > "$OUT/setup.txt"
+  echo "A ($A_NAME): ${A_ARM[*]:-(no variables)}"; echo "B ($B_NAME): ${B_ARM[*]:-(no variables)}"; } > "$OUT/setup.txt"
 
 for target in "$@"; do
     # bisect the character count: about 2.8 characters per token in this text
