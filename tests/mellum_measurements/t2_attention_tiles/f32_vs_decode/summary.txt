@@ -1,0 +1,9 @@
+2048 (2056 tokens) decode kernels (=0): n 6, median 2975 t/s, range 2973-2976
+2048 (2056 tokens) f32 tiles (=1): n 6, median 3331 t/s, range 3327-3334
+2048: B / A median 1.120
+8192 (8195 tokens) decode kernels (=0): n 6, median 2133 t/s, range 2131-2133
+8192 (8195 tokens) f32 tiles (=1): n 6, median 2576 t/s, range 2569-2576
+8192: B / A median 1.208
+32768 (32778 tokens) decode kernels (=0): n 6, median 936 t/s, range 912-959
+32768 (32778 tokens) f32 tiles (=1): n 6, median 1260 t/s, range 1240-1290
+32768: B / A median 1.346

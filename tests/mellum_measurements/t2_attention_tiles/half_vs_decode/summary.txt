@@ -1,0 +1,9 @@
+2048 (2056 tokens) decode kernels (=0): n 6, median 2968 t/s, range 2964-2977
+2048 (2056 tokens) half tiles (default): n 6, median 4055 t/s, range 4039-4078
+2048: B / A median 1.366
+8192 (8195 tokens) decode kernels (=0): n 6, median 2132 t/s, range 2131-2133
+8192 (8195 tokens) half tiles (default): n 6, median 3528 t/s, range 3522-3529
+8192: B / A median 1.655
+32768 (32778 tokens) decode kernels (=0): n 6, median 939 t/s, range 870-1000
+32768 (32778 tokens) half tiles (default): n 6, median 1908 t/s, range 1802-2026
+32768: B / A median 2.033
