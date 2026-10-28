@@ -10,8 +10,8 @@ numbered checkpoints. This roadmap tracks the separate SSD investigation.
   `--ssd-streaming` runs Mellum on Metal from a bounded expert cache. On this
   M5 Max / 128 GiB laptop it matches resident output at 32K, with reads that
   reach the SSD (S4 below).
-- Not established: streamed speed or memory on 16 GB or 8 GB hardware, and a
-  speed target for "useful" (S5).
+- Not established: streamed speed or memory on any other machine, including
+  16 GB or 8 GB hardware. S5's targets are judged on the owner's M1 Pro.
 - This branch retains the Checkpoint 3.6 baseline. The separate `mellum`
   checkout has advanced to `f635616` with frontend work; this SSD branch does
   not integrate or change it. SSD phases keep their own numbering.
@@ -217,27 +217,36 @@ time: about 10.7 GPU passes per token, adding about 5.4 ms of GPU execution and 
 Loads take about 0.95 ms per stop, serially. Load overlap was set aside (owner); a check-kernel trim was
 tried and not kept. Measurement 02's 32K figures predate the gating.
 
-### S5 — Streamed speed on the development laptop: not started
+### S5 — Streamed speed, on the development laptop and an M1 Pro: not started
 
-Levers, in order. Each is measured before and after with its n, keeps Q8 weights and routing, and stays
+**Targets (owner, 2026-10-28),** judged on the owner's M1 Pro / 32 GB, not on this M5 Max, at a 6 GiB
+cache and 32K:
+- decode at least 15 t/s; below 10, lower-bit experts reopen (S6);
+- time to first token at most 60 s for a cold 30K prompt, and at most 10 s after appending about 2K
+  tokens to a warm session.
+
+The M1 Pro is closer to a base-chip 16 GB laptop but still optimistic for decode, so a miss there
+predicts a miss on 16 GB and a pass does not prove one. Its
+[bring-up plan](docs/superpowers/plans/2026-10-28-mellum-m1pro-bringup.md) runs alongside steps 1–2.
+
+Steps, in order. Each is measured before and after with its n, keeps Q8 weights and routing, and stays
 exact against resident:
-1. **Re-measure 32K at the current build,** under a new preregistration (02 is spent and predates
-   `9e9757f`).
+1. **Re-measure 32K here at the current build,** under a new preregistration (02 is spent and predates
+   `9e9757f`), adding the per-turn first-token case.
 2. **Layer-major prefill:** read each layer's experts once per prompt, not once per 1,024-row chunk. In
-   02, prefill loaded 334 GB and added about 31 s to the first token.
+   02, prefill loaded 334 GB and added about 31 s to the first token. It helps on any machine.
 3. **Fewer stops per token:** hotness for layers that hit, and the eviction policy. Choose on a fresh
-   trace, never the held-out -02 trace or ac-demo.
+   trace, never the held-out -02 trace or ac-demo. Wait for the M1 Pro's baseline, whose cost per stop
+   decides how much this is worth.
 4. **Predictive prefetch,** only under its own design, if 2 and 3 leave too little.
 
-**Open owner decision: the speed target.** "Useful" needs numbers, decode t/s at 32K and time to first
-token, before S5 can close. They also decide whether lower-bit experts return (S6).
+Exit: the targets met on the M1 Pro, or the steps exhausted with a recorded verdict; exact output; peak
+footprint and Metal allocation within about 8 GiB at 32K.
 
-Exit: the target met, or the levers exhausted with a recorded verdict; exact output; peak footprint and
-Metal allocation within about 8 GiB at 32K.
+### S5b — Deployment validation on a 16 GB Mac: waiting on hardware
 
-### S5b — Deployment validation on a 16 GB Mac: not started
-
-After S3b and S5. Run S5's build on physical 16 GB hardware with the cache budget S3b derives. Account
+After S3b and S5; no 16 GB Mac is available yet. It checks what the M1 Pro cannot: a 16 GB Metal
+working-set limit and a current base chip. Run S5's build on physical 16 GB hardware with the cache budget S3b derives. Account
 for fixed tensors, session state, E1/global backend scratch, cache, staging, recorder state and in-flight
 references at the same peak. Compare resident and streamed behavior under the same numerical
 configuration.
