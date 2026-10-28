@@ -60569,6 +60569,18 @@ static uint32_t mellum_tiled_min_rows(const ds4_qwen4_gpu_graph *g) {
  * the buffers are the MoE entries of mellum_requests, so the plan counts what the driver uses.  Below
  * MELLUM_TILED_MIN_ROWS the ops are ds4_gpu_mellum_moe_tensor's (contract in ds4_gpu.h): none of them tiles
  * rows together, so a row's bits do not depend on T.  From there the experts are tiled, and they do. */
+#if defined(__APPLE__)
+/* S4: make `ids` of layer il resident in the expert cache and publish their addresses. */
+static bool mellum_stream_load_ids(const ds4_model *m, const ds4_layer_weights *l, uint32_t il, const int32_t *ids,
+                                   uint32_t n) {
+    uint64_t gate_bytes = 0, down_bytes = 0;
+    if (!streaming_layer_gate_down_expert_bytes(l, &gate_bytes, &down_bytes)) return false;
+    const ds4_gpu_stream_expert_table table = graph_stream_expert_table_make(m, l, il, gate_bytes, down_bytes);
+    uint32_t loaded = 0;
+    return ds4_gpu_mellum_stream_load(&table, ids, n, &loaded) != 0;
+}
+#endif
+
 static bool mellum_graph_moe(ds4_qwen4_gpu_graph *g, const ds4_model *m, const ds4_layer_weights *l, uint32_t il, uint32_t T) {
 #if !defined(__APPLE__)
     (void)g; (void)m; (void)l; (void)il; (void)T;
@@ -60621,6 +60633,56 @@ static bool mellum_graph_moe(ds4_qwen4_gpu_graph *g, const ds4_model *m, const d
              ds4_gpu_qwen4_moe_reduce_tensor(s[MELLUM_S_MOE_OUT], s[MELLUM_S_PARTIAL], s[MELLUM_S_WEIGHTS], NULL, NULL, NULL,
                                              NULL, 1, p.n_used, p.n_used, p.n_embd, 0u) != 0;
         if (!ok) fprintf(stderr, "ds4: Mellum streamed MoE failed (layer %u)\n", il);
+        return ok;
+    }
+    if (g->mellum_stream && T > 1u) {
+        /* S4 streamed prefill: the resident path's router and top-8, then a host wait to load every expert the
+         * chunk chose for this layer, then the resident path's experts (tiled/E1 at mellum_tiled_min_rows rows
+         * or more, the exact kernels below) through the address tables, and its reduce. */
+        ds4_gpu_tensor *const *addr = g->mellum_stream_addr[il];
+        const bool tiled = T >= mellum_tiled_min_rows(g);
+        ds4_gpu_tensor *router_out[1] = { s[MELLUM_S_ROUTER_LOGITS] };
+        const uint64_t router_off[1] = { p.router_offset };
+        const uint32_t router_type[1] = { 0u }, router_rows[1] = { p.n_expert };
+        int32_t *sel = malloc((size_t)T * p.n_used * sizeof(int32_t));
+        int32_t uniq[64];
+        if (tiled) ds4_gpu_qwen4_moe_q8_tiles(g->mellum_moe_nax);
+        bool ok = sel &&
+            ds4_gpu_qwen4_multi_gemv_tensor(s[MELLUM_S_FFN_NORM], T, p.n_embd, 1, router_out, m->map, m->size,
+                                            router_off, router_type, router_rows) &&
+            ds4_gpu_qwen4_router_topk_tensor(s[MELLUM_S_SELECTED], s[MELLUM_S_WEIGHTS], s[MELLUM_S_ROUTER_LOGITS], NULL,
+                                             m->map, m->size, 0u, 0u, 0u, NULL, T, p.n_expert, p.n_used) &&
+            ds4_gpu_end_commands() != 0 &&
+            ds4_gpu_tensor_read(s[MELLUM_S_SELECTED], 0, sel, (uint64_t)T * p.n_used * sizeof(int32_t)) != 0;
+        const uint32_t n_unique = ok ? ds4_mellum_stream_unique(sel, T, p.n_used, uniq) : UINT32_MAX;
+        ok = ok && n_unique != UINT32_MAX && mellum_stream_load_ids(m, l, il, uniq, n_unique) &&
+             glm_graph_begin_commands_if_needed();
+        if (tiled) {
+            ok = ok &&
+                 ds4_gpu_qwen4_moe_build_lists_tensor(s[MELLUM_S_MOE_LISTS], s[MELLUM_S_MOE_COUNTS], s[MELLUM_S_SELECTED], T,
+                                                      p.n_used, p.n_expert, g->cap_tokens) &&
+                 ds4_gpu_qwen4_moe_mm_mid_addr_tensor(s[MELLUM_S_MID], s[MELLUM_S_FFN_NORM], s[MELLUM_S_MOE_LISTS],
+                                                      s[MELLUM_S_MOE_COUNTS], addr[0], addr[1], NULL,
+                                                      DS4_GPU_MELLUM_STREAM_SLABS, p.expert_type, p.n_expert, T, p.n_used,
+                                                      p.n_used, p.n_embd, p.ff_dim, g->cap_tokens) &&
+                 ds4_gpu_qwen4_moe_mm_down_addr_tensor(s[MELLUM_S_PARTIAL], s[MELLUM_S_MID], s[MELLUM_S_MOE_LISTS],
+                                                       s[MELLUM_S_MOE_COUNTS], addr[2], NULL, DS4_GPU_MELLUM_STREAM_SLABS,
+                                                       p.expert_type, p.n_expert, T, p.n_used, p.n_used, p.ff_dim,
+                                                       p.n_embd, g->cap_tokens);
+        } else {
+            ok = ok &&
+                 ds4_gpu_qwen4_moe_mid_addr_tensor(s[MELLUM_S_MID], s[MELLUM_S_FFN_NORM], s[MELLUM_S_SELECTED], addr[0],
+                                                   addr[1], NULL, DS4_GPU_MELLUM_STREAM_SLABS, p.expert_type, p.n_expert, T,
+                                                   p.n_used, p.n_embd, p.ff_dim) &&
+                 ds4_gpu_qwen4_moe_down_addr_tensor(s[MELLUM_S_PARTIAL], s[MELLUM_S_MID], s[MELLUM_S_SELECTED], addr[2],
+                                                    NULL, DS4_GPU_MELLUM_STREAM_SLABS, p.expert_type, p.n_expert, T,
+                                                    p.n_used, p.ff_dim, p.n_embd);
+        }
+        ok = ok && ds4_gpu_qwen4_moe_reduce_tensor(s[MELLUM_S_MOE_OUT], s[MELLUM_S_PARTIAL], s[MELLUM_S_WEIGHTS], NULL,
+                                                   NULL, NULL, NULL, T, p.n_used, p.n_used, p.n_embd, 0u) != 0;
+        if (tiled) ds4_gpu_qwen4_moe_q8_tiles(0);
+        free(sel);
+        if (!ok) fprintf(stderr, "ds4: Mellum streamed prefill MoE failed (layer %u, T=%u)\n", il, T);
         return ok;
     }
     if (T >= mellum_tiled_min_rows(g)) {
@@ -60910,12 +60972,7 @@ static bool mellum_stream_finish(void *ctx, bool *stopped, ds4_mellum_stream_sto
 
 static bool mellum_stream_load(void *ctx, uint32_t layer, const int32_t *ids, uint32_t n) {
     mellum_stream_ctx *c = ctx;
-    const ds4_layer_weights *l = &c->w->layer[layer];
-    uint64_t gate_bytes = 0, down_bytes = 0;
-    if (!streaming_layer_gate_down_expert_bytes(l, &gate_bytes, &down_bytes)) return false;
-    const ds4_gpu_stream_expert_table table = graph_stream_expert_table_make(c->m, l, layer, gate_bytes, down_bytes);
-    uint32_t loaded = 0;
-    return ds4_gpu_mellum_stream_load(&table, ids, n, &loaded) != 0;
+    return mellum_stream_load_ids(c->m, &c->w->layer[layer], layer, ids, n);
 }
 
 static bool mellum_stream_cancelled(void *ctx) {
@@ -60959,11 +61016,12 @@ static bool mellum_graph_forward_tokens(ds4_qwen4_gpu_graph *g, const ds4_model 
     if (!mellum_trace_parse(&tc)) return false;
 #if defined(__APPLE__)
     if (g->mellum_stream) {
-        if (T != 1u || g->mellum_capture || tc.prefix) {
-            fprintf(stderr, "ds4: Mellum SSD streaming runs one-token decode only for now (T=%u)\n", T);
+        if (g->mellum_capture || tc.prefix) {
+            fprintf(stderr, "ds4: Mellum SSD streaming does not support route capture or tracing\n");
             return false;
         }
-        return mellum_stream_decode(g, m, w, tokens[0], logits_out);
+        /* one token: stop/resume decode; a chunk: the ordinary forward, whose MoE syncs per layer */
+        if (T == 1u) return mellum_stream_decode(g, m, w, tokens[0], logits_out);
     }
 #endif
     const uint32_t pos0 = g->pos, n_layer = DS4_N_LAYER, E = DS4_N_EMBD, V = DS4_N_VOCAB;
