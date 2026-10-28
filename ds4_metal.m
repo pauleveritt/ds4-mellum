@@ -51315,6 +51315,12 @@ static int ds4_gpu_mellum_stream_load_group(const ds4_gpu_stream_expert_table *t
     }
     for (uint32_t i = 0; i < n; i++) {
         ds4_gpu_stream_expert_cache_entry *e = entries[i];
+        /* the address kernels make only the slabs resident: an expert in a combined buffer (no slab slot or
+         * victim left, slabs disabled, or slots lost to a failed read) would be read non-resident */
+        if (e && !e->slab_backed) {
+            fprintf(stderr, "ds4: Mellum SSD streaming: layer %u expert %d is outside the expert slabs\n", t->layer, ids[i]);
+            return 0;
+        }
         if (!e || !ds4_gpu_stream_expert_cache_set_addr_slot_raw(t->layer, (uint32_t)ids[i],
                                                                  e->gate_buffer, e->gate_inner,
                                                                  e->up_buffer, e->up_inner,

@@ -10,11 +10,14 @@
 /* One routed Q8_0 expert: gate, up and down together. */
 #define DS4_MELLUM_EXPERT_BYTES 6580224ull
 
+/* The smallest cache: a prefill chunk can need all 64 of one layer's experts resident at once. */
+#define DS4_MELLUM_STREAM_MIN_SLOTS 64u
+
 /* Slots a cache of cache_bytes holds, rounded down; 0 below one expert. */
 uint32_t ds4_mellum_stream_slots(uint64_t cache_bytes);
 
 /* Validates a streaming request.  Off: *slots = 0, returns 0.  On: *slots from cache_bytes, or -1 with
- * a message in err when the cache holds no expert.  The whole budget is slots; prefill shares them. */
+ * a message in err when the cache holds fewer than DS4_MELLUM_STREAM_MIN_SLOTS experts.  The whole budget is slots; prefill shares them. */
 int ds4_mellum_stream_config(bool streaming, uint64_t cache_bytes, uint32_t *slots, char *err, size_t n);
 
 /* Decode stop/resume.  A token runs as one command buffer that stops at its first layer with a missing

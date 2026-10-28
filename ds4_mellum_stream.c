@@ -12,10 +12,11 @@ int ds4_mellum_stream_config(bool streaming, uint64_t cache_bytes, uint32_t *slo
     *slots = 0;
     if (!streaming) return 0;
     const uint32_t got = ds4_mellum_stream_slots(cache_bytes);
-    if (got == 0) {
+    if (got < DS4_MELLUM_STREAM_MIN_SLOTS) {
         if (err && n) {
-            snprintf(err, n, "Mellum --ssd-streaming needs --ssd-streaming-cache-experts of at least one "
-                             "expert (%llu bytes)", (unsigned long long)DS4_MELLUM_EXPERT_BYTES);
+            snprintf(err, n, "Mellum --ssd-streaming needs --ssd-streaming-cache-experts of at least %u experts "
+                             "(%llu bytes), one layer's 64: got %u", DS4_MELLUM_STREAM_MIN_SLOTS,
+                     (unsigned long long)DS4_MELLUM_STREAM_MIN_SLOTS * DS4_MELLUM_EXPERT_BYTES, got);
         }
         return -1;
     }
