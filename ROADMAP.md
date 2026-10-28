@@ -258,17 +258,42 @@ Exit: whole-machine memory pressure, with an editor, a browser and a couple of a
 target latency on that machine. Native host integration in `../ds4-engine` follows engine correctness and
 measurements; Python owns workflow policy, while C/Rust owns inference-critical scheduling.
 
-### S6 — 8 GB target: deferred
+### S6 — 8 GB target with MXFP4 experts: reopened, brainstorming
 
-Reopen when one of these holds:
-- a target-class SSD read bench measures sustained miss-order reads of about
-  3.7 GB/s or more at 6.6 MB;
-- two or more non-thinking conversations show demand at 3 GiB well below the
-  -02 trace's 372 MB/token;
-- the owner accepts lower-bit streamed experts (about a quarter of the bytes
-  at 3 GiB, estimated).
+Deferred until 2026-10-28, behind three reopen conditions: a target-class SSD
+read bench, better non-thinking locality, or lower-bit streamed experts.
+**Owner decision, 2026-10-28:** lower-bit streamed experts are accepted for
+8 GB. This breaks the "Q8 weights unchanged" rule for S6 only; 16 GB (S3b-S5)
+keeps Q8. Work runs on `research/mellum-8gb-q4`, CPU-only and model-free
+until S4/S5 merge and the GPU is free.
 
-Also needed: an 8 GB memory plan with the measured Metal limit.
+Target file: JetBrains' `Mellum2.1-12B-A2.5B-Thinking-MXFP4_MOE.gguf`
+(7,029,537,056 B, HF snapshot `4159d684`). Its header, read without running
+it, matches the Q8_0 file except for the routed experts:
+- the 1.037 GiB of non-expert tensors are Q8_0, as in the Q8_0 file;
+- all 84 expert tensors are MXFP4, 3,290,112 B per expert, half of Q8_0.
+
+JetBrains' table gives it KLD 0.115 and 85.6% top-token match against BF16
+(Q4_K_M 0.075 / 88.0%, Q8_0 0.008 / 96.1%; Wikitext-2, `n_ctx=512`). These
+are their figures, not ours.
+
+Re-estimated from the retarget's LRU curve (descriptive, n=1 thinking trace,
+same routing assumed): a 3 GiB cache holds as many slots as 6 GiB at Q8, so
+about 41.5 MB/token, not 372. At 2 GiB, about 114 MB/token.
+
+The [code read](docs/superpowers/research/2026-10-28-mellum-mxfp4-metal-path.md)
+at `01521b3` and `3addce0` found no new Metal kernels needed. Mellum's
+expert kernels already branch on MXFP4. The work is about 8 resident Q8_0
+gates, about 7 streamed ones, and a slot count derived from the file. Risk:
+no production model runs MXFP4 gate/up rows through those kernels yet.
+JetBrains' Q4_K_M is a larger port: there is no Q5_0 down kernel, and its
+attention tensors are Q4_K/Q6_K.
+
+Still needed: our own quality and routing-agreement checks against Q8_0, a
+target-class SSD read bench, and an 8 GB memory plan with the measured Metal
+limit. Target machine: an M1 iMac, 8 GB, 1 TB, macOS 27.1. The
+[design](docs/superpowers/specs/2026-10-28-mellum-s6-mxfp4-8gb-design.md)
+is drafted and awaiting the owner's approval.
 
 ## Working rules
 
