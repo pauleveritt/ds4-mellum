@@ -3820,6 +3820,24 @@ int ds4_gpu_stream_gate_reset(ds4_gpu_tensor *gate);
 int ds4_gpu_stream_gate_bind(ds4_gpu_tensor *gate_or_null);
 int ds4_gpu_stream_gate_trip_if_zero_tensor(ds4_gpu_tensor *gate, const ds4_gpu_tensor *probe, uint32_t layer);
 int ds4_gpu_stream_gate_read(const ds4_gpu_tensor *gate, uint32_t *layer, bool *stopped);
+/* S4 Mellum streamed decode.  layer_tables: views of the expert cache's per-layer uint64 address tables
+ * (an evicted expert's entry is 0).  load: make the given experts of one layer resident from the model
+ * file and publish their addresses, protecting them from that call's own pruning.  check: save a layer's
+ * resume state into its slot of `save` (2 * n_embd + 16 floats per layer) and stop the gate when a
+ * selected expert has no address.  restore: put that state back before resuming at the layer's experts. */
+void ds4_gpu_mellum_stream_set_readahead(bool enabled);
+int ds4_gpu_mellum_stream_layer_tables(uint32_t layer, ds4_gpu_tensor **gate, ds4_gpu_tensor **up, ds4_gpu_tensor **down);
+int ds4_gpu_mellum_stream_load(const ds4_gpu_stream_expert_table *t, const int32_t *ids, uint32_t n, uint32_t *n_loaded);
+int ds4_gpu_mellum_stream_check_tensor(ds4_gpu_tensor *gate, const ds4_gpu_tensor *selected,
+                                       const ds4_gpu_tensor *weights, const ds4_gpu_tensor *attn_res,
+                                       const ds4_gpu_tensor *ffn_norm, ds4_gpu_tensor *save,
+                                       const ds4_gpu_tensor *gate_addrs, const ds4_gpu_tensor *up_addrs,
+                                       const ds4_gpu_tensor *down_addrs, uint32_t layer, uint32_t n_embd);
+int ds4_gpu_mellum_stream_restore_tensor(const ds4_gpu_tensor *save, ds4_gpu_tensor *selected, ds4_gpu_tensor *weights,
+                                         ds4_gpu_tensor *attn_res, ds4_gpu_tensor *ffn_norm, uint32_t layer,
+                                         uint32_t n_embd);
+/* Passed as n_resident with a NULL resident list: make every allocated expert-cache slab resident. */
+#define DS4_GPU_MELLUM_STREAM_SLABS UINT32_MAX
 /* GPU virtual address of a tensor's first byte (0 if it has no buffer), for address tables. */
 uint64_t ds4_gpu_tensor_gpu_address(const ds4_gpu_tensor *tensor);
 /* S4: decode MoE mid and down for Q8_0 experts reached through per-expert uint64 address tables; bits equal

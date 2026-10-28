@@ -4886,3 +4886,67 @@ kernel void kernel_mellum_stream_gate_trip_if_zero(
         args[2] = 0u;
     }
 }
+
+/* S4 streamed decode, one per layer after its router: save the layer's resume state (attention residual,
+ * FFN input, top-8 ids and weights) into its slot of `save`, and stop the gate if any selected expert has
+ * no address.  The first stop wins; later records are zeroed so suppressed dispatches do nothing.  The
+ * resume restores the slot, so work that ran after a stop is only wasted, never read. */
+kernel void kernel_mellum_stream_check(
+        device uint          *gate      [[buffer(0)]],
+        device const int32_t *selected  [[buffer(1)]],
+        device const float   *weights   [[buffer(2)]],
+        device const float   *attn_res  [[buffer(3)]],
+        device const float   *ffn_norm  [[buffer(4)]],
+        device float         *save      [[buffer(5)]],
+        device const ulong   *gate_addrs [[buffer(6)]],
+        device const ulong   *up_addrs   [[buffer(7)]],
+        device const ulong   *down_addrs [[buffer(8)]],
+        constant uint4       &a         [[buffer(9)]],   /* x layer, y next record, z record cap, w n_embd */
+        uint                  tid       [[thread_position_in_grid]]) {
+    const uint E = a.w, K = 8u;
+    device float *slot = save + (uint64_t)a.x * (2u * E + 2u * K);
+    if (tid < E) {
+        slot[tid] = attn_res[tid];
+        slot[E + tid] = ffn_norm[tid];
+    }
+    if (tid < K) {
+        slot[2u * E + tid] = as_type<float>(selected[tid]);
+        slot[2u * E + K + tid] = weights[tid];
+    }
+    bool miss = false;
+    for (uint k = 0; k < K; k++) {
+        const uint e = (uint)selected[k];
+        miss = miss || e >= 64u || gate_addrs[e] == 0 || up_addrs[e] == 0 || down_addrs[e] == 0;
+    }
+    if (!miss) return;
+    if (tid == 0 && gate[0] == 0u) {
+        gate[0] = 1u;
+        gate[1] = a.x;
+    }
+    if (tid < a.z - a.y) {
+        device uint *rec = gate + 16u + 3u * (a.y + tid);
+        rec[0] = 0u;
+        rec[1] = 0u;
+        rec[2] = 0u;
+    }
+}
+
+kernel void kernel_mellum_stream_restore(
+        device const float *save      [[buffer(0)]],
+        device int32_t     *selected  [[buffer(1)]],
+        device float       *weights   [[buffer(2)]],
+        device float       *attn_res  [[buffer(3)]],
+        device float       *ffn_norm  [[buffer(4)]],
+        constant uint4     &a         [[buffer(5)]],   /* x layer, w n_embd */
+        uint                tid       [[thread_position_in_grid]]) {
+    const uint E = a.w, K = 8u;
+    device const float *slot = save + (uint64_t)a.x * (2u * E + 2u * K);
+    if (tid < E) {
+        attn_res[tid] = slot[tid];
+        ffn_norm[tid] = slot[E + tid];
+    }
+    if (tid < K) {
+        selected[tid] = as_type<int32_t>(slot[2u * E + tid]);
+        weights[tid] = slot[2u * E + K + tid];
+    }
+}
