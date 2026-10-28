@@ -88,7 +88,11 @@ def observe(argv: list[str],topology: dict) -> dict:
             if buffers['event'] or child.returncode:raise ValueError('native child failed after observation')
     except BaseException as exc:
         failure=exc
-        result.update(error_type=type(exc).__name__,error=str(exc) or type(exc).__name__)
+        cause=exc
+        while isinstance(cause,observer.CommandFailure) and cause.__cause__ is not None:
+            cause=cause.__cause__
+        error_type=exc.evidence.get('error_type',type(cause).__name__) if isinstance(exc,observer.CommandFailure) else type(exc).__name__
+        result.update(error_type=error_type,error=str(exc) or str(cause) or error_type)
         if isinstance(exc,observer.CommandFailure):result['failed_command']=exc.evidence
     finally:
         if child is not None:

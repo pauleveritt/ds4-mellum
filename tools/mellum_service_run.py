@@ -179,13 +179,14 @@ def run(manifest_dir: Path,container: Path) -> Path:
                 after=observer.discover(files);progress['topology_after']=after
                 if not host.same_topology(topology,after) or geometry(after)!=progress['geometry']:
                     raise ValueError('closing device topology changed')
-                progress['closing_verification']='complete'
                 qualified=len(progress['runs'])==4 and all(c['classification']['status']=='consistent-volume' for c in progress['runs'])
                 progress.update(complete=qualified,unknown_reserved_maxima=False)
                 if not qualified:
                     progress.update(error_type='NonqualifyingCell',error='cell outside consistent-volume; remaining cells stopped')
                 # Hash evidence only; scratch has already had its one comparison pass.
                 progress['evidence_hashes']={p.name:common.file_identity(p)['sha256'] for p in evidence.iterdir()}
+                close_metadata(manifest_dir,frozen,value,scratches)
+                progress['closing_verification']='complete'
         output=publish(qualified)
     except BaseException as exc:
         if isinstance(exc,process.ObservationFailure):error_type=exc.evidence.get('error_type',type(exc).__name__)

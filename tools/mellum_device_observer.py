@@ -87,6 +87,7 @@ class CommandFailure(ValueError):
 def command(argv: list[str], *, timeout: float=5, limit: int=32*2**20) -> dict:
     result=dict(argv=argv,start_ns=now_ns(),stdout=b'',stderr=b'',returncode=None)
     child=subprocess.Popen(argv,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+    result['pid']=child.pid
     streams={child.stdout:bytearray(),child.stderr:bytearray()}
     try:
         with selectors.DefaultSelector() as selector:
@@ -107,8 +108,9 @@ def command(argv: list[str], *, timeout: float=5, limit: int=32*2**20) -> dict:
         if child.poll() is None:child.kill()
         child.wait()
         result.update(stdout=bytes(streams[child.stdout]),stderr=bytes(streams[child.stderr]),
-                      returncode=child.returncode,end_ns=now_ns())
-        raise CommandFailure(str(exc),result) from exc
+                      returncode=child.returncode,end_ns=now_ns(),
+                      error_type=type(exc).__name__,error=str(exc) or type(exc).__name__)
+        raise CommandFailure(result['error'],result) from exc
     finally:
         if child.poll() is None:child.kill()
         child.wait()
