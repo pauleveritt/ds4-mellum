@@ -90,12 +90,19 @@ def test_truncated_xml_and_structure_bombs_keep_raw_evidence():
     api=module()
     payloads=(b'<?xml version="1.0"?><plist><dict>',
               b'<?xml version="1.0"?><!DOCTYPE plist [<!ENTITY a "boom">]><plist><string>&a;</string></plist>',
-              plistlib.dumps(['x']*20000))
+              plistlib.dumps([True]*70000))  # under 1 MiB, over the node bound
     for raw in payloads:
         result=dict(stdout=raw,stderr=b'',returncode=0)
         try:api.decoded(result)
         except api.CommandFailure as exc:assert exc.evidence['stdout']==raw
         else:raise AssertionError('unbounded/malformed XML accepted')
+
+def test_registry_sized_xml_within_bounds_decodes():
+    # macOS 27.2's `ioreg -a -l -r -c IOBlockStorageDriver` here is about 16,900 nodes in 830 KB
+    api=module()
+    raw=plistlib.dumps([1]*17000)
+    assert len(raw)<2**20
+    assert api.decoded(dict(stdout=raw,stderr=b'',returncode=0))==[1]*17000
 
 def test_interrupted_metadata_command_is_killed_and_reaped():
     api=module();children=[];real=api.subprocess.Popen
