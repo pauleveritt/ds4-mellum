@@ -748,9 +748,11 @@ static void test_mellum_stream_faults(void) {
                 TEST_ASSERT(ds4_test_mellum_stream_fail_load(s, 0));
             }
             if (streaming && i == 8) {
-                /* a cancellation between stops ends the eval; clearing it and re-syncing recovers */
+                /* a cancellation between stops ends the eval (the session's sync checks cancellation itself
+                 * before any work, so the eval is what reaches the stop loop); clearing it and re-syncing
+                 * recovers */
                 ds4_session_set_cancel(s, mellum_stream_always_cancel, NULL);
-                TEST_ASSERT(ds4_session_sync(s, &prefix, err, sizeof(err)) != 0);
+                TEST_ASSERT(ds4_session_eval(s, toks[i], err, sizeof(err)) != 0);
                 ds4_session_set_cancel(s, NULL, NULL);
             }
             TEST_ASSERT(ds4_session_sync(s, &prefix, err, sizeof(err)) == 0);
