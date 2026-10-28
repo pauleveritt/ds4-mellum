@@ -1,4 +1,5 @@
 """Immutable exact-text/native-token inputs for one generated evaluation case."""
+from datetime import datetime, timedelta, timezone
 import hashlib
 import importlib.util
 import os
@@ -20,6 +21,16 @@ FILES=('.gitignore','AGENTS.md','pyproject.toml','specs/mission.md','specs/roadm
 TOKEN_FILES=('initial.tokens','append.tokens','close.tokens','newline.tokens')
 RENDERED_FILES=tuple(n.replace('.tokens','.rendered') for n in TOKEN_FILES)
 SETTINGS=dict(context=8192,chunk=1024,thinking=True,temperature=0,top_k=1,top_p=1,min_p=0,caps=[4096,1024],gpu_timeout=900,cpu_timeout=120,deadline_utc='2026-10-28T12:00:00Z')
+
+
+DEADLINE=datetime(2026,10,28,12,tzinfo=timezone.utc)
+
+
+def utc_now() -> datetime:return datetime.now(timezone.utc)
+
+
+def require_time(seconds: int) -> None:
+    if utc_now()+timedelta(seconds=seconds)>DEADLINE:raise ValueError('native command timeout cannot fit before cutoff')
 
 
 def messages(bundle: Path) -> dict[str,bytes]:
@@ -78,6 +89,7 @@ def prepare(bundle: Path,model: Path,binary: Path,container: Path,*,build_receip
             with (raw/f'{name}.txt').open('xb') as stream:
                 if stream.write(data)!=len(data):raise OSError('short prompt write')
         argv=[str(binary),'prepare',str(model),str(raw),str(raw)]
+        require_time(120)
         command=observer.command(argv,timeout=120,limit=2**20)
         common.write_json(raw/'prepare.command.json',host.serial(command))
         if command['returncode']:raise ValueError('native token preparation failed')
@@ -124,6 +136,7 @@ def freeze_build(container: Path,cpu: Path,gpu: Path) -> Path:
     source=common.source_identity(common.ROOT)
     old={name:identity.file_stat(path) if path.exists() else None for name,path in (('cpu',cpu),('gpu',gpu))}
     try:
+        require_time(120)
         command=observer.command(['make','-f',str(common.ROOT/'Makefile'),'-C',str(common.ROOT),'-B','-j4',str(cpu.relative_to(common.ROOT)) if cpu.is_relative_to(common.ROOT) else str(cpu),str(gpu.relative_to(common.ROOT)) if gpu.is_relative_to(common.ROOT) else str(gpu)],timeout=120,limit=256*1024)
         common.write_json(container/'build.command.json',host.serial(command))
         with (container/'build.log').open('xb') as stream:stream.write(command['stdout']+command['stderr'])
