@@ -44,6 +44,12 @@
 #include "ds4.h"
 #include "ds4_mellum_capture.h"
 #include "ds4_mellum_stream.h"
+
+#if defined(__APPLE__)
+/* S4: set at engine open when the engine streams Mellum's experts; sessions read it at allocation. */
+static bool g_mellum_stream_engine;
+static int g_mellum_stream_fd = -1;
+#endif
 #include "ds4_mellum_capture_state.h"
 #include "ds4_mellum_observer.h"
 #include "ds4_tool_text.h"
@@ -59463,10 +59469,6 @@ static bool mellum_graph_forget_ring(ds4_qwen4_gpu_graph *g) {
  * first sync.  Prints once: allocated (the sum of the bytes requested from the
  * device for these tensors, ds4_gpu_tensor_bytes; not the pages Metal rounds
  * them up to) against planned (the estimate the startup line reports). */
-/* S4: set at engine open when the engine streams Mellum's experts; sessions read it at allocation. */
-static bool g_mellum_stream_engine;
-static int g_mellum_stream_fd = -1;
-
 static bool mellum_graph_alloc(ds4_qwen4_gpu_graph *g, uint32_t ctx_cap, uint32_t cap_tokens) {
     /* A diagnostic, not a semantic variant (AGENT.md): DS4_MELLUM_EXACT_PREFILL=1 sends every prefill
      * chunk through the exact paths (MELLUM_TILED_MIN_ROWS), so a long prefill equals its decode steps
