@@ -57,6 +57,55 @@ The server speaks the OpenAI chat-completions API, with tools and streaming, and
 separately as `reasoning_content`. `curl http://127.0.0.1:8099/v1/models` lists `mellum-2.1`. Any
 OpenAI-compatible client can use it; the next section connects Pi.
 
+## Connect Pi
+
+Mellum was trained on [Pi](https://pi.dev)'s four tools (`read`, `write`, `edit`, `bash`), which is why Pi is the
+suggested client. Pi has no command-line option for a server URL, so add a `ds4` provider to
+`~/.pi/agent/models.json`. If the file exists, add the `"ds4"` entry to its `"providers"` rather than replacing
+the file; if not, create it with:
+
+```json
+{
+  "providers": {
+    "ds4": {
+      "baseUrl": "http://127.0.0.1:8099/v1",
+      "api": "openai-completions",
+      "apiKey": "ds4",
+      "models": [
+        {
+          "id": "mellum-2.1",
+          "contextWindow": 32768,
+          "samplingParams": { "temperature": 0.6, "top_p": 0.95, "top_k": 20 }
+        }
+      ]
+    }
+  }
+}
+```
+
+Then, with `ds4-server` running:
+
+```bash
+pi --model ds4/mellum-2.1
+```
+
+The key is a placeholder; `ds4-server` ignores it. Pi shows Mellum's reasoning as thinking blocks, separate from
+its answer.
+
+## Settings
+
+| Setting | Value | Why |
+|---|---|---|
+| Context | `-c 32768` on the server, `"contextWindow": 32768` in Pi | A practical default. Mellum is trained to 131,072 tokens; longer contexts work but run slower and were not measured here. Pi caps one reply at half the window (16,384 tokens). |
+| Sampling | temperature 0.6, top-p 0.95, top-k 20, set in Pi's `samplingParams` | JetBrains' [model card](https://huggingface.co/JetBrains/Mellum2.1-12B-A2.5B-Thinking-GGUF). A client that sends none gets temperature 1.0, top-p 1.0 and no top-k or min-p, because Mellum's `generation_config.json` sets no sampler. |
+| Quant | Q8_0 | The only one this port loads. |
+| Memory at `-c 32768` | 12.9 GB of weights (the file, mapped) plus 0.83 GB for the context (828,944,640 bytes allocated) | Measured with `ds4 -c 32768` (the session's own allocation line). |
+| Thinking | on (the default) | See below. |
+
+**Thinking.** Leave it on. `./ds4 --nothink` (the template's `enable_thinking=false`) makes simple questions get
+a direct answer, but on coding tasks Mellum still reasons in plain text inside its answer, so turning thinking
+off saves little and mixes the reasoning into the reply.
+
 ---
 
 # DwarfStar (upstream README)
