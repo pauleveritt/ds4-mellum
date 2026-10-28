@@ -50812,16 +50812,43 @@ int ds4_gpu_mellum_attn_swa_tensor(
                            MTLSizeMake(n_head, n_tok, 1), MTLSizeMake(32 * 8, 1, 1));
 }
 
-/* Mellum's tiled prefill attention (ds4_gpu.h has the contract): not yet implemented, refuses every call. */
+/* Mellum's tiled prefill attention (ds4_gpu.h has the contract; metal/mellum.metal the kernel). */
 int ds4_gpu_mellum_attn_tiled_tensor(
         ds4_gpu_tensor *out, const ds4_gpu_tensor *q,
         const ds4_gpu_tensor *ring_k, const ds4_gpu_tensor *ring_v, const ds4_gpu_tensor *ring_tags,
         const ds4_gpu_tensor *k16, const ds4_gpu_tensor *v16,
         uint32_t n_tok, uint32_t pos0, uint32_t window,
         uint32_t n_head, uint32_t n_head_kv, uint32_t head_dim, float scale) {
-    (void)out; (void)q; (void)ring_k; (void)ring_v; (void)ring_tags; (void)k16; (void)v16;
-    (void)n_tok; (void)pos0; (void)window; (void)n_head; (void)n_head_kv; (void)head_dim; (void)scale;
-    return 0;
+    /* stage0: the position of k16's row 0 (pos0 on a sliding layer, 0 for a full layer's cache) */
+    const uint32_t stage0 = window ? pos0 : 0u;
+    struct { uint32_t n_tokens, n_head, n_head_kv, pos0, window, stage0; float scale; uint32_t pad0; } args =
+        { n_tok, n_head, n_head_kv, pos0, window, stage0, scale, 0 };
+    /* the tags are int32 positions */
+    if (n_tok == 0u || head_dim != 128u || n_head != 32u || n_head_kv != 4u || pos0 > (uint32_t)INT32_MAX - n_tok) {
+        return 0;
+    }
+    const uint64_t width = (uint64_t)n_head_kv * head_dim;
+    const uint64_t q_bytes = (uint64_t)n_tok * n_head * head_dim * sizeof(float);
+    const uint64_t stage_bytes = ((uint64_t)pos0 + n_tok - stage0) * width * sizeof(uint16_t);
+    qwen4_bind b[7];
+    if (!qwen4_bind_tensor(&b[0], q, q_bytes, "mellum tiled attention q") ||
+        !qwen4_bind_tensor(&b[4], k16, stage_bytes, "mellum tiled attention k") ||
+        !qwen4_bind_tensor(&b[5], v16, stage_bytes, "mellum tiled attention v") ||
+        !qwen4_bind_tensor(&b[6], out, q_bytes, "mellum tiled attention output")) {
+        return 0;
+    }
+    if (window) {
+        const uint64_t ring_bytes = (uint64_t)window * width * sizeof(uint16_t);
+        if (!qwen4_bind_tensor(&b[1], ring_k, ring_bytes, "mellum ring k") ||
+            !qwen4_bind_tensor(&b[2], ring_v, ring_bytes, "mellum ring v") ||
+            !qwen4_bind_tensor(&b[3], ring_tags, (uint64_t)window * sizeof(int32_t), "mellum ring tags")) {
+            return 0;
+        }
+    } else {
+        b[1] = b[4]; b[2] = b[5]; b[3] = b[4];   /* never read on a full layer: the slots hold valid buffers */
+    }
+    return mellum_dispatch("kernel_mellum_attn_tiled", &args, sizeof(args), b, 7,
+                           MTLSizeMake(n_head_kv, (n_tok + 7u) / 8u, 1), MTLSizeMake(32 * 8, 1, 1));
 }
 
 /* a * b * c * d without overflow */
