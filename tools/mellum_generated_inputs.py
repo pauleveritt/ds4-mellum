@@ -1,6 +1,7 @@
 """Immutable exact-text/native-token inputs for one generated evaluation case."""
 import hashlib
 import importlib.util
+import os
 from pathlib import Path
 
 _spec=importlib.util.spec_from_file_location('mellum_capture_identity',Path(__file__).with_name('mellum_capture_identity.py'))
@@ -26,7 +27,7 @@ def messages(bundle: Path) -> dict[str,bytes]:
         raise ValueError('frozen ac-demo bundle required')
     digests={};parts=[]
     for name in FILES:
-        raw=(bundle/'source'/name).read_bytes()
+        raw=identity.sibling('mellum_capture_metadata').bounded_read(bundle/'source'/name,2**20)
         expected=value['files'][name]
         if len(raw)!=expected['bytes'] or hashlib.sha256(raw).hexdigest()!=expected['sha256']:raise ValueError('source bundle changed')
         digests[name]=expected['sha256']
@@ -52,10 +53,16 @@ def linked_publish(container: Path,raw: Path,value: dict | None = None) -> Path:
     return common.publication.publish(container/'result',build)
 
 
-def prepare(bundle: Path,model: Path,binary: Path,container: Path) -> Path:
+def prepare(bundle: Path,model: Path,binary: Path,container: Path,*,build_receipt: Path | None = None) -> Path:
+    identity.checked_environment(dict(os.environ))
     container.mkdir(mode=0o700);raw=container/'raw';raw.mkdir(mode=0o700)
     try:
         source=common.source_identity(common.ROOT)
+        build=common.load_json(build_receipt) if build_receipt else None
+        if build is not None:
+            if build.get('forced_rebuild') is not True or build['source_identity']!=source or build['cpu']!=bindings.binding(binary):
+                raise ValueError('build receipt differs')
+            for name in ('cpu','gpu','log'):bindings.check_binding(build[name])
         model_stat=identity.file_stat(model)
         if model_stat['size']!=MODEL_BYTES:raise ValueError('unexpected model size')
         inputs=dict(bundle=bindings.binding(bundle/'manifest.json'),binary=bindings.binding(binary),
@@ -75,7 +82,7 @@ def prepare(bundle: Path,model: Path,binary: Path,container: Path) -> Path:
         for name in ('bundle','binary'):bindings.check_binding(inputs[name])
         bindings.check_binding(inputs['model'],full=False)
         value=dict(schema_version=1,kind='generated-phase1-inputs',split='evaluation',settings=SETTINGS,
-            source_identity=source,inputs=inputs,files=files,source_content_id=CONTENT_ID,
+            source_identity=source,inputs=inputs,files=files,source_content_id=CONTENT_ID,build=build,
             policy=bindings.binding(common.ROOT/'tools/mellum_ssd_replay.py'))
         return linked_publish(container,raw,value)
     except BaseException as exc:
@@ -100,3 +107,26 @@ def verify(prepared: Path) -> dict:
     texts=messages(Path(value['inputs']['bundle']['path']).parent)
     if any((prepared/f'{name}.txt').read_bytes()!=data for name,data in texts.items()):raise ValueError('prompt differs from source')
     return value
+
+
+def freeze_build(container: Path,cpu: Path,gpu: Path) -> Path:
+    """One fresh forced build, bound before model inspection or evaluation."""
+    identity.checked_environment(dict(os.environ))
+    container.mkdir(mode=0o700)
+    source=common.source_identity(common.ROOT)
+    old={name:identity.file_stat(path) if path.exists() else None for name,path in (('cpu',cpu),('gpu',gpu))}
+    try:
+        command=observer.command(['make','-f',str(common.ROOT/'Makefile'),'-C',str(common.ROOT),'-B','-j4',str(cpu.relative_to(common.ROOT)) if cpu.is_relative_to(common.ROOT) else str(cpu),str(gpu.relative_to(common.ROOT)) if gpu.is_relative_to(common.ROOT) else str(gpu)],timeout=120,limit=256*1024)
+        common.write_json(container/'build.command.json',host.serial(command))
+        with (container/'build.log').open('xb') as stream:stream.write(command['stdout']+command['stderr'])
+        if command['returncode']:raise ValueError('forced build failed')
+        binaries={name:bindings.binding(path) for name,path in (('cpu',cpu),('gpu',gpu))}
+        if source!=common.source_identity(common.ROOT):raise ValueError('source changed during build')
+        if any(old[name]=={k:value[k] for k in common.STAT_KEYS} for name,value in binaries.items()):raise ValueError('binary was not rebuilt')
+        value=dict(forced_rebuild=True,source_identity=source,**binaries,log=bindings.binding(container/'build.log'))
+        common.write_json(container/'build.json',value)
+        return container/'build.json'
+    except BaseException as exc:
+        failure=dict(error_type=type(exc).__name__,error=str(exc) or type(exc).__name__)
+        if isinstance(exc,observer.CommandFailure):failure['command']=host.serial(exc.evidence)
+        common.write_json(container/'failure.json',failure);raise
