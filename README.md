@@ -109,8 +109,7 @@ off saves little and mixes the reasoning into the reply.
 ## Speed
 
 Prefill and generation tables will come from one fresh measured run at a named commit; they are not published
-yet. Measured numbers in this repository were taken with the `ds4` command on single prompts, not through
-`ds4-server` or Pi. A Pi session feels different: each turn adds HTTP and template overhead and a tool call and
+yet. They will be measured with the `ds4` command on single prompts, not through `ds4-server` or Pi. A Pi session feels different: each turn adds HTTP and template overhead and a tool call and
 its result, and most prefills are small, because earlier turns stay cached.
 
 ### Measure on your own Mac
