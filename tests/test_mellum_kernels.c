@@ -2545,7 +2545,8 @@ static void check_stream_check_kernel(void) {
                    ds4_gpu_tensor_write(ua, 0, addr, sizeof(addr)) && ds4_gpu_tensor_write(da, 0, addr, sizeof(addr)) &&
                    ds4_gpu_stream_gate_reset(gate) && ds4_gpu_stream_gate_bind(gate) && ds4_gpu_begin_commands(), "check setup");
         require_ok(ds4_gpu_mellum_stream_check_tensor(gate, st, wt, at, ft, save, ga, ua, da, 1, CE), "check");
-        for (uint32_t i = 0; i < 50; i++) require_ok(ds4_gpu_add_tensor(acc, acc, one, GATE_N), "check chain add");
+        /* more dispatches after the trip than any grid sized to the layer: records past it must be zeroed too */
+        for (uint32_t i = 0; i < 600; i++) require_ok(ds4_gpu_add_tensor(acc, acc, one, GATE_N), "check chain add");
         require_ok(ds4_gpu_end_commands() && ds4_gpu_stream_gate_bind(NULL), "check end");
         uint32_t layer = 0;
         bool stopped = false;
@@ -2558,7 +2559,7 @@ static void check_stream_check_kernel(void) {
             CHECK(stopped && layer == 1, "check: a missing address must stop at its layer (stopped %d, layer %u)", stopped, layer);
             CHECK(gate_all(acc, 0.0f), "check: every dispatch after a trip must do nothing, past the layer's width");
         } else {
-            CHECK(!stopped && gate_all(acc, 50.0f), "check: with every address present nothing is suppressed");
+            CHECK(!stopped && gate_all(acc, 600.0f), "check: with every address present nothing is suppressed");
         }
         CHECK(saved, "check: the layer's resume state must be saved in its slot (missing %d)", missing);
         free(ar); free(fn); free(sv);
