@@ -49,3 +49,25 @@ A resident token at this context takes about 7.4 ms (CLI 136 t/s).
 
 A GPU-time profile showing the extra wait is not repeated projection work: for example kernel launch
 overhead per command buffer, or attention.
+
+## After gating the projections and copies (`9e9757f`)
+
+The same timer patch and the same driver run (512 tokens, 6 GiB, short prompt, n=1) gave identical token
+ids. Data: [`profile-after-gating.log`](2026-10-28-mellum-s4-decode-profile-spike/profile-after-gating.log).
+
+| ms per token | before | after |
+|---|---:|---:|
+| finish: GPU plus wait | 21.93 | **13.83** |
+| load | 8.47 | 8.65 |
+| encode | 2.25 | 2.72 |
+| total | 32.65 | **25.21** |
+| decode t/s (driver) | 30.6 | **39.6** |
+
+**Reading:**
+- The projection and copy reruns accounted for about 8 ms per token.
+- The GPU wait is still about 6.4 ms above resident. Candidates: command-buffer overhead across about
+  9 encodes per token, and paths still ungated.
+- Loads, about 0.95 ms per stop and serial, are now the second-largest cost.
+
+The 32K figures in [measurement 02](2026-10-28-mellum-s4-measurement-02.md) predate this change and are
+not re-measured.
