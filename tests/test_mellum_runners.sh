@@ -21,6 +21,7 @@ if [ -n "${dump:-}" ]; then
     python3 -I -c 'import json, sys; print(json.dumps(list(range(int(sys.argv[1]) // 3))))' "$(wc -c < "$prompt")"
 else
     echo "ds4: Mellum prefill: 1000.00 t/s, generation: 100.00 t/s" >&2
+    echo "stub env: DS4_MELLUM_MOE_NAX=${DS4_MELLUM_MOE_NAX-unset}" >&2
 fi
 STUB
 chmod +x "$T/ds4"
@@ -48,6 +49,8 @@ for runner in prefill decode; do
     check "$runner: ARMS=AA summary has n 6 for arm A" "grep -q ': n 6, ' '$T/$runner-single/summary.txt'"
     check "$runner: ARMS=AA summary has no B line and no ratio" \
         "! grep -q 'B / A\| B: \|) B\b' '$T/$runner-single/summary.txt'"
+    check "$runner: ARMS=AA measures the build as it is, with no variables set" \
+        "! grep -qh 'DS4_MELLUM_MOE_NAX=[^u]' '$T/$runner-single'/*.err && grep -q '^A.*(no variables)' '$T/$runner-single/setup.txt'"
 
     run "$runner-bad" $runner "$T/$runner-bad" ARMS=AXA
     rc=$?
