@@ -217,7 +217,7 @@ time: about 10.7 GPU passes per token, adding about 5.4 ms of GPU execution and 
 Loads take about 0.95 ms per stop, serially. Load overlap was set aside (owner); a check-kernel trim was
 tried and not kept. Measurement 02's 32K figures predate the gating.
 
-### S5 — Streamed speed, on the development laptop and an M1 Pro: not started
+### S5 — Streamed speed, on the development laptop and an M1 Pro: in progress
 
 **Targets (owner, 2026-10-28),** judged on the owner's M1 Pro / 32 GB, not on this M5 Max, at a 6 GiB
 cache and 32K:
@@ -231,12 +231,15 @@ predicts a miss on 16 GB and a pass does not prove one. Its
 
 Steps, in order. Each is measured before and after with its n, keeps Q8 weights and routing, and stays
 exact against resident:
-1. **Re-measure 32K here at the current build,** under a new preregistration (02 is spent and predates
-   `9e9757f`), adding the per-turn first-token case.
+1. **Re-measure 32K here at the current build: done.** [Measurement 01](docs/superpowers/research/2026-10-28-mellum-s5-measurement-01.md)
+   (C n=3, device-true, exact, no regression at n=6): decode 39.0 t/s median, up 49% from 02; cold first
+   token 60.6 s; 29.5 t/s after a 1,905-token append, whose first token took 4.3 s. R's preregistered
+   reuse-time check failed, so the per-turn figures are reported, not claimed.
 2. **Layer-major prefill:** read each layer's experts once per prompt, not once per 1,024-row chunk. In
    02, prefill loaded 334 GB and added about 31 s to the first token. It helps on any machine.
 3. **Fewer stops per token:** hotness for layers that hit, and the eviction policy. Choose on a fresh
-   trace, never the held-out -02 trace or ac-demo. Wait for the M1 Pro's baseline, whose cost per stop
+   trace, never the held-out -02 trace or ac-demo. After the append, stops rose from 8.7 to 12.7 per
+   token. Wait for the M1 Pro's baseline, whose cost per stop
    decides how much this is worth.
 4. **Predictive prefetch,** only under its own design, if 2 and 3 leave too little.
 
