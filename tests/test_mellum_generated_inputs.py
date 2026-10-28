@@ -67,5 +67,34 @@ def test_prepared_inputs_bind_policy_and_preserve_native_failure():
             except FileExistsError:pass
             else:raise AssertionError('root reused')
 
+def test_prepare_rejects_inherited_controls_before_creating_output():
+    api=module()
+    with tempfile.TemporaryDirectory() as d:
+        root=Path(d)
+        with patch.dict('os.environ',{'DS4_QWEN4_PREFILL_CHUNK':'1'}):
+            try:api.prepare(root/'bundle',root/'model',root/'binary',root/'output')
+            except ValueError as exc:assert 'inherited' in str(exc)
+            else:raise AssertionError('inherited control accepted')
+        assert not (root/'output').exists()
+
+
+def test_forced_build_freezes_both_binaries_and_preparation_preserves_receipt():
+    api=module()
+    with tempfile.TemporaryDirectory() as d:
+        root=Path(d);cpu=root/'cpu';gpu=root/'gpu'
+        for p in (cpu,gpu):p.write_bytes(b'old')
+        def build(argv,**kwargs):
+            assert '-B' in argv and kwargs['timeout']==120
+            cpu.write_bytes(b'new cpu');gpu.write_bytes(b'new gpu')
+            return dict(pid=12,returncode=0,stdout=b'forced build',stderr=b'')
+        with patch.object(api.observer,'command',side_effect=build):
+            receipt=api.freeze_build(root/'build',cpu,gpu)
+        value=api.common.load_json(receipt)
+        assert value['forced_rebuild'] is True
+        assert value['gpu']==api.bindings.binding(gpu)
+        assert value['cpu']==api.bindings.binding(cpu)
+        assert value['source_identity']==api.common.source_identity(ROOT)
+
+
 def load_tests(loader,tests,pattern):return unittest.TestSuite(unittest.FunctionTestCase(v) for k,v in globals().items() if k.startswith('test_'))
 if __name__=='__main__':unittest.main()

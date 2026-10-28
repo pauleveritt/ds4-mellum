@@ -122,5 +122,24 @@ def test_validated_export_requires_parity_exact_native_inputs_and_complete_tape(
             assert not (native/'trace.jsonl').exists()
 
 
+def test_gpu_binary_and_forced_build_receipt_are_bound_before_launch():
+    api=module()
+    with tempfile.TemporaryDirectory() as d:
+        root=Path(d);cpu=root/'cpu';gpu=root/'gpu';log=root/'build.log';model=root/'model'
+        for path in (cpu,gpu,log,model):path.write_bytes(b'fixture')
+        source=dict(revision='a'*40)
+        frozen=dict(inputs=dict(model=dict(path=str(model)),binary=api.bindings.binding(cpu)),source_identity=source)
+        with patch.object(api.inputs,'verify',return_value=frozen):
+            try:api.verify_inputs(root,model,gpu)
+            except ValueError:pass
+            else:raise AssertionError('missing build accepted')
+            frozen['build']=dict(forced_rebuild=True,source_identity=source,cpu=frozen['inputs']['binary'],gpu=api.bindings.binding(gpu),log=api.bindings.binding(log))
+            assert api.verify_inputs(root,model,gpu)==frozen
+            gpu.write_bytes(b'changed')
+            try:api.verify_inputs(root,model,gpu)
+            except ValueError:pass
+            else:raise AssertionError('binary changed')
+
+
 def load_tests(loader,tests,pattern):return unittest.TestSuite(unittest.FunctionTestCase(v) for k,v in globals().items() if k.startswith('test_'))
 if __name__=='__main__':unittest.main()
