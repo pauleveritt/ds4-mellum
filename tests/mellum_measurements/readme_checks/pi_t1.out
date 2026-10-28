@@ -1,0 +1,12 @@
+
+
+The function `is_palindrome` has been added to `palindrome.py`, unittest tests have been added to `test_palindrome.py`, and running `python3 -m unittest -q` reports:
+
+```
+----------------------------------------------------------------------
+Ran 7 tests in 0.000s
+
+OK
+```
+
+All tests passed successfully.

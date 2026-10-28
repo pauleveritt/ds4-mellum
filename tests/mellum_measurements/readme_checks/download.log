@@ -1,0 +1,4 @@
+HOME=$SCRATCH_HOME pwd=$SCRATCH_HOME
+path=$SCRATCH_HOME/models/Mellum2.1-12B-A2.5B-Thinking-Q8_0.gguf
+hf download JetBrains/Mellum2.1-12B-A2.5B-Thinking-GGUF  --local-dir ~/models  0.13s user 1.16s system 42% cpu 3.057 total
+69e0ac02a16586c2c9e991f1e3b8a1eb403882e7ab9e69ea01eb23dbbbc6841f  $SCRATCH_HOME/models/Mellum2.1-12B-A2.5B-Thinking-Q8_0.gguf

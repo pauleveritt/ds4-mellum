@@ -1,0 +1,40 @@
+
+We need to produce Python function that checks whether a string is a palindrome. Likely the answer is to write code: def is_palindrome(s): return s == s[::-1] or using two-pointer. Should we ignore case? Probably not specified. Probably simplest.\n\nWe need to output just code. Might include docstring. We'll produce a function definition. So final answer: Python code.\n\nBut we have to obey the guidelines: we must respond with helpful answer. There\'s no disallowed content. So output function. We\'ll include explanation? The user asked "Write a Python function that checks whether a string is a palindrome." So we can provide code snippet. Possibly also an example usage. I can just give the function.\n\nThus answer: Provide a Python function named is_palindrome that returns True if the string reads the same forwards and backwards, ignoring spaces and case? Not specified. Simpler: direct comparison.\n\nThus final answer: Provide code.
+
+
+Here’s a simple Python function that returns `True` if the given string is a palindrome and `False` otherwise:
+
+```python
+def is_palindrome(s: str) -> bool:
+    """
+    Check if the input string `s` is a palindrome.
+
+    A palindrome reads the same forwards and backwards.
+    This implementation treats the string exactly as given
+    (including case, spaces, and punctuation).
+
+    Parameters
+    ----------
+    s : str
+        The string to check.
+
+    Returns
+    -------
+    bool
+        True if `s` is a palindrome, False otherwise.
+    """
+    # Compare the string with its reverse
+    return s == s[::-1]
+
+
+# Example usage:
+if __name__ == "__main__":
+    test_strings = ["racecar", "hello", "madam", "Noon"]
+    for txt in test_strings:
+        print(f"{txt!r} -> {is_palindrome(txt)}")
+```
+
+**Explanation**
+
+- `s[::-1]` creates a reversed copy of the string `s`.
+- The function returns the result of the equality check `s == s[::-1]`, which is `True` when the string matches its reverse (i.e., it’s a palindrome) and `False` otherwise.

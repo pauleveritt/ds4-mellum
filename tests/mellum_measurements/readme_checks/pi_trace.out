@@ -1,0 +1,9 @@
+
+
+The `median` function in `stats.py` sorts the list and returns the middle value. For the input `[5, 1, 3]`:
+
+- Sorted: `[1, 3, 5]`
+- Middle index: `1` (since `len // 2 = 1`)
+- Value at that index: `3`
+
+So `median([5, 1, 3])` returns **3**.

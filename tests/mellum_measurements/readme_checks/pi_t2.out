@@ -1,0 +1,8 @@
+
+
+Changes have been made:
+
+1. Updated `stats.py` to handle empty list in `mean()` by returning `0.0`.
+2. Added a new test `test_mean_empty` to `test_stats.py` that checks `mean([]) == 0.0`.
+
+Both changes are complete and verified with tests passing.
