@@ -13,6 +13,8 @@ observer=host.observer
 CONTENT_ID='e14b1b120a8563fd1dcb316ea6e6d815b593d2ba45605fb34b55c3b238834861'
 REVISION='bfb6e1f6e2ef141a1ac88f5c25466d3a076caab3'
 MODEL_BYTES=12925417760
+# Saved fully hashed index ac642c513a7256e74d04c08c4705d59489b8069c6d119f9ecd411536510be296.
+MODEL_STAT=dict(dev=16777232,ino=246286976,size=12925417760,mtime_ns=1791914931562751758,ctime_ns=1791914931562751758)
 MODEL_SHA='ea1e4ec737bb259ac2ffe1f20d412f458fd52dd230f42dce9e944f111093c29b'
 FILES=('.gitignore','AGENTS.md','pyproject.toml','specs/mission.md','specs/roadmap.md','specs/tech-stack.md','templates/.gitkeep','tests/.gitkeep','uv.lock')
 TOKEN_FILES=('initial.tokens','append.tokens','close.tokens','newline.tokens')
@@ -68,7 +70,7 @@ def prepare(bundle: Path,model: Path,binary: Path,container: Path,*,build_receip
                 raise ValueError('build receipt differs')
             for name in ('cpu','gpu','log'):bindings.check_binding(build[name])
         model_stat=identity.file_stat(model)
-        if model_stat['size']!=MODEL_BYTES:raise ValueError('unexpected model size')
+        if model_stat['size']!=MODEL_BYTES or model_stat!=MODEL_STAT:raise ValueError('model differs from prior full-hash verified stat identity')
         inputs=dict(bundle=bindings.binding(bundle/'manifest.json'),binary=bindings.binding(binary),
             model=dict(path=str(model.absolute()),sha256=MODEL_SHA,**model_stat))
         for name,data in messages(bundle).items():
@@ -101,6 +103,8 @@ def verify(prepared: Path) -> dict:
             or value['settings']!=SETTINGS or value['source_content_id']!=CONTENT_ID):raise ValueError('input protocol differs')
     for name in ('bundle','binary'):bindings.check_binding(value['inputs'][name])
     bindings.check_binding(value['inputs']['model'],full=False);bindings.check_binding(value['policy'])
+    if value['inputs']['model']['sha256']!=MODEL_SHA or any(value['inputs']['model'].get(k)!=v for k,v in MODEL_STAT.items()):
+        raise ValueError('model differs from prior full verification')
     if value['policy']['path']!=str(common.ROOT/'tools/mellum_ssd_replay.py'):raise ValueError('policy path differs')
     if value['source_identity']!=common.source_identity(common.ROOT):raise ValueError('input source changed')
     expected=set((*TOKEN_FILES,*RENDERED_FILES,'system.txt','user.txt','followup.txt'))
