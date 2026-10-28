@@ -60534,10 +60534,13 @@ static uint32_t mellum_tiled_min_rows(const ds4_qwen4_gpu_graph *g) {
  * reduce.  Mellum's layer has none of those tensors; this binds only the router and the three expert tensors, and
  * the buffers are the MoE entries of mellum_requests, so the plan counts what the driver uses.  Below
  * MELLUM_TILED_MIN_ROWS the ops are ds4_gpu_mellum_moe_tensor's (contract in ds4_gpu.h): none of them tiles
- * rows together, so a row's bits do not depend on T.  From there the experts are tiled, and they do. */
-static bool mellum_graph_moe(ds4_qwen4_gpu_graph *g, const ds4_model *m, const ds4_layer_weights *l, uint32_t T) {
+ * rows together, so a row's bits do not depend on T.  From there the experts are tiled, and they do.
+ * add_residual (below MELLUM_TILED_MIN_ROWS only) writes HIDDEN = ATTN_RES + the sum instead of MOE_OUT, the
+ * words of the separate add, through ds4_gpu_mellum_moe_add_tensor. */
+static bool mellum_graph_moe(ds4_qwen4_gpu_graph *g, const ds4_model *m, const ds4_layer_weights *l, uint32_t T,
+                             bool add_residual) {
 #if !defined(__APPLE__)
-    (void)g; (void)m; (void)l; (void)T;
+    (void)g; (void)m; (void)l; (void)T; (void)add_residual;
     return false;
 #else
     if (!g || !m || !l || T == 0 || T > g->cap_tokens || !l->ffn_gate_inp || !l->ffn_gate_exps || !l->ffn_up_exps ||
@@ -60558,6 +60561,7 @@ static bool mellum_graph_moe(ds4_qwen4_gpu_graph *g, const ds4_model *m, const d
     p.down_offset = l->ffn_down_exps->abs_offset;
     ds4_gpu_tensor *const *s = g->mellum_scratch;
     if (T >= mellum_tiled_min_rows(g)) {
+        if (add_residual) return false;
         /* The router, top-8 and reduce as below; the experts as tiled GEMMs over each expert's
          * token list (upstream's prefill MoE), which stage the activations as half, on the
          * tensor tiles unless DS4_MELLUM_MOE_NAX=0 (the level is set for these calls only). */
@@ -60585,9 +60589,13 @@ static bool mellum_graph_moe(ds4_qwen4_gpu_graph *g, const ds4_model *m, const d
         if (!ok) fprintf(stderr, "ds4: Mellum MoE (tiled experts) failed (T=%u)\n", T);
         return ok;
     }
-    const bool ok = ds4_gpu_mellum_moe_tensor(s[MELLUM_S_MOE_OUT], s[MELLUM_S_FFN_NORM], s[MELLUM_S_ROUTER_LOGITS],
-                                              s[MELLUM_S_SELECTED], s[MELLUM_S_WEIGHTS], s[MELLUM_S_MID],
-                                              s[MELLUM_S_PARTIAL], m->map, m->size, &p, T) != 0;
+    const bool ok = (add_residual
+        ? ds4_gpu_mellum_moe_add_tensor(s[MELLUM_S_HIDDEN], s[MELLUM_S_ATTN_RES], s[MELLUM_S_FFN_NORM],
+                                        s[MELLUM_S_ROUTER_LOGITS], s[MELLUM_S_SELECTED], s[MELLUM_S_WEIGHTS],
+                                        s[MELLUM_S_MID], s[MELLUM_S_PARTIAL], m->map, m->size, &p, T)
+        : ds4_gpu_mellum_moe_tensor(s[MELLUM_S_MOE_OUT], s[MELLUM_S_FFN_NORM], s[MELLUM_S_ROUTER_LOGITS],
+                                    s[MELLUM_S_SELECTED], s[MELLUM_S_WEIGHTS], s[MELLUM_S_MID],
+                                    s[MELLUM_S_PARTIAL], m->map, m->size, &p, T)) != 0;
     if (!ok) fprintf(stderr, "ds4: Mellum MoE failed (T=%u)\n", T);
     return ok;
 #endif
@@ -60771,8 +60779,10 @@ static bool mellum_graph_layer(ds4_qwen4_gpu_graph *g, const ds4_model *m, const
            ds4_gpu_add_tensor(s[MELLUM_S_ATTN_RES], s[MELLUM_S_HIDDEN], s[MELLUM_S_ATTN_PROJ], T * E) != 0 &&
            ds4_gpu_rms_norm_weight_rows_tensor(s[MELLUM_S_FFN_NORM], s[MELLUM_S_ATTN_RES], m->map, m->size,
                                                l->ffn_norm->abs_offset, E, T, DS4_RMS_EPS) != 0 &&
-           mellum_graph_moe(g, m, l, T) &&
-           ds4_gpu_add_tensor(s[MELLUM_S_HIDDEN], s[MELLUM_S_ATTN_RES], s[MELLUM_S_MOE_OUT], T * E) != 0;
+           /* decode: the MoE writes HIDDEN = ATTN_RES + its sum itself, one dispatch fewer */
+           (T == 1u ? mellum_graph_moe(g, m, l, T, true)
+                    : mellum_graph_moe(g, m, l, T, false) &&
+                      ds4_gpu_add_tensor(s[MELLUM_S_HIDDEN], s[MELLUM_S_ATTN_RES], s[MELLUM_S_MOE_OUT], T * E) != 0);
 }
 
 /* The logits of one row of HIDDEN into g->logits: output norm, then the one-row LM head.  Prefill
@@ -88992,12 +89002,12 @@ bool ds4_test_mellum_moe(ds4_engine *engine, uint32_t layer, const float *x, uin
     const uint64_t E = DS4_N_EMBD, K = DS4_N_EXPERT_USED;
     const bool ok =
         ds4_gpu_tensor_write(s[MELLUM_S_FFN_NORM], 0, x, (uint64_t)T * E * sizeof(float)) &&
-        mellum_graph_moe(&g, &engine->model, l, T) &&
+        mellum_graph_moe(&g, &engine->model, l, T, false) &&
         ds4_gpu_tensor_read(s[MELLUM_S_MOE_OUT], 0, out, (uint64_t)T * E * sizeof(float)) &&
         ds4_gpu_tensor_read(s[MELLUM_S_SELECTED], 0, selected, (uint64_t)T * K * sizeof(int32_t)) &&
         ds4_gpu_tensor_read(s[MELLUM_S_WEIGHTS], 0, weights, (uint64_t)T * K * sizeof(float)) &&
         ds4_gpu_tensor_write(s[MELLUM_S_FFN_NORM], 0, x, E * sizeof(float)) &&
-        mellum_graph_moe(&g, &engine->model, l, 1) &&
+        mellum_graph_moe(&g, &engine->model, l, 1, false) &&
         ds4_gpu_tensor_read(s[MELLUM_S_MOE_OUT], 0, out1, E * sizeof(float));
     qwen4_graph_free(&g);
     return ok;

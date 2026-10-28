@@ -50975,8 +50975,8 @@ static bool mellum_moe_range(uint64_t size, uint64_t offset, uint64_t bytes) {
  * ds4_gpu_matmul_f32_tensor, which picks a different kernel by row count; the top-k, the experts and the reduce
  * are the qwen4 kernels with in_dim = 0 and shared_type = UINT32_MAX, so no shared tensor is bound or read.  The
  * batched moe_mm_* kernels are not used: they stage half operands. */
-int ds4_gpu_mellum_moe_tensor(
-        ds4_gpu_tensor *out, const ds4_gpu_tensor *x, ds4_gpu_tensor *logits,
+static int mellum_moe(
+        ds4_gpu_tensor *out, const ds4_gpu_tensor *res, const ds4_gpu_tensor *x, ds4_gpu_tensor *logits,
         ds4_gpu_tensor *selected, ds4_gpu_tensor *weights, ds4_gpu_tensor *mid, ds4_gpu_tensor *part,
         const void *model_map, uint64_t model_size, const ds4_gpu_mellum_moe *p, uint32_t n_tokens) {
     if (!p || !model_map || n_tokens == 0u || p->expert_type != 8u ||
@@ -51015,6 +51015,8 @@ int ds4_gpu_mellum_moe_tensor(
         !qwen4_bind_tensor(&probe[6], out, x_bytes, "mellum moe output")) {
         return 0;
     }
+    qwen4_bind res_probe;
+    if (res && !qwen4_bind_tensor(&res_probe, res, x_bytes, "mellum moe residual")) return 0;
     ds4_gpu_tensor *router_out[1] = { logits };
     const uint64_t router_off[1] = { p->router_offset };
     const uint32_t router_type[1] = { 0u }; /* F32 */
@@ -51028,6 +51030,21 @@ int ds4_gpu_mellum_moe_tensor(
                                         0u, 0u, UINT32_MAX) &&
            ds4_gpu_qwen4_moe_down_tensor(part, mid, selected, model_map, model_size, p->down_offset, p->expert_type,
                                          p->n_expert, n_tokens, p->n_used, p->ff_dim, p->n_embd, 0u, UINT32_MAX) &&
-           ds4_gpu_qwen4_moe_reduce_tensor(out, part, weights, NULL, NULL, NULL, NULL, n_tokens, p->n_used,
-                                           p->n_used, p->n_embd, 0u);
+           (res ? ds4_gpu_mellum_moe_reduce_add_tensor(out, part, weights, res, n_tokens, p->n_used, p->n_embd)
+                : ds4_gpu_qwen4_moe_reduce_tensor(out, part, weights, NULL, NULL, NULL, NULL, n_tokens, p->n_used,
+                                                  p->n_used, p->n_embd, 0u));
+}
+
+int ds4_gpu_mellum_moe_tensor(
+        ds4_gpu_tensor *out, const ds4_gpu_tensor *x, ds4_gpu_tensor *logits,
+        ds4_gpu_tensor *selected, ds4_gpu_tensor *weights, ds4_gpu_tensor *mid, ds4_gpu_tensor *part,
+        const void *model_map, uint64_t model_size, const ds4_gpu_mellum_moe *p, uint32_t n_tokens) {
+    return mellum_moe(out, NULL, x, logits, selected, weights, mid, part, model_map, model_size, p, n_tokens);
+}
+
+int ds4_gpu_mellum_moe_add_tensor(
+        ds4_gpu_tensor *out, const ds4_gpu_tensor *res, const ds4_gpu_tensor *x, ds4_gpu_tensor *logits,
+        ds4_gpu_tensor *selected, ds4_gpu_tensor *weights, ds4_gpu_tensor *mid, ds4_gpu_tensor *part,
+        const void *model_map, uint64_t model_size, const ds4_gpu_mellum_moe *p, uint32_t n_tokens) {
+    return res && mellum_moe(out, res, x, logits, selected, weights, mid, part, model_map, model_size, p, n_tokens);
 }

@@ -3862,6 +3862,13 @@ int ds4_gpu_mellum_moe_tensor(
         ds4_gpu_tensor *out, const ds4_gpu_tensor *x, ds4_gpu_tensor *logits,
         ds4_gpu_tensor *selected, ds4_gpu_tensor *weights, ds4_gpu_tensor *mid, ds4_gpu_tensor *part,
         const void *model_map, uint64_t model_size, const ds4_gpu_mellum_moe *p, uint32_t n_tokens);
+/* The same with step 5 adding a residual: out[t] = res[t] + sum_s weights[t][s] * part[t][s], in one dispatch
+ * (ds4_gpu_mellum_moe_reduce_add_tensor), the words of the call above followed by ds4_gpu_add_tensor(out, res,
+ * its out).  res is [n_tokens][n_embd] and checked with the rest. */
+int ds4_gpu_mellum_moe_add_tensor(
+        ds4_gpu_tensor *out, const ds4_gpu_tensor *res, const ds4_gpu_tensor *x, ds4_gpu_tensor *logits,
+        ds4_gpu_tensor *selected, ds4_gpu_tensor *weights, ds4_gpu_tensor *mid, ds4_gpu_tensor *part,
+        const void *model_map, uint64_t model_size, const ds4_gpu_mellum_moe *p, uint32_t n_tokens);
 
 #ifdef __cplusplus
 }
