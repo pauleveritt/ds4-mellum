@@ -15466,12 +15466,22 @@ static void ds4_gpu_stream_expert_cache_prune_layer(
     }
 }
 
+/* S4: while a Mellum layer load runs, every expert that layer needs is protected, not just the group of
+ * DS4_METAL_MAX_ROUTED_EXPERT_USED the upstream loader takes per call.  Empty otherwise. */
+static uint32_t g_mellum_stream_protect_layer;
+static int32_t g_mellum_stream_protect_ids[64];
+static uint32_t g_mellum_stream_protect_n;
+
 static int ds4_gpu_stream_expert_cache_entry_protected(
         uint32_t layer,
         uint32_t expert,
         uint32_t protect_layer,
         const int32_t *protect_ids,
         uint32_t n_protect) {
+    if (g_mellum_stream_protect_n && layer == g_mellum_stream_protect_layer &&
+        ds4_gpu_stream_expert_cache_is_protected(expert, g_mellum_stream_protect_ids, g_mellum_stream_protect_n)) {
+        return 1;
+    }
     if (layer < DS4_METAL_STREAM_EXPERT_CACHE_MAX_LAYER &&
         expert < DS4_METAL_STREAM_EXPERT_CACHE_MAX_EXPERT &&
         ds4_gpu_stream_expert_cache_entry_inflight(
@@ -51282,16 +51292,13 @@ int ds4_gpu_mellum_stream_layer_tables(uint32_t layer, ds4_gpu_tensor **gate, ds
     return 0;
 }
 
-int ds4_gpu_mellum_stream_load(const ds4_gpu_stream_expert_table *t, const int32_t *ids, uint32_t n,
-                               uint32_t *n_loaded) {
-    if (n_loaded) *n_loaded = 0;
-    if (!g_ssd_streaming_mode || !t || !ids || n == 0 || n > 8u || !t->model_map) return 0;
+/* One group of at most DS4_METAL_MAX_ROUTED_EXPERT_USED experts: peek, load the missing, publish addresses. */
+static int ds4_gpu_mellum_stream_load_group(const ds4_gpu_stream_expert_table *t, const int32_t *ids, uint32_t n,
+                                            uint32_t *n_loaded) {
     const uint64_t gb = t->gate_expert_bytes, db = t->down_expert_bytes;
-    uint64_t ga[8], ua[8], da[8];
-    ds4_gpu_stream_expert_cache_entry *entries[8] = { 0 };
+    uint64_t ga[DS4_METAL_MAX_ROUTED_EXPERT_USED], ua[DS4_METAL_MAX_ROUTED_EXPERT_USED], da[DS4_METAL_MAX_ROUTED_EXPERT_USED];
+    ds4_gpu_stream_expert_cache_entry *entries[DS4_METAL_MAX_ROUTED_EXPERT_USED] = { 0 };
     uint32_t missing = 0;
-    if (!ds4_gpu_stream_expert_cache_ensure_addr_buffers(t->layer)) return 0;
-    ds4_gpu_stream_expert_cache_note_selected_hotness(t->layer, ids, n);
     for (uint32_t i = 0; i < n; i++) {
         if (ids[i] < 0 || (uint32_t)ids[i] >= t->n_total_expert) return 0;
         ga[i] = t->gate_offset + (uint64_t)ids[i] * gb;
@@ -51315,9 +51322,44 @@ int ds4_gpu_mellum_stream_load(const ds4_gpu_stream_expert_table *t, const int32
             return 0;
         }
     }
-    ds4_gpu_stream_expert_cache_prune_layer(t->layer, t->n_total_expert, n, ids, n);
-    ds4_gpu_stream_expert_cache_prune_global(t->layer, ids, n);
-    if (n_loaded) *n_loaded = (uint32_t)__builtin_popcount(missing);
+    *n_loaded += (uint32_t)__builtin_popcount(missing);
+    return 1;
+}
+
+int ds4_gpu_mellum_stream_load(const ds4_gpu_stream_expert_table *t, const int32_t *ids, uint32_t n,
+                               uint32_t *n_loaded) {
+    if (n_loaded) *n_loaded = 0;
+    if (!g_ssd_streaming_mode || !t || !ids || n == 0 || n > 64u || !t->model_map) return 0;
+    if (!ds4_gpu_stream_expert_cache_ensure_addr_buffers(t->layer)) return 0;
+    uint32_t loaded = 0;
+    g_mellum_stream_protect_layer = t->layer;
+    memcpy(g_mellum_stream_protect_ids, ids, (size_t)n * sizeof(int32_t));
+    g_mellum_stream_protect_n = n;
+    int ok = 1;
+    for (uint32_t g = 0; ok && g < n; g += DS4_METAL_MAX_ROUTED_EXPERT_USED) {
+        const uint32_t k = n - g < DS4_METAL_MAX_ROUTED_EXPERT_USED ? n - g : DS4_METAL_MAX_ROUTED_EXPERT_USED;
+        ds4_gpu_stream_expert_cache_note_selected_hotness(t->layer, ids + g, k);
+        ok = ds4_gpu_mellum_stream_load_group(t, ids + g, k, &loaded);
+    }
+    if (ok) {
+        ds4_gpu_stream_expert_cache_prune_layer(t->layer, t->n_total_expert, n, ids, n);
+        ds4_gpu_stream_expert_cache_prune_global(t->layer, ids, n);
+    }
+    g_mellum_stream_protect_n = 0;
+    if (!ok) return 0;
+    /* a cache smaller than one layer's needs could have evicted an earlier group: every id must be resident */
+    for (uint32_t i = 0; i < n; i++) {
+        const uint64_t gb = t->gate_expert_bytes, db = t->down_expert_bytes;
+        const uint64_t e = (uint64_t)ids[i];
+        if (!ds4_gpu_stream_expert_cache_peek(t->model_map, t->model_size, t->layer, (uint32_t)ids[i], t->n_total_expert,
+                                              n, t->gate_offset + e * gb, t->up_offset + e * gb, t->down_offset + e * db,
+                                              gb, db)) {
+            fprintf(stderr, "ds4: Mellum SSD streaming: the expert cache cannot hold layer %u's %u experts at once\n",
+                    t->layer, n);
+            return 0;
+        }
+    }
+    if (n_loaded) *n_loaded = loaded;
     return 1;
 }
 

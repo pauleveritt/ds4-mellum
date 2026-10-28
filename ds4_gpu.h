@@ -3827,6 +3827,7 @@ int ds4_gpu_stream_gate_read(const ds4_gpu_tensor *gate, uint32_t *layer, bool *
  * selected expert has no address.  restore: put that state back before resuming at the layer's experts. */
 void ds4_gpu_mellum_stream_set_readahead(bool enabled);
 int ds4_gpu_mellum_stream_layer_tables(uint32_t layer, ds4_gpu_tensor **gate, ds4_gpu_tensor **up, ds4_gpu_tensor **down);
+/* load takes up to 64 ids (a prefill chunk's layer) and fails if the cache cannot hold them all at once. */
 int ds4_gpu_mellum_stream_load(const ds4_gpu_stream_expert_table *t, const int32_t *ids, uint32_t n, uint32_t *n_loaded);
 int ds4_gpu_mellum_stream_check_tensor(ds4_gpu_tensor *gate, const ds4_gpu_tensor *selected,
                                        const ds4_gpu_tensor *weights, const ds4_gpu_tensor *attn_res,
