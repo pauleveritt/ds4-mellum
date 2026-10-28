@@ -45,11 +45,25 @@ stays untouched.
   - spool schedule, profiles, export;
   - the one LRU replay, closing input identity.
 
+  Substituting the frozen identity made both identity gates compare the
+  manifest with itself, so they re-hashed nothing. The real identity check is
+  `identity-check-post-review.json`. It recomputes the real `source_identity`
+  over 381 files, Metal sources included, at the docs-only `a128b50`. Content
+  differs from `cda49b0` only in the test and `mellum_generated_validation.py`.
+  It also confirms collect exit 0. It is retroactive and cannot exclude a
+  transient edit during the 12 s validation; git history and the ledger show
+  none. Hardlinking left the run's contents and names unchanged but raised
+  its inodes' link counts and ctimes. The spent files now share inodes with
+  `validated/`, so no artifact file may be edited in place.
+
   `provenance.json` records both revisions. The first driver attempt refused
   at its opening source gate, before creating anything, and is retained.
-- **Audit.** `audit.py`, retargeted to `-02`, passes. It independently rebuilds
+- **Audit.** `audit-02.py`, retargeted from `audit.py`, passes. It independently rebuilds
   the S/E frames and token IDs, the tape length, and the source and binary
-  copies. Its separate grouped LRU matches the totals and every window.
+  copies. Its separate grouped LRU, run over the exporter's `trace.jsonl`,
+  matches demand bytes in total, per forward and per window. It does not
+  check row misses, group hits, distinct experts, percentiles or blocked
+  layers. The review recomputed those separately, and they match.
   Trace `26b05a0c…`.
 - **Post-fix gate.** Full serial `test-mellum` passes at `d641df3`. Another
   session's `ds4-server` (PID 64754, started after this run's GPU child
@@ -79,7 +93,8 @@ before use. Windows overlap and are not summed. No window was shortened.
 Whole decode, 5120 tokens: 1774 GiB demand, 354.8 MiB/token; per token p50
 333, p95 640, worst 1142 MiB. A quarter of expert references miss (0.252),
 and only 14.5% of layer groups are fully resident (20,744 of 143,360). Per
-token, p50 25 of 28 layers wait on a miss. The trace touched 1782 distinct
+token, p50 25 of 28 layers have at least one missing expert (a count, not a
+measured stall). The trace touched 1782 distinct
 experts (10.9 GiB), 3.6 times the cache. Neither the append nor the turn
 boundary visibly resets locality: post-append first-32 sits with the other
 early and tail windows.
@@ -101,7 +116,8 @@ python3 -I .superpowers/sdd/2026-10-28-mellum-generated-cohort/audit-02.py
 - EOS_ALT and capped-thinking-separator branches still lack explicit tests
   (deferred minor); this run exercised only the cap path, on both turns.
 - Analysis code at `d641df3` differs from the frozen capture source `cda49b0`
-  by the serializer fix alone, checked by the driver and recorded in provenance.
+  by the serializer fix alone. The driver's git check and the post-review real
+  identity record both show this.
 - Demand bytes are not stall time. Nothing here gives SSD inference speed or
   says whether 8 GB is physically feasible; S4 cached execution and miss
   recovery remain separate.
@@ -119,5 +135,9 @@ A failure when re-running the audit on these artifacts would void the numbers.
 Thinking-phase routing may be unrepresentative of answer and tool turns. One
 conversation cannot separate content from position effects. The artifact-only
 validation re-ran publisher gates outside `run()`. Its delta check and the
-independent audit are the controls on that, and no reviewer has read this
-driver yet.
+independent audit are the controls on that. A fresh Opus review of the driver,
+audit, commits and this note found no Critical issues. Its two Important
+findings are fixed in this note and the roadmap: the identity gates were
+self-comparing, and the roadmap overstated the worst case. The exporter
+decoding is shared by validation and audit, so neither checks it
+independently.
