@@ -142,8 +142,8 @@ has its first locality result, [attempt -02](docs/superpowers/research/2026-10-2
 failed CPU preparation and is retained). One generated two-turn conversation
 (n=1) passed byte-exact resident parity on all 5122 operations. Both turns hit
 their 4096/1024 caps inside thinking. Cold global grouped LRU at 3 GiB: warm
-decode about 352–365 MiB/token of miss demand, p95 about 640 MiB, worst
-1.14 GiB. Row misses are about 25%. The post-append and tail windows do not
+decode about 352–365 MiB/token of miss demand, p95 about 634–640 MiB, worst
+1117 MiB (1142 MiB over all decode). Row misses are about 25%. The post-append and tail windows do not
 reset. The analysis is an artifact-only validation after a publisher
 serializer fix, with an independent audit. Tool-result, answer-phase and
 medium/8K coverage remain open. Demand is not stall time. S4 remains separate
