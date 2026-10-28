@@ -834,10 +834,10 @@ step:
 | output head (49,152) | 1 | 414.3 us | 240.6 MB | 581 |
 | F32 router, `multi_gemv` (8) | 28 | 15.1 us | 0.59 MB | 39 |
 | sliding attention, `mellum_attn_swa` (32) | 21 | 52.9 us | 2.1 MB | 40 |
-| full attention, decode + merge (64x4, 32) | 7 | 38.1 us | 2.2 MB | 58 |
+| full attention, decode + merge (64x4, 32) | 7 | 38.1 us | 4.5 MB | 117 |
 | norms, q/k norm and RoPE, adds, f16 copies, ring commit, MoE reduce, top-k | 361 | 2.0-7.0 us | KB | - |
 
-At 32,778 tokens, full attention is 254.8 + 22.0 us per layer (264 GB/s), and attention as a whole takes 28%
+At 32,778 tokens, full attention is 254.8 + 22.0 us per layer (the decode kernel at 264 GB/s), and attention as a whole takes 28%
 of the summed durations, up from 7% at 100 tokens and 16% at 2,056.
 
 **D2, B0.** A two-row verify costs 1.318 decode steps at 100 ids of context, 1.290 at 2,048, 1.315 at 8,192
