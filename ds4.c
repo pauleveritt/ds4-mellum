@@ -59307,6 +59307,7 @@ typedef struct ds4_qwen4_gpu_graph {
     uint64_t mellum_allocated_bytes;
     bool mellum_exact_prefill;      /* DS4_MELLUM_EXACT_PREFILL, read at allocation (mellum_graph_alloc) */
     uint32_t mellum_moe_nax;        /* DS4_MELLUM_MOE_NAX, read there too: 2 the tensor tiles, 0 the simdgroup tiles */
+    uint32_t mellum_attn_tiled;     /* DS4_MELLUM_ATTN_TILED, read there too: 1 tiled prefill attention, 0 the decode kernels */
     /* Arena only, grown on demand: one logit row per batch member, the
      * attention rows' cache table (one entry per row and layer) and their
      * split partials. */
@@ -59451,6 +59452,10 @@ static bool mellum_graph_alloc(ds4_qwen4_gpu_graph *g, uint32_t ctx_cap, uint32_
      * diagnostic like the one above, keeps the simdgroup tiles to compare against. */
     const char *nax = getenv("DS4_MELLUM_MOE_NAX");
     g->mellum_moe_nax = nax && !strcmp(nax, "0") ? 0u : 2u;
+    /* Chunks from MELLUM_TILED_MIN_ROWS rows run their attention in tiles (phase 8a, T2), eight tokens sharing each
+     * tile of keys.  DS4_MELLUM_ATTN_TILED=0, a diagnostic, keeps the kernels the decode steps use. */
+    const char *attn = getenv("DS4_MELLUM_ATTN_TILED");
+    g->mellum_attn_tiled = attn && !strcmp(attn, "0") ? 0u : 1u;
     g->ctx_cap = ctx_cap;
     g->cap_tokens = cap_tokens;
     g->n_logit_rows = 1u;
@@ -60722,14 +60727,15 @@ static bool mellum_graph_layer(ds4_qwen4_gpu_graph *g, const ds4_model *m, const
               ds4_gpu_mellum_qk_norm_rope_tensor(s[MELLUM_S_Q], s[MELLUM_S_K], m->map, m->size,
                                                  l->attn_q_norm->abs_offset, l->attn_k_norm->abs_offset, T, pos0,
                                                  sliding ? DS4_MELLUM_LAYER_SLIDING : DS4_MELLUM_LAYER_FULL, rope) != 0;
+    const bool tiled = g->mellum_attn_tiled != 0u && T >= mellum_tiled_min_rows(g);
     if (ok && sliding) {
         /* the chunk's own keys are read as f16 (staged) so a key has one value in prefill and in decode;
          * the ring is written only after every row has read it */
         ok = ds4_gpu_tensor_copy_f32_to_f16(s[MELLUM_S_K16], 0, s[MELLUM_S_K], 0, (uint64_t)T * kv_w) != 0 &&
              ds4_gpu_tensor_copy_f32_to_f16(s[MELLUM_S_V16], 0, s[MELLUM_S_V], 0, (uint64_t)T * kv_w) != 0 &&
-             ds4_gpu_mellum_attn_swa_tensor(s[MELLUM_S_HEADS], s[MELLUM_S_Q], kc, vc, g->mellum_tag[il],
-                                            s[MELLUM_S_K16], s[MELLUM_S_V16], T, pos0, DS4_N_SWA, DS4_N_HEAD,
-                                            DS4_N_HEAD_KV, DS4_N_HEAD_DIM, scale) != 0 &&
+             (tiled ? ds4_gpu_mellum_attn_tiled_tensor : ds4_gpu_mellum_attn_swa_tensor)(
+                 s[MELLUM_S_HEADS], s[MELLUM_S_Q], kc, vc, g->mellum_tag[il], s[MELLUM_S_K16], s[MELLUM_S_V16], T,
+                 pos0, DS4_N_SWA, DS4_N_HEAD, DS4_N_HEAD_KV, DS4_N_HEAD_DIM, scale) != 0 &&
              ds4_gpu_mellum_ring_commit_tensor(kc, vc, g->mellum_tag[il], s[MELLUM_S_K], s[MELLUM_S_V], T, kv_w, pos0,
                                                DS4_N_SWA) != 0;
     } else if (ok) {
@@ -60740,6 +60746,10 @@ static bool mellum_graph_layer(ds4_qwen4_gpu_graph *g, const ds4_model *m, const
             ok = ds4_gpu_qwen4_attn_decode_ungated_tensor(s[MELLUM_S_HEADS], s[MELLUM_S_Q], kc, vc,
                                                           s[MELLUM_S_ATTN_PART], DS4_N_HEAD, DS4_N_HEAD_KV,
                                                           DS4_N_HEAD_DIM, pos0, scale) != 0;
+        } else if (ok && tiled) {
+            /* window 0: the cache is the staged rows, from position 0 */
+            ok = ds4_gpu_mellum_attn_tiled_tensor(s[MELLUM_S_HEADS], s[MELLUM_S_Q], kc, vc, kc, kc, vc, T, pos0, 0u,
+                                                  DS4_N_HEAD, DS4_N_HEAD_KV, DS4_N_HEAD_DIM, scale) != 0;
         } else if (ok) {
             ok = ds4_gpu_mellum_attn_full_rows_tensor(s[MELLUM_S_HEADS], s[MELLUM_S_Q], kc, vc, s[MELLUM_S_ATTN_TABLE],
                                                       (uint64_t)full_slot * g->cap_tokens, s[MELLUM_S_ATTN_PART], T,
