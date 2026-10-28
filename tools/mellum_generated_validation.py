@@ -68,7 +68,7 @@ def header(frozen: dict,host: dict,receipt: dict,raw: Path) -> dict:
                 forced_rebuild=True,command_log=metadata.bounded_read(Path(frozen['build']['log']['path']),256*1024).decode()),
             execution=dict(numerical_mode='release',requested_kernel='default',device=f"{host['cpu']} / {host['model']} / {host['ram_bytes']} bytes RAM",
                 os=host.get('platform','unknown'),context_tokens=receipt['context_tokens'],prefill_chunk_tokens=receipt['cap_tokens'],
-                capabilities=receipt['capabilities'],capture_schedule='generated-two-turn-v1',host=host),
+                capabilities=receipt['capabilities'],capture_schedule='generated-two-turn-v1',host=inputs.host.serial(host)),
             generation=dict(mode='generated',settings=inputs.SETTINGS),
             workload=dict(protocol_id='generated-two-turn-v1',conversation_id='ac-demo-phase1-1',repository_id='ac-demo',split='evaluation',
                 continuation_kind='scripted-user-review; generated code unexecuted',initial_policy_sha256=frozen['policy']['sha256'])))
