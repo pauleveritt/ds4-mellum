@@ -50,7 +50,7 @@ def test_prepared_inputs_bind_policy_and_preserve_native_failure():
             for name in api.TOKEN_FILES:(out/name).write_text('1 2\n')
             for name in api.RENDERED_FILES:(out/name).write_bytes(b'exact rendered')
             return dict(argv=argv,pid=1,returncode=0,stdout=b'',stderr=b'')
-        with patch.object(api,'CONTENT_ID',v['content_id']),patch.object(api,'REVISION',v['source']['commit']),patch.object(api.observer,'command',side_effect=native):
+        with patch.object(api,'CONTENT_ID',v['content_id']),patch.object(api,'REVISION',v['source']['commit']),patch.object(api,'MODEL_BYTES',5),patch.object(api.observer,'command',side_effect=native):
             prepared=api.prepare(b,model,binary,root/'prepared');value=api.verify(prepared)
             assert value['split']=='evaluation' and value['settings']['caps']==[4096,1024]
             assert value['policy']['sha256']==api.common.file_identity(ROOT/'tools/mellum_ssd_replay.py')['sha256']
