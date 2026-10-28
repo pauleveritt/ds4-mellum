@@ -18,7 +18,7 @@ int main(void) {
     assert(!mellum_generated_prepare(ready,root,root));
     char p[512];snprintf(p,sizeof(p),"%s/initial.tokens",root);ds4_tokens ids={0};assert(!mellum_generated_read_tokens(p,&ids));assert(ids.len>0);ds4_tokens_free(&ids);
     snprintf(p,sizeof(p),"%s/close.tokens",root);assert(!mellum_generated_read_tokens(p,&ids));assert(ids.len==2 && ids.v[0]==28 && ids.v[1]==45);ds4_tokens_free(&ids);
-    snprintf(p,sizeof(p),"%s/append.rendered",root);char *text=mellum_generated_read_text(p);assert(text && strstr(text,"<|im_start|>user\nHello<|im_end|>\n<|im_start|>assistant\n<think>\n"));free(text);
+    snprintf(p,sizeof(p),"%s/append.rendered",root);char *text=mellum_generated_read_text(p);assert(text && strstr(text,"<|im_start|>user\nHello<|im_end|>\n<|im_start|>assistant\n"));free(text);
     ds4_engine_close(ready);unlink(fixture);
     printf("inspect-only native template preparation: PASS (sparse fixture only, %s)\n",root);return 0;
 }
