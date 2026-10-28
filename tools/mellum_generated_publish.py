@@ -14,7 +14,7 @@ observer=inputs.observer
 bindings=inputs.bindings
 schedule=identity.sibling('mellum_generated_schedule')
 check_schedule=schedule.check_schedule
-DEADLINE=datetime(2026,10,28,12,tzinfo=timezone.utc)
+DEADLINE=inputs.DEADLINE
 
 
 def utc_now() -> datetime:return datetime.now(timezone.utc)

@@ -20,10 +20,11 @@ MODEL_SHA='ea1e4ec737bb259ac2ffe1f20d412f458fd52dd230f42dce9e944f111093c29b'
 FILES=('.gitignore','AGENTS.md','pyproject.toml','specs/mission.md','specs/roadmap.md','specs/tech-stack.md','templates/.gitkeep','tests/.gitkeep','uv.lock')
 TOKEN_FILES=('initial.tokens','append.tokens','close.tokens','newline.tokens')
 RENDERED_FILES=tuple(n.replace('.tokens','.rendered') for n in TOKEN_FILES)
-SETTINGS=dict(context=8192,chunk=1024,thinking=True,temperature=0,top_k=1,top_p=1,min_p=0,caps=[4096,1024],gpu_timeout=900,cpu_timeout=120,deadline_utc='2026-10-28T12:00:00Z')
+SETTINGS=dict(context=8192,chunk=1024,thinking=True,temperature=0,top_k=1,top_p=1,min_p=0,caps=[4096,1024],gpu_timeout=900,cpu_timeout=120,deadline_utc='2026-10-28T22:00:00Z')
 
 
-DEADLINE=datetime(2026,10,28,12,tzinfo=timezone.utc)
+# Owner reopened the window to 18:00 Eastern after the 08:00 cutoff passed unspent.
+DEADLINE=datetime(2026,10,28,22,tzinfo=timezone.utc)
 
 
 def utc_now() -> datetime:return datetime.now(timezone.utc)
