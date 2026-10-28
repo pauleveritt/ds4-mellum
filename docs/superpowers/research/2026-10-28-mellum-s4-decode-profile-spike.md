@@ -71,3 +71,34 @@ ids. Data: [`profile-after-gating.log`](2026-10-28-mellum-s4-decode-profile-spik
 
 The 32K figures in [measurement 02](2026-10-28-mellum-s4-measurement-02.md) predate this change and are
 not re-measured.
+
+## The remaining GPU wait, split (`9e9757f`, the built-in `DS4_METAL_CB_TIMES`)
+
+One run per arm on the same driver setup: a short prompt, 256 decode tokens. The streamed arm ran at
+6 GiB and took 9.62 stops per token (more than the 512-token run, because early tokens are colder). Data:
+[`cb-times-resident.log`](2026-10-28-mellum-s4-decode-profile-spike/cb-times-resident.log) and
+[`cb-times-stream.log`](2026-10-28-mellum-s4-decode-profile-spike/cb-times-stream.log).
+
+| Per token | resident | streamed |
+|---|---:|---:|
+| command buffers | 1.00 | 10.74 |
+| GPU busy (Metal GPU span) | 6.82 ms | 12.25 ms |
+| commit-to-done minus span (dead time) | 0.21 ms | 2.76 ms |
+| driver wall | 7.41 ms | 26.65 ms |
+
+Per buffer, the median span is 0.90 ms (streamed) and the median dead time 0.20 ms, about the same as
+resident's.
+
+**Reading (arithmetic, not measured):**
+- The streamed GPU wait beyond resident is about 5.4 ms of extra GPU execution plus about 2.6 ms of fixed
+  per-buffer cost. The fixed cost is about 0.26 ms × 10.7 buffers.
+- About 10.7 passes per token, each from a stop to the head, push roughly 3,700 dispatches through the GPU,
+  against about 700 resident. Most are suppressed, but even a zero-threadgroup indirect dispatch costs the
+  command processor time. At about 3,000 suppressed dispatches, 5.4 ms is about 1.8 µs each.
+- The per-layer check kernel also launches up to 4,096 threads on every pass.
+- Neither cost depends on the SSD. Both scale with stops per token. So fewer stops (a larger cache or a
+  better policy), or passes that end sooner, are the levers. Shaving the check kernel's thread count is a
+  small, low-risk cut.
+
+**Not pursued** (owner, 18:10): load overlap and other high-complexity changes for small gains. A
+dispatch count per pass, from the gate's record count, would confirm the suppressed-dispatch arithmetic.
