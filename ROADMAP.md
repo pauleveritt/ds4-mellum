@@ -191,35 +191,25 @@ laptop is needed.
 Exit: measured limit and resident behavior on 16 GB, and the expert-cache
 budget derived from them. Requires borrowed hardware.
 
-### S4 — Cached execution and miss recovery proof: implemented; streamed reads not yet device-bound
+### S4 — Cached execution and miss recovery proof: complete on the development laptop
 
 The [design](docs/superpowers/specs/2026-10-28-mellum-s4-cached-execution-design.md) and
 [plan](docs/superpowers/plans/2026-10-28-mellum-s4-cached-execution.md) are implemented:
 `--ssd-streaming` for Mellum. Decode stops only at missed layers; prefill syncs per layer.
 
-The [measurement](docs/superpowers/research/2026-10-28-mellum-s4-measurement.md) at 32K and 6 GiB:
+[Measurement 02](docs/superpowers/research/2026-10-28-mellum-s4-measurement-02.md), at 32K and a 6 GiB
+cache, with device-true reads (0.996–1.002, n=3):
 - **Exact:** 3 of 3 runs give resident's 2,048 token ids.
-- **No resident regression** (n=6 per arm).
 - **Memory:** peak footprint 6.93 GiB, Metal allocation 7.81 GiB.
-- **Speed:** decode 29–32 t/s against 94 resident; time to first token 40–46 s against 29 s.
-- **Reads were cache-served:** 480 GB of expert bytes, only 2% from the device, so these are recorded
-  failures. The inferred cause is unaligned `F_NOCACHE` reads.
+- **Speed:** decode 26–27 t/s against 92 resident; time to first token about 60 s against 29 s.
+- **No resident regression,** from [measurement 01](docs/superpowers/research/2026-10-28-mellum-s4-measurement.md)
+  (n=6 per arm).
 
-Next: make streamed reads device-bound, then a new preregistered run.
+01's streamed reads were cache-served; the [spike](docs/superpowers/research/2026-10-28-mellum-s4-cached-reads-spike.md)
+found why and fixed it. By arithmetic, prefill is read-bound at about 10.8 GB/s. Decode has about
+18 ms/token of overhead beyond its reads and syncs.
 
-
-Prove GPU-readable Q8 slots through decode and E1 prefill. Specify address
-translation, slot ownership/readiness and the resume boundary before building
-a full scheduler. Exercise all-hit, forced-miss, eviction, cancellation and
-read-failure paths. Preserve arithmetic and original expert reduction order.
-At about 7 GiB, the 16 GB target, the -02 trace has 0.25 misses per layer
-per token, so all-hit layers are the common path. Their cost must be zero.
-
-Exit: equality with the matching resident path; no additional host wait on
-all-hit layers; safe miss recovery and slot reuse; refreshed peak-memory plan.
-With streaming off, resident decode and prefill speed stay within noise of the
-pre-streaming baseline, measured A/B/B/A as for E1 in MELLUM.md.
-The existing top-6 host-waiting validator is not Mellum's top-8 solution.
+Next: profile the stop/resume path, then S5.
 
 ### S5 — Bounded streaming and deployment validation: not started
 
