@@ -106,6 +106,39 @@ its answer.
 a direct answer, but on coding tasks Mellum still reasons in plain text inside its answer, so turning thinking
 off saves little and mixes the reasoning into the reply.
 
+## Speed
+
+Prefill and generation tables will come from one fresh measured run at a named commit; they are not published
+yet. Measured numbers in this repository were taken with the `ds4` command on single prompts, not through
+`ds4-server` or Pi. A Pi session feels different: each turn adds HTTP and template overhead and a tool call and
+its result, and most prefills are small, because earlier turns stay cached.
+
+### Measure on your own Mac
+
+The quick check is the "Try it" command above: its last line prints the prefill and generation rates for that
+one prompt.
+
+For numbers you can compare, the repository's runners measure one build on real prose (the start of
+`speed-bench/promessi_sposi.txt` plus a request), in two blocks of four processes per prompt length, with
+cooldowns. Each block's first process is dropped, leaving n = 6 per length:
+
+```bash
+ARMS=AA tests/mellum_cli_prefill_abba.sh ~/ds4-runs/prefill ~/models/Mellum2.1-12B-A2.5B-Thinking-Q8_0.gguf 2048
+ARMS=AA tests/mellum_cli_decode_abba.sh ~/ds4-runs/decode ~/models/Mellum2.1-12B-A2.5B-Thinking-Q8_0.gguf tests/mellum_measurements/d1_decode_profile 2048
+```
+
+Add `8192 32768` after `2048` for longer prompts (a 32K prompt takes a few minutes per block). The decode runner
+also accepts `100`. Each output directory gets `summary.txt` (the median and range per length), `runs.txt`
+(every process's rate), every process's log, and `events.txt` (the power source and thermal state before and
+after each block). Run on AC power, with nothing else on the GPU, and keep the power mode the same between runs.
+
+## More
+
+- [`MELLUM.md`](MELLUM.md): the port's record. Every change, every measurement with its command and run count,
+  known divergences from the model's training, and what is not covered.
+- [`tests/`](tests/): the runners above, the oracle comparison against the earlier port, and the model-gated
+  tests (`DS4_TEST_MELLUM_MODEL`).
+
 ---
 
 # DwarfStar (upstream README)
