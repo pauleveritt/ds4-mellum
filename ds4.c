@@ -60737,9 +60737,11 @@ static bool mellum_graph_layer(ds4_qwen4_gpu_graph *g, const ds4_model *m, const
         g->mellum_attn_tiled == 2u ? ds4_gpu_mellum_attn_tiled_half_tensor : ds4_gpu_mellum_attn_tiled_tensor;
     if (ok && sliding) {
         /* the chunk's own keys are read as f16 (staged) so a key has one value in prefill and in decode;
-         * the ring is written only after every row has read it */
-        ok = ds4_gpu_tensor_copy_f32_to_f16(s[MELLUM_S_K16], 0, s[MELLUM_S_K], 0, (uint64_t)T * kv_w) != 0 &&
-             ds4_gpu_tensor_copy_f32_to_f16(s[MELLUM_S_V16], 0, s[MELLUM_S_V], 0, (uint64_t)T * kv_w) != 0 &&
+         * the ring is written only after every row has read it.  Decode stages K and V in one dispatch. */
+        ok = (T == 1u ? ds4_gpu_mellum_copy2_f32_to_f16(s[MELLUM_S_K16], 0, s[MELLUM_S_K], s[MELLUM_S_V16], 0,
+                                                        s[MELLUM_S_V], kv_w) != 0
+                      : ds4_gpu_tensor_copy_f32_to_f16(s[MELLUM_S_K16], 0, s[MELLUM_S_K], 0, (uint64_t)T * kv_w) != 0 &&
+                        ds4_gpu_tensor_copy_f32_to_f16(s[MELLUM_S_V16], 0, s[MELLUM_S_V], 0, (uint64_t)T * kv_w) != 0) &&
              (tiled ? tiled_attn : ds4_gpu_mellum_attn_swa_tensor)(
                  s[MELLUM_S_HEADS], s[MELLUM_S_Q], kc, vc, g->mellum_tag[il], s[MELLUM_S_K16], s[MELLUM_S_V16], T,
                  pos0, DS4_N_SWA, DS4_N_HEAD, DS4_N_HEAD_KV, DS4_N_HEAD_DIM, scale) != 0 &&
@@ -60747,8 +60749,9 @@ static bool mellum_graph_layer(ds4_qwen4_gpu_graph *g, const ds4_model *m, const
                                                DS4_N_SWA) != 0;
     } else if (ok) {
         const uint64_t row_off = (uint64_t)pos0 * kv_w * sizeof(uint16_t);
-        ok = ds4_gpu_tensor_copy_f32_to_f16(kc, row_off, s[MELLUM_S_K], 0, (uint64_t)T * kv_w) != 0 &&
-             ds4_gpu_tensor_copy_f32_to_f16(vc, row_off, s[MELLUM_S_V], 0, (uint64_t)T * kv_w) != 0;
+        ok = T == 1u ? ds4_gpu_mellum_copy2_f32_to_f16(kc, row_off, s[MELLUM_S_K], vc, row_off, s[MELLUM_S_V], kv_w) != 0
+                     : ds4_gpu_tensor_copy_f32_to_f16(kc, row_off, s[MELLUM_S_K], 0, (uint64_t)T * kv_w) != 0 &&
+                       ds4_gpu_tensor_copy_f32_to_f16(vc, row_off, s[MELLUM_S_V], 0, (uint64_t)T * kv_w) != 0;
         if (ok && T == 1u) {
             ok = ds4_gpu_qwen4_attn_decode_ungated_tensor(s[MELLUM_S_HEADS], s[MELLUM_S_Q], kc, vc,
                                                           s[MELLUM_S_ATTN_PART], DS4_N_HEAD, DS4_N_HEAD_KV,
