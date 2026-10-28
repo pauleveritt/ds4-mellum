@@ -75679,6 +75679,7 @@ bool ds4_engine_is_deepseek41(ds4_engine *e) {
 }
 
 void ds4_engine_close(ds4_engine *e) {
+    if (!e) return;
 #if defined(__APPLE__)
     if (g_mellum_stream_fd >= 0) {
         close(g_mellum_stream_fd);
@@ -75686,7 +75687,6 @@ void ds4_engine_close(ds4_engine *e) {
     }
     g_mellum_stream_engine = false;
 #endif
-    if (!e) return;
     ds4_engine_tp_unbind(e);
 #if !defined(DS4_NO_GPU) && !defined(__APPLE__) && !defined(DS4_ROCM_BUILD)
     /* Built at open but never bound. */
