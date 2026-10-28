@@ -2249,6 +2249,41 @@ static void test_copy2(void) {
     printf("  fused    K and V f16 copies in one dispatch vs two, 10 counts, offsets 0 and 3,072 bytes: byte for byte\n");
 }
 
+/* The MoE reduce and the residual add after it in one dispatch (ds4_gpu_mellum_moe_reduce_add_tensor, decode's)
+ * against the two it replaces, ds4_gpu_qwen4_moe_reduce_tensor then ds4_gpu_add_tensor (residual + sum), word
+ * for word, at Mellum's width and at one that is not a multiple of the 256-thread groups. */
+static void test_reduce_add_case(uint32_t T, uint32_t dim) {
+    const uint32_t K = 8u;
+    float *part = rand_vec((uint64_t)T * K * dim, 4.0f), *w = rand_vec((uint64_t)T * K, 1.0f);
+    float *res = rand_vec((uint64_t)T * dim, 30.0f);
+    ds4_gpu_tensor *tp = upload(part, (uint64_t)T * K * dim), *tw = upload(w, (uint64_t)T * K);
+    ds4_gpu_tensor *tr = upload(res, (uint64_t)T * dim);
+    ds4_gpu_tensor *sum = zeroed((uint64_t)T * dim * 4u), *ref = zeroed((uint64_t)T * dim * 4u);
+    ds4_gpu_tensor *got = zeroed((uint64_t)T * dim * 4u);
+    require_ok(ds4_gpu_qwen4_moe_reduce_tensor(sum, tp, tw, NULL, NULL, NULL, NULL, T, K, K, dim, 0u) &&
+               ds4_gpu_add_tensor(ref, tr, sum, T * dim), "reduce then add");
+    const int ok = ds4_gpu_mellum_moe_reduce_add_tensor(got, tp, tw, tr, T, K, dim);
+    CHECK(ok, "the fused reduce and add refused T=%u dim=%u", T, dim);
+    if (ok) {
+        float *a = download(ref, (uint64_t)T * dim), *b = download(got, (uint64_t)T * dim);
+        const uint64_t d = bit_diffs(a, b, (uint64_t)T * dim, NULL);
+        CHECK(d == 0, "fused reduce and add vs reduce then add, T=%u dim=%u: %llu words differ", T, dim,
+              (unsigned long long)d);
+        free(a); free(b);
+    }
+    ds4_gpu_tensor_free(tp); ds4_gpu_tensor_free(tw); ds4_gpu_tensor_free(tr);
+    ds4_gpu_tensor_free(sum); ds4_gpu_tensor_free(ref); ds4_gpu_tensor_free(got);
+    free(part); free(w); free(res);
+}
+
+static void test_reduce_add(void) {
+    test_reduce_add_case(1, 2304);
+    test_reduce_add_case(3, 2304);
+    test_reduce_add_case(1, 300);
+    test_reduce_add_case(2, 300);
+    printf("  fused    MoE reduce and residual add in one dispatch vs two, T 1-3, widths 2,304 and 300: word for word\n");
+}
+
 static void test_rope_rows_all(fixture_t *f) {
     printf("Mellum prefill equals decode (rows against one-row calls, raw bits)\n");
     for (int batched = 0; batched <= 1; batched++) {
@@ -2584,6 +2619,7 @@ int main(void) {
     test_rope_rows_all(&f);
     test_qk_fused(&f);
     test_copy2();
+    test_reduce_add();
 
     printf("Mellum attention (GQA 32/4, head 128, sliding window 1,024, f16 keys; max|d| / max|ref|)\n");
     static const uint32_t swa_counts[] = { 26, 1000, 1023, 1024, 1025, 1057, 2100 };
