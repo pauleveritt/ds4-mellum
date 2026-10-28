@@ -1822,6 +1822,111 @@ static void test_moe_q8_tiles_mellum_only(const moe_arena_t *a) {
     free(x); free(plain); free(flash); free(tiles); free(sel);
 }
 
+/* ---- S4 address-table variants: each expert in its own slot buffer, reached through a uint64 GPU-address
+ * table, must give the resident kernels' bits; a zero address reads nothing and writes nothing ---- */
+
+typedef struct { ds4_gpu_tensor *gate[MREF_NEXP], *up[MREF_NEXP], *down[MREF_NEXP], *ga, *ua, *da; } addr_slots_t;
+
+static void addr_slots_make(const moe_arena_t *a, addr_slots_t *s) {
+    const uint64_t gb = (uint64_t)MREF_FF * MREF_ROW_GATE, db = (uint64_t)MREF_E * MREF_ROW_DOWN;
+    uint64_t ga[MREF_NEXP], ua[MREF_NEXP], da[MREF_NEXP];
+    for (uint32_t e = 0; e < MREF_NEXP; e++) {
+        s->gate[e] = ds4_gpu_tensor_alloc(gb); s->up[e] = ds4_gpu_tensor_alloc(gb); s->down[e] = ds4_gpu_tensor_alloc(db);
+        require_ok(s->gate[e] && s->up[e] && s->down[e] &&
+                   ds4_gpu_tensor_write(s->gate[e], 0, a->base + a->gate + e * gb, gb) &&
+                   ds4_gpu_tensor_write(s->up[e], 0, a->base + a->up + e * gb, gb) &&
+                   ds4_gpu_tensor_write(s->down[e], 0, a->base + a->down + e * db, db), "slot copy");
+        ga[e] = ds4_gpu_tensor_gpu_address(s->gate[e]); ua[e] = ds4_gpu_tensor_gpu_address(s->up[e]);
+        da[e] = ds4_gpu_tensor_gpu_address(s->down[e]);
+        require_ok(ga[e] && ua[e] && da[e], "slot address");
+    }
+    s->ga = ds4_gpu_tensor_alloc(sizeof(ga)); s->ua = ds4_gpu_tensor_alloc(sizeof(ua)); s->da = ds4_gpu_tensor_alloc(sizeof(da));
+    require_ok(s->ga && s->ua && s->da && ds4_gpu_tensor_write(s->ga, 0, ga, sizeof(ga)) &&
+               ds4_gpu_tensor_write(s->ua, 0, ua, sizeof(ua)) && ds4_gpu_tensor_write(s->da, 0, da, sizeof(da)), "address tables");
+}
+
+static void addr_slots_free(addr_slots_t *s) {
+    for (uint32_t e = 0; e < MREF_NEXP; e++) {
+        ds4_gpu_tensor_free(s->gate[e]); ds4_gpu_tensor_free(s->up[e]); ds4_gpu_tensor_free(s->down[e]);
+    }
+    ds4_gpu_tensor_free(s->ga); ds4_gpu_tensor_free(s->ua); ds4_gpu_tensor_free(s->da);
+}
+
+/* eight distinct experts, in a random order */
+static void addr_pick(int32_t sel[MREF_USED]) {
+    for (uint32_t k = 0; k < MREF_USED; k++) {
+        int32_t e;
+        bool dup;
+        do {
+            e = (int32_t)((uint32_t)((frand() + 1.0f) * 32.0f) % MREF_NEXP);
+            dup = false;
+            for (uint32_t j = 0; j < k; j++) dup = dup || sel[j] == e;
+        } while (dup);
+        sel[k] = e;
+    }
+}
+
+static void test_moe_addr_decode(const moe_arena_t *a) {
+    addr_slots_t s;
+    addr_slots_make(a, &s);
+    const uint64_t mid_bytes = (uint64_t)MREF_USED * MREF_FF * 4u, part_bytes = (uint64_t)MREF_USED * MREF_E * 4u;
+    bool mid_eq = true, down_eq = true, mid_untouched = true, down_untouched = true, others_eq = true;
+    for (int trial = 0; trial < 4; trial++) {
+        int32_t sel_h[MREF_USED];
+        addr_pick(sel_h);
+        float *x = rand_vec(MREF_E, 1.7f);
+        ds4_gpu_tensor *xt = upload(x, MREF_E), *sel = ds4_gpu_tensor_alloc(sizeof(sel_h));
+        require_ok(sel && ds4_gpu_tensor_write(sel, 0, sel_h, sizeof(sel_h)), "selection");
+        ds4_gpu_tensor *res[2u * MREF_USED], *dres[MREF_USED];
+        for (uint32_t k = 0; k < MREF_USED; k++) {
+            res[2u * k] = s.gate[sel_h[k]]; res[2u * k + 1u] = s.up[sel_h[k]]; dres[k] = s.down[sel_h[k]];
+        }
+        ds4_gpu_tensor *mid_r = zeroed(mid_bytes), *mid_a = zeroed(mid_bytes), *part_r = zeroed(part_bytes), *part_a = zeroed(part_bytes);
+        require_ok(ds4_gpu_qwen4_moe_mid_tensor(mid_r, xt, sel, a->base, a->size, a->gate, a->up, 8u, MREF_NEXP, 1, MREF_USED,
+                                                MREF_E, MREF_FF, 0u, 0u, UINT32_MAX), "resident mid");
+        require_ok(ds4_gpu_qwen4_moe_mid_addr_tensor(mid_a, xt, sel, s.ga, s.ua, res, 2u * MREF_USED, 8u, MREF_NEXP, 1, MREF_USED,
+                                                     MREF_E, MREF_FF), "addr mid");
+        require_ok(ds4_gpu_qwen4_moe_down_tensor(part_r, mid_r, sel, a->base, a->size, a->down, 8u, MREF_NEXP, 1, MREF_USED,
+                                                 MREF_FF, MREF_E, 0u, UINT32_MAX), "resident down");
+        require_ok(ds4_gpu_qwen4_moe_down_addr_tensor(part_a, mid_r, sel, s.da, dres, MREF_USED, 8u, MREF_NEXP, 1, MREF_USED,
+                                                      MREF_FF, MREF_E), "addr down");
+        float *mr = download(mid_r, mid_bytes / 4u), *ma = download(mid_a, mid_bytes / 4u);
+        float *pr = download(part_r, part_bytes / 4u), *pa = download(part_a, part_bytes / 4u);
+        mid_eq = mid_eq && memcmp(mr, ma, mid_bytes) == 0;
+        down_eq = down_eq && memcmp(pr, pa, part_bytes) == 0;
+        /* zero the first selected expert's addresses: its rows keep a sentinel, the other seven still match */
+        const uint64_t zero = 0u, e0 = (uint64_t)sel_h[0] * 8u;
+        const uint64_t restore_g = ds4_gpu_tensor_gpu_address(s.gate[sel_h[0]]), restore_u = ds4_gpu_tensor_gpu_address(s.up[sel_h[0]]);
+        const uint64_t restore_d = ds4_gpu_tensor_gpu_address(s.down[sel_h[0]]);
+        require_ok(ds4_gpu_tensor_write(s.ga, e0, &zero, 8) && ds4_gpu_tensor_write(s.ua, e0, &zero, 8) &&
+                   ds4_gpu_tensor_write(s.da, e0, &zero, 8), "zero address");
+        float *sent = malloc(part_bytes);
+        for (uint64_t i = 0; i < part_bytes / 4u; i++) sent[i] = 12345.0f;
+        require_ok(ds4_gpu_tensor_write(mid_a, 0, sent, mid_bytes) && ds4_gpu_tensor_write(part_a, 0, sent, part_bytes), "sentinel");
+        require_ok(ds4_gpu_qwen4_moe_mid_addr_tensor(mid_a, xt, sel, s.ga, s.ua, res, 2u * MREF_USED, 8u, MREF_NEXP, 1, MREF_USED,
+                                                     MREF_E, MREF_FF), "addr mid, zero address");
+        require_ok(ds4_gpu_qwen4_moe_down_addr_tensor(part_a, mid_r, sel, s.da, dres, MREF_USED, 8u, MREF_NEXP, 1, MREF_USED,
+                                                      MREF_FF, MREF_E), "addr down, zero address");
+        float *mz = download(mid_a, mid_bytes / 4u), *pz = download(part_a, part_bytes / 4u);
+        mid_untouched = mid_untouched && memcmp(mz, sent, (uint64_t)MREF_FF * 4u) == 0;
+        down_untouched = down_untouched && memcmp(pz, sent, (uint64_t)MREF_E * 4u) == 0;
+        others_eq = others_eq && memcmp(mz + MREF_FF, mr + MREF_FF, mid_bytes - (uint64_t)MREF_FF * 4u) == 0 &&
+                    memcmp(pz + MREF_E, pr + MREF_E, part_bytes - (uint64_t)MREF_E * 4u) == 0;
+        require_ok(ds4_gpu_tensor_write(s.ga, e0, &restore_g, 8) && ds4_gpu_tensor_write(s.ua, e0, &restore_u, 8) &&
+                   ds4_gpu_tensor_write(s.da, e0, &restore_d, 8), "restore address");
+        free(sent); free(mr); free(ma); free(pr); free(pa); free(mz); free(pz); free(x);
+        ds4_gpu_tensor_free(xt); ds4_gpu_tensor_free(sel); ds4_gpu_tensor_free(mid_r); ds4_gpu_tensor_free(mid_a);
+        ds4_gpu_tensor_free(part_r); ds4_gpu_tensor_free(part_a);
+    }
+    CHECK(mid_eq, "addr: decode mid through slot addresses must equal the resident kernel's bits");
+    CHECK(down_eq, "addr: decode down through slot addresses must equal the resident kernel's bits");
+    CHECK(mid_untouched && down_untouched, "addr: a zero address must leave its expert's rows untouched");
+    CHECK(others_eq, "addr: with one zero address the other seven experts must still equal the resident kernel");
+    printf("  moe    addr decode: mid %s, down %s; zero address untouched %s\n", mid_eq ? "equal" : "DIFFER",
+           down_eq ? "equal" : "DIFFER", mid_untouched && down_untouched ? "yes" : "NO");
+    addr_slots_free(&s);
+}
+
 static void test_moe(void) {
     printf("Mellum MoE driver (2304 -> 64 F32 router, softmax over all, top-8, renormalized, 896-wide Q8_0 experts, no shared expert)\n");
     moe_arena_t *a = calloc(1, sizeof(*a));
@@ -1865,6 +1970,7 @@ static void test_moe(void) {
     test_moe_no_shared(a);
     test_moe_refusals(a);
     test_moe_q8_tiles_mellum_only(a);
+    test_moe_addr_decode(a);
     for (int batched = 0; batched <= 1; batched++) {
         g_batched = batched != 0;
         test_moe_rows_equal_singles(a);
