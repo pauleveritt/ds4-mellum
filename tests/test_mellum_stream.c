@@ -42,6 +42,17 @@ static void test_config_off_has_no_slots(void) {
     CHECK(rc == 0 && slots == 0u, "streaming off must configure no slots (rc %d, slots %u)", rc, slots);
 }
 
+/* a prefill chunk can need all 64 of a layer's experts at once, and every one must sit in a slab slot: a
+ * smaller cache is refused rather than spilling into buffers the kernels never make resident */
+static void test_config_refuses_fewer_than_a_layer(void) {
+    char err[256] = "";
+    uint32_t slots = 7u;
+    CHECK(ds4_mellum_stream_config(true, 63u * DS4_MELLUM_EXPERT_BYTES, &slots, err, sizeof(err)) == -1 &&
+          strstr(err, "64") != NULL, "63 slots must be refused, naming 64 (err \"%s\")", err);
+    CHECK(ds4_mellum_stream_config(true, 64u * DS4_MELLUM_EXPERT_BYTES, &slots, err, sizeof(err)) == 0 && slots == 64u,
+          "64 slots must be accepted (slots %u)", slots);
+}
+
 static void test_config_6gb(void) {
     char err[256] = "";
     uint32_t slots = 0u;
@@ -215,6 +226,7 @@ int main(void) {
     test_config_refuses_zero_cache();
     test_config_off_has_no_slots();
     test_config_6gb();
+    test_config_refuses_fewer_than_a_layer();
     test_all_hit_one_finish();
     test_stop_resume_at_experts();
     test_stop_layer0_and_layer27();

@@ -731,6 +731,26 @@ static void test_mellum_stream_faults(void) {
     TEST_ASSERT(ref && got);
     if (!ref || !got) return;
     char err[256] = {0};
+    {
+        /* every expert must sit in a slab slot the kernels make resident: with slabs off, a streamed sync
+         * refuses cleanly instead of reading buffers it never made resident */
+        setenv("DS4_METAL_DISABLE_STREAMING_EXPERT_SLABS", "1", 1);
+        ds4_engine *engine = NULL;
+        ds4_engine_options opt = { .model_path = model, .backend = DS4_BACKEND_METAL, .context_size = 8192,
+                                   .ssd_streaming = true, .ssd_streaming_cache_experts = 64u };
+        TEST_ASSERT(ds4_engine_open(&engine, &opt) == 0 && engine);
+        if (engine) {
+            ds4_session *s = NULL;
+            TEST_ASSERT(ds4_session_create(&s, engine, 8192) == 0 && s);
+            ds4_tokens one = {0};
+            ds4_tokens_push(&one, toks[0]);
+            if (s) TEST_ASSERT(ds4_session_sync(s, &one, err, sizeof(err)) != 0);
+            ds4_tokens_free(&one);
+            if (s) ds4_session_free(s);
+            ds4_engine_close(engine);
+        }
+        unsetenv("DS4_METAL_DISABLE_STREAMING_EXPERT_SLABS");
+    }
     for (int pass = 0; pass < 2; pass++) {
         const bool streaming = pass == 1;
         ds4_engine *engine = NULL;
