@@ -154,9 +154,10 @@ combines the two results under stated assumptions. Those are atomic group
 residency, on-demand reads, one serial worker at 0.655 ms per expert, and
 reads added to compute. Mean serial reads are 37.0 ms/token, p95 66.8 and
 worst 119.2. No token was all-hit, which rules out an all-hit warm regime
-for this trace. Every token under 100 ms is ruled out by reads alone. A
-10 tok/s mean remains possible if resident decode compute is at most about
-63 ms/token, which is not yet measured. Still open: a miss curve beyond
+for this trace. Every token under 100 ms is ruled out by reads alone. The
+recorded resident decode compute (7.5–8.6 ms/token, n=3, MELLUM.md) puts the
+serial mean at about 22 tok/s, with reads 81–83% of token time. Overlapping
+reads with compute can recover at most that compute. Still open: a miss curve beyond
 3 GiB, physical cold reads, concurrency and answer-phase locality. S4 should
 treat miss recovery as the common path.
 
