@@ -2304,50 +2304,71 @@ static void test_tiled_refusals(void) {
 }
 
 /* The half-operand tiles (ds4_gpu_mellum_attn_tiled_half_tensor) round the scaled queries and the probabilities
- * to half and accumulate in f32.  Their reference stages the same way in double: q' = half(q * scale), keys and
- * values as f16, p_i = exp(q'.k_i - max), the output sum_i half(p_i) v_i / sum_i p_i.  The kernel rounds p against
- * the running max of the keys seen so far, not the final one; half's relative rounding does not depend on the scale,
- * so the difference is f32 summation order and the rare probability small enough to lose bits. */
-#define ATTN_HALF_TOL 1e-4
+ * to half and accumulate in f32.  Their reference stages as the kernel does, in double otherwise: q' = half(q * scale),
+ * keys and values as f16; the keys in the kernel's tiles of 32, from the first position the row's block of 8 tokens
+ * needs (the block starts at qlo, a multiple of 8 rows into its chunk); after each tile the running max m, the
+ * output O = O * exp(m_old - m) + sum half(exp(s_i - m)) v_i and the sum l = l * exp(m_old - m) + sum exp(s_i - m);
+ * the row is O / l.  That staging takes the distance from 7.5e-4..9.1e-4 (the f32 reference) to 1.2e-4..3.1e-4.
+ * The rest is not explained: rounding the scores, each 8-term partial product or each tile's value product to
+ * half, or flushing half subnormal probabilities to zero, each made it larger.  The tolerance is the worst seen with
+ * margin; a wrong mask, tag or position is off by about 1e-1. */
+#define ATTN_HALF_TOL 5e-4
+#define ATTN_HALF_KT 32u
 
-static void ref_attn_row_half(const float *q, const float *K, const float *V, uint32_t qpos, uint32_t window, double *out) {
+static void ref_attn_row_half(const float *q, const float *K, const float *V, uint32_t qpos, uint32_t qlo, uint32_t window,
+                              double *out) {
     const uint32_t first = (window && qpos + 1u > window) ? qpos + 1u - window : 0u;
-    const uint32_t n = qpos + 1u - first;
+    const uint32_t start = (window && qlo + 1u > window) ? qlo + 1u - window : 0u;
     const uint32_t rep = MELLUM_N_HEAD / MELLUM_N_HEAD_KV;
-    double *p = malloc((uint64_t)n * sizeof(double));
-    require_ok(p != NULL, "malloc");
     for (uint32_t h = 0; h < MELLUM_N_HEAD; h++) {
         const uint32_t kvh = h / rep;
         const float *qh = q + (uint64_t)h * MELLUM_HEAD_DIM;
-        double mx = -INFINITY;
-        for (uint32_t i = 0; i < n; i++) {
-            const float *kr = K + (uint64_t)(first + i) * KV_W + (uint64_t)kvh * MELLUM_HEAD_DIM;
-            double dot = 0.0;
-            for (uint32_t d = 0; d < MELLUM_HEAD_DIM; d++) dot += (double)round_f16(qh[d] * attn_scale()) * kr[d];
-            p[i] = dot;
-            if (p[i] > mx) mx = p[i];
-        }
-        double sum = 0.0;
         double *oh = out + (uint64_t)h * MELLUM_HEAD_DIM;
         for (uint32_t d = 0; d < MELLUM_HEAD_DIM; d++) oh[d] = 0.0;
-        for (uint32_t i = 0; i < n; i++) {
-            const double e = exp(p[i] - mx), w = round_f16((float)e);
-            sum += e;
-            const float *vr = V + (uint64_t)(first + i) * KV_W + (uint64_t)kvh * MELLUM_HEAD_DIM;
-            for (uint32_t d = 0; d < MELLUM_HEAD_DIM; d++) oh[d] += w * vr[d];
+        double m = -INFINITY, l = 0.0, sc[ATTN_HALF_KT];
+        for (uint32_t k0 = start; k0 <= qpos; k0 += ATTN_HALF_KT) {
+            double mx = m;
+            for (uint32_t i = 0; i < ATTN_HALF_KT; i++) {
+                const uint32_t p = k0 + i;
+                sc[i] = -INFINITY;
+                if (p < first || p > qpos) continue;
+                const float *kr = K + (uint64_t)p * KV_W + (uint64_t)kvh * MELLUM_HEAD_DIM;
+                double dot = 0.0;
+                for (uint32_t d = 0; d < MELLUM_HEAD_DIM; d++) dot += (double)round_f16(qh[d] * attn_scale()) * kr[d];
+                sc[i] = dot;
+                if (dot > mx) mx = dot;
+            }
+            if (mx == -INFINITY) continue;
+            const double corr = m == -INFINITY ? 0.0 : exp(m - mx);
+            for (uint32_t d = 0; d < MELLUM_HEAD_DIM; d++) oh[d] *= corr;
+            l *= corr;
+            for (uint32_t i = 0; i < ATTN_HALF_KT; i++) {
+                if (sc[i] == -INFINITY) continue;
+                const double e = exp(sc[i] - mx), w = round_f16((float)e);
+                l += e;
+                const float *vr = V + (uint64_t)(k0 + i) * KV_W + (uint64_t)kvh * MELLUM_HEAD_DIM;
+                for (uint32_t d = 0; d < MELLUM_HEAD_DIM; d++) oh[d] += w * vr[d];
+            }
+            m = mx;
         }
-        for (uint32_t d = 0; d < MELLUM_HEAD_DIM; d++) oh[d] /= sum;
+        for (uint32_t d = 0; d < MELLUM_HEAD_DIM; d++) oh[d] /= l;
     }
-    free(p);
 }
 
-/* worst scale-relative error of rows [r0, r1) against the half-staged reference */
-static double rows_vs_ref_half(const seq_t *s, const float *out, uint32_t r0, uint32_t r1, uint32_t window) {
+/* the row of the block's first token: rows are chunked by plan, and each chunk in blocks of 8 from its start */
+static uint32_t block_row(plan_t plan, uint32_t r) {
+    const uint32_t start = plan.lead ? (r < plan.lead ? 0u : plan.lead + (r - plan.lead) / plan.size * plan.size)
+                                     : r / plan.size * plan.size;
+    return start + (r - start) / 8u * 8u;
+}
+
+/* worst scale-relative error of rows [r0, r1), chunked by plan, against the half-staged reference */
+static double rows_vs_ref_half(const seq_t *s, const float *out, uint32_t r0, uint32_t r1, uint32_t window, plan_t plan) {
     double worst = 0.0;
     double *ref = malloc((uint64_t)Q_W * sizeof(double));
     require_ok(ref != NULL, "malloc");
     for (uint32_t r = r0; r < r1; r++) {
-        ref_attn_row_half(s->q + (uint64_t)r * Q_W, s->kr, s->vr, r, window, ref);
+        ref_attn_row_half(s->q + (uint64_t)r * Q_W, s->kr, s->vr, r, block_row(plan, r), window, ref);
         const double e = max_rel(out + (uint64_t)r * Q_W, ref, Q_W);
         if (e > worst) worst = e;
     }
@@ -2367,7 +2388,7 @@ static void test_tiled_half_swa_session(uint32_t n) {
         swa_session(&s, plans[i], false, out);
         g_tiled_half = false;
         const bool fin = all_finite(out, (uint64_t)n * Q_W);
-        const double e = rows_vs_ref_half(&s, out, 0, n, RING), e32 = rows_vs_ref(&s, out, 0, n, RING, true);
+        const double e = rows_vs_ref_half(&s, out, 0, n, RING, plans[i]), e32 = rows_vs_ref(&s, out, 0, n, RING, true);
         CHECK(fin && e <= ATTN_HALF_TOL, "half tiles, sliding at %u keys, chunks %u then %u: every row vs the half-staged "
               "reference %.3e (tol %.0e)%s", n, plans[i].lead, plans[i].size, e, ATTN_HALF_TOL, fin ? "" : ", with a non-finite value");
         CHECK(e32 > 3.0 * ATTN_TOL, "half tiles, sliding at %u keys must round their operands, but are only %.3e from the f32 reference", n, e32);
@@ -2404,7 +2425,7 @@ static void test_tiled_half_full_rows(uint32_t n, uint32_t pos0) {
                                                      MELLUM_HEAD_DIM, attn_scale()), "half tiled full attention");
     require_ok(ds4_gpu_tensor_read(ot, 0, out + (uint64_t)pos0 * Q_W, (uint64_t)rows * Q_W * 4u), "out download");
     const bool fin = all_finite(out + (uint64_t)pos0 * Q_W, (uint64_t)rows * Q_W);
-    const double e = rows_vs_ref_half(&s, out, pos0, n, 0);
+    const double e = rows_vs_ref_half(&s, out, pos0, n, 0, (plan_t){ pos0, n });
     CHECK(fin && e <= ATTN_HALF_TOL, "half tiles, full at %u keys, rows %u..%u: vs the half-staged reference %.3e (tol %.0e)%s",
           n, pos0, n - 1u, e, ATTN_HALF_TOL, fin ? "" : ", with a non-finite value");
     printf("  half     full    %4u keys, rows %4u..%4u: every row vs half-staged reference %.2e (tol %.0e)\n", n, pos0, n - 1u, e,

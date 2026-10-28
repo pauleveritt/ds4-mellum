@@ -373,3 +373,154 @@ kernel void kernel_mellum_attn_tiled(
         for (uint i = tiisg; i < 8u * D; i += 32u) orow[i] = as_type<float>(0x7fc00000u);
     }
 }
+
+#define MELLUM_AT_KT_HALF 32u   /* keys per K/V tile of the half-operand form */
+
+/* kernel_mellum_attn_tiled with half operands (ds4_gpu.h: ds4_gpu_mellum_attn_tiled_half_tensor): the scaled
+ * queries rounded to half once, K and V staged as the f16 they are, each tile's probabilities rounded to half for the
+ * value product; scores, the softmax and the output accumulate in f32.  32 keys per tile. */
+kernel void kernel_mellum_attn_tiled_half(
+        constant ds4_metal_args_mellum_attn_tiled & args,
+        device const float   *q,
+        device const half    *ring_k,
+        device const half    *ring_v,
+        device const int32_t *ring_tag,
+        device const half    *stage_k,
+        device const half    *stage_v,
+        device float         *out,
+        uint3 tgpig [[threadgroup_position_in_grid]],
+        ushort tid [[thread_index_in_threadgroup]],
+        ushort sgitg [[simdgroup_index_in_threadgroup]],
+        ushort tiisg [[thread_index_in_simdgroup]]) {
+    constexpr uint D = MELLUM_AT_D, KT = MELLUM_AT_KT_HALF, TB = MELLUM_AT_TB, NF = MELLUM_AT_KT_HALF / 8u;
+    threadgroup half Ks[KT * D], Vs[KT * D];
+    threadgroup int   kpos[KT];
+    threadgroup uint  kbad[KT];
+    const uint kvh = tgpig.x, t0 = tgpig.y * TB;
+    if (kvh >= args.n_head_kv || t0 >= args.n_tokens) return;
+    const uint H = args.n_head, group = H / args.n_head_kv, width = args.n_head_kv * D;
+    const uint last_tok = min(t0 + TB, args.n_tokens) - 1u;
+    const bool live = t0 + sgitg <= last_tok;
+    const uint tok = min(t0 + sgitg, last_tok);
+    const uint qpos = args.pos0 + tok;
+    const uint qlo = args.pos0 + t0, qhi = args.pos0 + last_tok;
+    const uint first = (args.window != 0u && qlo + 1u > args.window) ? qlo + 1u - args.window : 0u;
+    const uint fn = (tiisg & 8u) / 2u + (tiisg & 1u) * 2u;
+
+    simdgroup_half8x8 Qm[16];
+    simdgroup_float8x8 O[16];
+    device const float *qrow = q + ((uint64_t)tok * H + kvh * group) * D;
+#pragma unroll
+    for (uint j = 0; j < 16; j++) {
+        simdgroup_float8x8 t;
+        simdgroup_load(t, qrow + j * 8u, D, 0, false);
+        Qm[j].thread_elements()[0] = (half)(t.thread_elements()[0] * args.scale);
+        Qm[j].thread_elements()[1] = (half)(t.thread_elements()[1] * args.scale);
+        O[j] = make_filled_simdgroup_matrix<float, 8, 8>(0.0f);
+    }
+    float m_row = -3.0e38f, l_row = 0.0f;
+    uint bad = 0u;
+
+    for (uint k0 = first; k0 <= qhi; k0 += KT) {
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        if (tid < KT) {
+            const uint p = k0 + tid;
+            int kp = -1;
+            uint kb = 0u;
+            if (p <= qhi) {
+                kp = (int)p;
+                if (p < args.stage0) kb = (uint)(ring_tag[p % args.window] != (int32_t)p);
+            }
+            kpos[tid] = kp;
+            kbad[tid] = kb;
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        for (uint i = tid; i < KT * 16u; i += 256u) {   /* (key, segment of 8 dims) */
+            const uint key = i >> 4, seg = i & 15u;
+            const int p = kpos[key];
+            uint4 kw = uint4(0u), vw = uint4(0u);
+            if (p >= 0) {
+                const bool ring = (uint)p < args.stage0;
+                const uint64_t at = (ring ? (uint64_t)((uint)p % args.window) : (uint64_t)((uint)p - args.stage0)) * width +
+                                    kvh * D + seg * 8u;
+                kw = *reinterpret_cast<device const uint4 *>((ring ? ring_k : stage_k) + at);
+                vw = *reinterpret_cast<device const uint4 *>((ring ? ring_v : stage_v) + at);
+            }
+            *reinterpret_cast<threadgroup uint4 *>(Ks + key * D + seg * 8u) = kw;
+            *reinterpret_cast<threadgroup uint4 *>(Vs + key * D + seg * 8u) = vw;
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        simdgroup_float8x8 S[NF];
+#pragma unroll
+        for (uint f = 0; f < NF; f++) S[f] = make_filled_simdgroup_matrix<float, 8, 8>(0.0f);
+#pragma unroll
+        for (uint j = 0; j < 16; j++) {
+#pragma unroll
+            for (uint f = 0; f < NF; f++) {
+                simdgroup_half8x8 Kf;
+                simdgroup_load(Kf, Ks + f * 8u * D + j * 8u, D, 0, true);
+                simdgroup_multiply_accumulate(S[f], Qm[j], Kf, S[f]);
+            }
+        }
+        float sv[2 * NF];
+        bool valid[2 * NF];
+        float mx = -3.0e38f;
+#pragma unroll
+        for (uint c = 0; c < 2 * NF; c++) {
+            const uint key = (c >> 1) * 8u + fn + (c & 1u);
+            const int p = kpos[key];
+            valid[c] = p >= 0 && (uint)p <= qpos && (args.window == 0u || qpos - (uint)p < args.window);
+            bad |= (uint)(valid[c] && kbad[key] != 0u);
+            sv[c] = valid[c] ? S[c >> 1].thread_elements()[c & 1u] : -3.0e38f;
+            mx = max(mx, sv[c]);
+        }
+        mx = max(mx, simd_shuffle_xor(mx, 1));
+        mx = max(mx, simd_shuffle_xor(mx, 8));
+        const float m_new = max(m_row, mx);
+        const float corr = exp(m_row - m_new);
+        float rs = 0.0f;
+        simdgroup_half8x8 P[NF];
+#pragma unroll
+        for (uint c = 0; c < 2 * NF; c++) {
+            const float pv = valid[c] ? exp(sv[c] - m_new) : 0.0f;
+            rs += pv;
+            P[c >> 1].thread_elements()[c & 1u] = (half)pv;
+        }
+        rs += simd_shuffle_xor(rs, 1);
+        rs += simd_shuffle_xor(rs, 8);
+        l_row = l_row * corr + rs;
+        m_row = m_new;
+        if (simd_any(corr != 1.0f)) {
+#pragma unroll
+            for (uint j = 0; j < 16; j++) {
+                O[j].thread_elements()[0] *= corr;
+                O[j].thread_elements()[1] *= corr;
+            }
+        }
+#pragma unroll
+        for (uint j = 0; j < 16; j++) {
+#pragma unroll
+            for (uint f = 0; f < NF; f++) {
+                simdgroup_half8x8 Vf;
+                simdgroup_load(Vf, Vs + f * 8u * D + j * 8u, D, 0, false);
+                simdgroup_multiply_accumulate(O[j], P[f], Vf, O[j]);
+            }
+        }
+    }
+
+    const bool any_bad = simd_any(bad != 0u);
+    if (!live) return;
+    const float inv = l_row > 0.0f ? 1.0f / l_row : 0.0f;
+    device float *orow = out + ((uint64_t)tok * H + kvh * group) * D;
+#pragma unroll
+    for (uint j = 0; j < 16; j++) {
+        O[j].thread_elements()[0] *= inv;
+        O[j].thread_elements()[1] *= inv;
+        simdgroup_store(O[j], orow + j * 8u, D, 0, false);
+    }
+    if (any_bad) {
+        simdgroup_barrier(mem_flags::mem_device);
+        for (uint i = tiisg; i < 8u * D; i += 32u) orow[i] = as_type<float>(0x7fc00000u);
+    }
+}
