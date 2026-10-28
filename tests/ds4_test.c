@@ -777,6 +777,90 @@ static void test_mellum_exact_prefill(void) {
     ds4_engine_close(engine);
 }
 
+/* The tiled prefill attention (DS4_TEST_MELLUM_MODEL): a 1,100-token prefill's last-row logits by default, with
+ * DS4_MELLUM_ATTN_TILED=0 (the sliding and full kernels the decode steps use), and under DS4_MELLUM_EXACT_PREFILL=1
+ * with and without that switch.  Each setting is read once, when the session is created. */
+static bool test_mellum_attn_logits(ds4_engine *engine, const char *tiled, bool exact, float *logits) {
+    if (tiled) setenv("DS4_MELLUM_ATTN_TILED", tiled, 1);
+    if (exact) setenv("DS4_MELLUM_EXACT_PREFILL", "1", 1);
+    ds4_session *s = NULL;
+    const bool created = ds4_session_create(&s, engine, 4096) == 0 && s != NULL;
+    unsetenv("DS4_MELLUM_ATTN_TILED");
+    unsetenv("DS4_MELLUM_EXACT_PREFILL");
+    if (!created) return false;
+    ds4_tokens prompt = {0};
+    char err[256] = {0};
+    for (int i = 0; i < 1100; i++) ds4_tokens_push(&prompt, test_mellum_token(i));
+    const bool ok = ds4_session_sync(s, &prompt, err, sizeof(err)) == 0 && ds4_session_copy_logits(s, logits, 98304) == 98304;
+    ds4_tokens_free(&prompt);
+    ds4_session_free(s);
+    return ok;
+}
+
+/* The oracle's per-position rule (tests/mellum_oracle_compare.sh): the same top-1 token, or a different one where
+ * the reference's top two are within 0.75 nats; max|d logit| <= 10; KL(ref || x) <= 1; |d log p(ref top-1)| <= 1. */
+static bool test_mellum_within_rule(const float *ref, const float *x, double *kl_out) {
+    uint32_t top = 0, second = 1, xtop = 0;
+    double mr = ref[0], mx = x[0], maxd = 0.0;
+    for (uint32_t i = 0; i < 98304u; i++) {
+        if (ref[i] > ref[top]) { second = top; top = i; }
+        else if (i != top && (second == top || ref[i] > ref[second])) second = i;
+        if (x[i] > x[xtop]) xtop = i;
+        mr = fmax(mr, ref[i]);
+        mx = fmax(mx, x[i]);
+        maxd = fmax(maxd, fabs((double)ref[i] - x[i]));
+    }
+    double zr = 0.0, zx = 0.0;
+    for (uint32_t i = 0; i < 98304u; i++) {
+        zr += exp(ref[i] - mr);
+        zx += exp(x[i] - mx);
+    }
+    const double lzr = mr + log(zr), lzx = mx + log(zx);
+    double kl = 0.0;
+    for (uint32_t i = 0; i < 98304u; i++) {
+        const double lp = ref[i] - lzr, lq = x[i] - lzx;
+        kl += exp(lp) * (lp - lq);
+    }
+    const double dlogp = fabs((ref[top] - lzr) - (x[top] - lzx));
+    *kl_out = kl;
+    return (xtop == top || (double)ref[top] - ref[second] <= 0.75) && maxd <= 10.0 && kl <= 1.0 && dlogp <= 1.0;
+}
+
+static void test_mellum_attn_tiled(void) {
+    const char *model = getenv("DS4_TEST_MELLUM_MODEL");
+    if (!model || !model[0]) {
+        puts("mellum-attn-tiled: DS4_TEST_MELLUM_MODEL unset, skipped");
+        return;
+    }
+    ds4_engine *engine = NULL;
+    ds4_engine_options opt = { .model_path = model, .backend = DS4_BACKEND_METAL, .context_size = 4096 };
+    TEST_ASSERT(ds4_engine_open(&engine, &opt) == 0 && engine != NULL);
+    if (!engine) return;
+    float *def = malloc(98304u * sizeof(float)), *off = malloc(98304u * sizeof(float));
+    float *exact = malloc(98304u * sizeof(float)), *exact_off = malloc(98304u * sizeof(float));
+    TEST_ASSERT(def && off && exact && exact_off);
+    TEST_ASSERT(test_mellum_attn_logits(engine, NULL, false, def));
+    TEST_ASSERT(test_mellum_attn_logits(engine, "0", false, off));
+    TEST_ASSERT(test_mellum_attn_logits(engine, NULL, true, exact));
+    TEST_ASSERT(test_mellum_attn_logits(engine, "0", true, exact_off));
+    uint64_t d_switch = 0, d_exact = 0;
+    for (uint32_t i = 0; i < 98304u; i++) {
+        d_switch += memcmp(&def[i], &off[i], sizeof(float)) != 0;
+        d_exact += memcmp(&exact[i], &exact_off[i], sizeof(float)) != 0;
+    }
+    double kl_def = 0.0, kl_off = 0.0;
+    const bool rule_def = test_mellum_within_rule(exact, def, &kl_def), rule_off = test_mellum_within_rule(exact, off, &kl_off);
+    printf("mellum-attn-tiled: 1,100-token prefill, the default against DS4_MELLUM_ATTN_TILED=0: %llu of 98304 logit "
+           "words differ; under DS4_MELLUM_EXACT_PREFILL=1: %llu; vs the exact prefill, KL default %.2e, switched off %.2e\n",
+           (unsigned long long)d_switch, (unsigned long long)d_exact, kl_def, kl_off);
+    TEST_ASSERT(d_switch > 0);   /* the default tiles the prefill attention */
+    TEST_ASSERT(d_exact == 0);   /* the exact prefill never does */
+    TEST_ASSERT(rule_def);
+    TEST_ASSERT(rule_off);
+    free(def); free(off); free(exact); free(exact_off);
+    ds4_engine_close(engine);
+}
+
 static void test_mellum_rewind(void) {
     const char *model = getenv("DS4_TEST_MELLUM_MODEL");
     if (!model || !model[0]) {
@@ -8415,6 +8499,7 @@ static const ds4_test_entry test_entries[] = {
 #ifndef DS4_NO_GPU
     {"--qwen4-prefill-checkpoints", "qwen4-prefill-checkpoints", "Qwen chunk checkpoints restore matching logits and state", test_qwen_prefill_checkpoints},
     {"--mellum-session", "mellum-session", "Mellum session allocation equals its plan (DS4_TEST_MELLUM_MODEL)", test_mellum_session_allocation},
+    {"--mellum-attn-tiled", "mellum-attn-tiled", "Mellum's prefill attention is tiled by default and within the oracle's rule; DS4_MELLUM_ATTN_TILED=0 keeps the decode kernels (DS4_TEST_MELLUM_MODEL)", test_mellum_attn_tiled},
     {"--mellum-exact-prefill", "mellum-exact-prefill", "Mellum prefill equals decode byte for byte under DS4_MELLUM_EXACT_PREFILL=1 (DS4_TEST_MELLUM_MODEL)", test_mellum_exact_prefill},
     {"--mellum-rewind", "mellum-rewind", "Mellum session rewind: one token or to the last sync's end keeps the caches, elsewhere deeper replays; logits equal a straight decode (DS4_TEST_MELLUM_MODEL)", test_mellum_rewind},
     {"--mellum-server-ids", "mellum-server-ids", "Mellum server renders against the template's ids (DS4_TEST_MELLUM_MODEL)", test_mellum_server_ids},
