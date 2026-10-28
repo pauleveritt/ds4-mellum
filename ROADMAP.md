@@ -6,12 +6,12 @@ numbered checkpoints. This roadmap tracks the separate SSD investigation.
 ## Current baseline
 
 - Mellum Checkpoint 3.6: `59932c9`, rebased onto upstream `ee7e840`, with E1.
-- CPU replay preparation: implemented on `codex/mellum-ssd-replay`; 33
-  synthetic replay tests and the model-free Mellum suite pass.
-- First diagnostic resident routing captures now pass on an M5 Max / 128 GiB
-  laptop. The bounded CPU warm-read batch is complete; physical SSD traffic
-  remains unverified. No Mellum SSD inference has run, and physical 8 GB
-  feasibility is unresolved.
+- S0–S4 complete on `codex/mellum-ssd-replay`, unpushed. Opt-in
+  `--ssd-streaming` runs Mellum on Metal from a bounded expert cache. On this
+  M5 Max / 128 GiB laptop it matches resident output at 32K, with reads that
+  reach the SSD (S4 below).
+- Not established: streamed speed or memory on 16 GB or 8 GB hardware, and a
+  speed target for "useful" (S5).
 - This branch retains the Checkpoint 3.6 baseline. The separate `mellum`
   checkout has advanced to `f635616` with frontend work; this SSD branch does
   not integrate or change it. SSD phases keep their own numbering.
@@ -183,7 +183,7 @@ requirement or prediction.
 On paper, a 16 GB Mac's Metal `recommendedMaxWorkingSetSize` is about 10.67
 GiB (secondary sources, unverified). That is below resident Q8's 12.44 GiB
 plan at 8K, so Q8 needs streaming there. The engine's 7/8 budget leaves
-about 7 GiB of expert cache. Measure on a 16 GB Mac before S5 relies on it:
+about 7 GiB of expert cache. Measure on a 16 GB Mac before S5b relies on it:
 the real working-set limit, whether resident Q8 runs without swapping, and
 optionally that machine's miss-order read service. No GPU work on this
 laptop is needed.
@@ -201,7 +201,8 @@ The [design](docs/superpowers/specs/2026-10-28-mellum-s4-cached-execution-design
 cache, with device-true reads (0.996–1.002, n=3):
 - **Exact:** 3 of 3 runs give resident's 2,048 token ids.
 - **Memory:** peak footprint 6.93 GiB, Metal allocation 7.81 GiB.
-- **Speed:** decode 26–27 t/s against 92 resident; time to first token about 60 s against 29 s.
+- **Speed:** decode 26–27 t/s against 92 resident at 32K (resident is about 133–139 on a short prompt,
+  MELLUM.md); time to first token about 60 s against 29 s.
 - **No resident regression,** from [measurement 01](docs/superpowers/research/2026-10-28-mellum-s4-measurement.md)
   (n=6 per arm).
 
@@ -209,19 +210,41 @@ cache, with device-true reads (0.996–1.002, n=3):
 found why and fixed it. By arithmetic, prefill is read-bound at about 10.8 GB/s. Decode has about
 18 ms/token of overhead beyond its reads and syncs.
 
-Next: profile the stop/resume path, then S5.
+The [decode profile](docs/superpowers/research/2026-10-28-mellum-s4-decode-profile-spike.md) followed
+(n=1 per arm, short prompt). Gating the projections and copies after a stop (`9e9757f`) raised streamed
+decode from 30.6 to 39.6 t/s, against about 136 resident. The rest scales with stops per token, not SSD
+time: about 10.7 GPU passes per token, adding about 5.4 ms of GPU execution and 2.6 ms of per-buffer cost.
+Loads take about 0.95 ms per stop, serially. Load overlap was set aside (owner); a check-kernel trim was
+tried and not kept. Measurement 02's 32K figures predate the gating.
 
-### S5 — Bounded streaming and deployment validation: not started
+### S5 — Streamed speed on the development laptop: not started
 
-Implement the measured cache/read policy, preserving Q8 weights and routing.
-Account for fixed tensors, session state, E1/global backend scratch, cache,
-staging, recorder state and in-flight references at the same peak. Compare
-resident and streamed behavior under the same numerical configuration.
+Levers, in order. Each is measured before and after with its n, keeps Q8 weights and routing, and stays
+exact against resident:
+1. **Re-measure 32K at the current build,** under a new preregistration (02 is spent and predates
+   `9e9757f`).
+2. **Layer-major prefill:** read each layer's experts once per prompt, not once per 1,024-row chunk. In
+   02, prefill loaded 334 GB and added about 31 s to the first token.
+3. **Fewer stops per token:** hotness for layers that hit, and the eviction policy. Choose on a fresh
+   trace, never the held-out -02 trace or ac-demo.
+4. **Predictive prefetch,** only under its own design, if 2 and 3 leave too little.
 
-Exit: correct bounded engine on the development laptop, then whole-machine
-memory pressure and useful latency on physical 16 GB hardware. Native host
-integration in `../ds4-engine` follows engine correctness and measurements;
-Python owns workflow policy, while C/Rust owns inference-critical scheduling.
+**Open owner decision: the speed target.** "Useful" needs numbers, decode t/s at 32K and time to first
+token, before S5 can close. They also decide whether lower-bit experts return (S6).
+
+Exit: the target met, or the levers exhausted with a recorded verdict; exact output; peak footprint and
+Metal allocation within about 8 GiB at 32K.
+
+### S5b — Deployment validation on a 16 GB Mac: not started
+
+After S3b and S5. Run S5's build on physical 16 GB hardware with the cache budget S3b derives. Account
+for fixed tensors, session state, E1/global backend scratch, cache, staging, recorder state and in-flight
+references at the same peak. Compare resident and streamed behavior under the same numerical
+configuration.
+
+Exit: whole-machine memory pressure, with an editor, a browser and a couple of apps open, and the S5
+target latency on that machine. Native host integration in `../ds4-engine` follows engine correctness and
+measurements; Python owns workflow policy, while C/Rust owns inference-critical scheduling.
 
 ### S6 — 8 GB target: deferred
 
