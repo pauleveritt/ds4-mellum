@@ -2,8 +2,8 @@
 # CLI decode A/B/B/A on D1's prompts (phase 8c; first written for the D3 screens under misc/d-decode/).
 #   tests/mellum_cli_decode_abba.sh OUTDIR MODEL PROMPTDIR TOKENS...    (PROMPTDIR holds prompt_<TOKENS>.txt,
 #   e.g. tests/mellum_measurements/d1_decode_profile)
-# Run from the tree whose metal/ the ds4 binary should load (DS4, default ./ds4).  A_ENV and B_ENV are
-# space-separated assignments.  Blocks A B B A of PER processes, COOL s before a block, GAP s between
+# Run from the tree whose metal/ the ds4 binary should load (DS4, default ./ds4; A_DS4 and B_DS4 override it per
+# arm, for an arm built at another commit).  A_ENV and B_ENV are space-separated assignments.  Blocks A B B A of PER processes, COOL s before a block, GAP s between
 # processes, the first process of each block dropped; each process `ds4 --temp 0 -n GEN`, the CLI's
 # generation line is the result.  Context: prompt tokens + GEN + 64, rounded up to 1,024.  Every process's
 # stdout (the generated text) and stderr are kept, runs.txt has every process's rate, and power and thermal
@@ -11,6 +11,7 @@
 set -u
 OUT=$1; MODEL=$2; PD=$3; shift 3
 DS4=${DS4:-./ds4}
+A_DS4=${A_DS4:-$DS4}; B_DS4=${B_DS4:-$DS4}
 PER=${PER:-4}; COOL=${COOL:-30}; GAP=${GAP:-10}; GEN=${GEN:-256}
 read -r -a A_ARM <<< "${A_ENV-}"
 read -r -a B_ARM <<< "${B_ENV-}"
@@ -23,7 +24,8 @@ state() {
 { echo "machine: $(sysctl -n machdep.cpu.brand_string) $(sysctl -n hw.memsize) bytes"
   echo "tree: $(pwd) head $(git rev-parse --short HEAD), $(git status --porcelain --untracked-files=no | wc -l | tr -d " ") changed tracked files"
   echo "PER=$PER COOL=$COOL GAP=$GAP GEN=$GEN"
-  echo "A: ${A_ARM[*]:-(no variables)}"; echo "B: ${B_ARM[*]:-(no variables)}"; } > "$OUT/setup.txt"
+  echo "A: ${A_ARM[*]:-(no variables)}, $A_DS4 ($(stat -f %Sm "$A_DS4"))"
+  echo "B: ${B_ARM[*]:-(no variables)}, $B_DS4 ($(stat -f %Sm "$B_DS4"))"; } > "$OUT/setup.txt"
 for target in "$@"; do
     prompt=$PD/prompt_$target.txt
     ntok=$("$DS4" -m "$MODEL" --prompt-file "$prompt" --dump-tokens 2>/dev/null | head -1 |
@@ -33,13 +35,13 @@ for target in "$@"; do
     b=0
     for arm in A B B A; do
         b=$((b + 1))
-        if [ $arm = A ]; then envs=(${A_ARM[@]+"${A_ARM[@]}"}); else envs=(${B_ARM[@]+"${B_ARM[@]}"}); fi
+        if [ $arm = A ]; then envs=(${A_ARM[@]+"${A_ARM[@]}"}); bin=$A_DS4; else envs=(${B_ARM[@]+"${B_ARM[@]}"}); bin=$B_DS4; fi
         sleep "$COOL"
         echo "state before $target $b$arm: $(state)" >> "$OUT/events.txt"
         for p in $(seq 1 "$PER"); do
             [ "$p" -gt 1 ] && sleep "$GAP"
             log=$OUT/l${target}_b$b${arm}_p$p
-            env ${envs[@]+"${envs[@]}"} "$DS4" -m "$MODEL" -c "$ctx" --temp 0 -n "$GEN" --prompt-file "$prompt" \
+            env ${envs[@]+"${envs[@]}"} "$bin" -m "$MODEL" -c "$ctx" --temp 0 -n "$GEN" --prompt-file "$prompt" \
                 > "$log.out" 2> "$log.err" || { echo "process $log failed"; exit 1; }
             tps=$(sed -n 's/.*generation: \([0-9.]*\) t\/s.*/\1/p' "$log.err" | tail -1)
             echo "$target $ntok $arm $b $p $tps" >> "$OUT/runs.txt"
