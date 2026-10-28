@@ -399,7 +399,8 @@ Phase 7b, the gaps left at Checkpoint 5 (steps 48-50, 2026-10-27):
   Pi's fuzzy edit still runs without NFKC, so a full-width or ligature
   difference is a miss here where Pi would match.
 
-Phase 8a, tiled prefill attention (T1 and T2, 2026-10-27; Paul's Checkpoint 6 answer: land both):
+Phase 8a, tiled prefill attention (T1 and T2, 2026-10-27). After Checkpoint 6 Paul said "Proceed and
+continue through all of it until done"; both proposed variants then landed, the f32 tiles first:
 
 - T1, CLI prefill with E1: `518ee06` the runner, `16b52ed` its state lines, `6cbf14e` raw logs,
   `a06c490` arms from the environment, `fc6dece` the row.
