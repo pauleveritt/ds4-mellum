@@ -1732,6 +1732,16 @@ test-mellum-service: test-mellum-stage tools/mellum_read_bench
 	python3 -I tests/test_mellum_service_run.py
 test-mellum-storage: test-mellum-service
 
+tests/test_mellum_stream: tests/test_mellum_stream.c ds4_mellum_stream.c ds4_mellum_stream.h
+	$(CC) -std=c99 -O2 -Wall -Wextra -Werror -I. tests/test_mellum_stream.c ds4_mellum_stream.c -o $@
+.PHONY: test-mellum-stream clean-mellum-stream
+test-mellum-stream: tests/test_mellum_stream
+	./tests/test_mellum_stream
+test-mellum: test-mellum-stream
+clean-mellum-stream:
+	rm -f tests/test_mellum_stream
+clean: clean-mellum-stream
+
 MELLUM_GENERATE_CFLAGS = -std=c99 -O2 -D_POSIX_C_SOURCE=200809L -D_DARWIN_C_SOURCE -Wall -Wextra -Werror
 tests/test_mellum_generate_io: tests/test_mellum_generate_io.c tools/mellum_generate_io.c tools/mellum_generate_io.h
 	$(CC) $(MELLUM_GENERATE_CFLAGS) tests/test_mellum_generate_io.c tools/mellum_generate_io.c -o $@
