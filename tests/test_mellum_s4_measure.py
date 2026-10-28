@@ -6,6 +6,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+import unittest.mock
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -63,6 +64,27 @@ class Copy(unittest.TestCase):
             self.assertEqual(info['bytes'], src.stat().st_size)
             with self.assertRaises(FileExistsError):
                 m.fresh_copy(src, dst)
+
+    def test_fresh_copy_never_reads_the_copy_back(self):
+        # reading a copy back caches it (cached-reads spike): verification is separate and runs after timing
+        m = load()
+        with tempfile.TemporaryDirectory() as d:
+            src, dst = Path(d) / 'm.gguf', Path(d) / 'copy.gguf'
+            src.write_bytes(b'x' * 100_000)
+            real_open = open
+            opened = []
+
+            def watch(path, *a, **k):
+                opened.append((str(path), a[0] if a else k.get('mode', 'r')))
+                return real_open(path, *a, **k)
+
+            with unittest.mock.patch('builtins.open', watch):
+                m.fresh_copy(src, dst, block=4096)
+            self.assertFalse([o for o in opened if o[0] == str(dst) and 'r' in o[1]], opened)
+            self.assertEqual(m.verify_copy(src, dst, block=4096)['bytes'], 100_000)
+            dst.write_bytes(b'y' * 100_000)
+            with self.assertRaises(ValueError):
+                m.verify_copy(src, dst, block=4096)
 
 
 class Reads(unittest.TestCase):
