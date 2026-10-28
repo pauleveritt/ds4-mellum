@@ -2524,6 +2524,50 @@ static void check_gate_suppresses_projection_and_copy(void) {
     munmap(arena, 1u << 20);
 }
 
+/* the per-layer check kernel: a selected expert with no address trips the gate and suppresses every later
+ * dispatch (even with far more gate records than the layer has hidden units), and saves the layer's resume
+ * state; with every address present it trips nothing */
+static void check_stream_check_kernel(void) {
+    enum { CE = 128 };
+    for (int missing = 1; missing >= 0; missing--) {
+        int32_t sel[8] = { 3, 9, 17, 22, 40, 41, 50, 63 };
+        float wts[8] = { 0.1f, 0.2f, 0.3f, 0.4f, 0.5f, 0.6f, 0.7f, 0.8f };
+        uint64_t addr[64];
+        for (uint32_t e = 0; e < 64; e++) addr[e] = 0x1000u + e;
+        if (missing) addr[22] = 0;
+        float *ar = rand_vec(CE, 1.0f), *fn = rand_vec(CE, 1.0f);
+        ds4_gpu_tensor *st = ds4_gpu_tensor_alloc(sizeof(sel)), *wt = ds4_gpu_tensor_alloc(sizeof(wts));
+        ds4_gpu_tensor *at = upload(ar, CE), *ft = upload(fn, CE), *save = zeroed(2u * (2u * CE + 16u) * 4u);
+        ds4_gpu_tensor *ga = ds4_gpu_tensor_alloc(sizeof(addr)), *ua = ds4_gpu_tensor_alloc(sizeof(addr)), *da = ds4_gpu_tensor_alloc(sizeof(addr));
+        ds4_gpu_tensor *acc = gate_filled(0.0f), *one = gate_filled(1.0f), *gate = ds4_gpu_stream_gate_create();
+        require_ok(st && wt && ga && ua && da && gate && ds4_gpu_tensor_write(st, 0, sel, sizeof(sel)) &&
+                   ds4_gpu_tensor_write(wt, 0, wts, sizeof(wts)) && ds4_gpu_tensor_write(ga, 0, addr, sizeof(addr)) &&
+                   ds4_gpu_tensor_write(ua, 0, addr, sizeof(addr)) && ds4_gpu_tensor_write(da, 0, addr, sizeof(addr)) &&
+                   ds4_gpu_stream_gate_reset(gate) && ds4_gpu_stream_gate_bind(gate) && ds4_gpu_begin_commands(), "check setup");
+        require_ok(ds4_gpu_mellum_stream_check_tensor(gate, st, wt, at, ft, save, ga, ua, da, 1, CE), "check");
+        for (uint32_t i = 0; i < 50; i++) require_ok(ds4_gpu_add_tensor(acc, acc, one, GATE_N), "check chain add");
+        require_ok(ds4_gpu_end_commands() && ds4_gpu_stream_gate_bind(NULL), "check end");
+        uint32_t layer = 0;
+        bool stopped = false;
+        require_ok(ds4_gpu_stream_gate_read(gate, &layer, &stopped), "check read");
+        float *sv = download(save, 2u * (2u * CE + 16u));
+        const float *slot = sv + (2u * CE + 16u);
+        bool saved = memcmp(slot, ar, CE * 4u) == 0 && memcmp(slot + CE, fn, CE * 4u) == 0 &&
+                     memcmp(slot + 2u * CE, sel, sizeof(sel)) == 0 && memcmp(slot + 2u * CE + 8u, wts, sizeof(wts)) == 0;
+        if (missing) {
+            CHECK(stopped && layer == 1, "check: a missing address must stop at its layer (stopped %d, layer %u)", stopped, layer);
+            CHECK(gate_all(acc, 0.0f), "check: every dispatch after a trip must do nothing, past the layer's width");
+        } else {
+            CHECK(!stopped && gate_all(acc, 50.0f), "check: with every address present nothing is suppressed");
+        }
+        CHECK(saved, "check: the layer's resume state must be saved in its slot (missing %d)", missing);
+        free(ar); free(fn); free(sv);
+        ds4_gpu_tensor_free(st); ds4_gpu_tensor_free(wt); ds4_gpu_tensor_free(at); ds4_gpu_tensor_free(ft);
+        ds4_gpu_tensor_free(save); ds4_gpu_tensor_free(ga); ds4_gpu_tensor_free(ua); ds4_gpu_tensor_free(da);
+        ds4_gpu_tensor_free(acc); ds4_gpu_tensor_free(one); ds4_gpu_tensor_free(gate);
+    }
+}
+
 static void check_unbound_gate_inert(void) {
     ds4_gpu_tensor *acc = gate_filled(0.0f), *one = gate_filled(1.0f), *zero = gate_filled(0.0f);
     ds4_gpu_tensor *gate = ds4_gpu_stream_gate_create();
@@ -2588,6 +2632,7 @@ int main(void) {
     check_gate_suppresses_after_trip();
     check_gate_all_hit_one_wait();
     check_unbound_gate_inert();
+    check_stream_check_kernel();
     check_gate_suppresses_projection_and_copy();
     check_gate_overflow_is_error();
 
