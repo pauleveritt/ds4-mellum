@@ -801,6 +801,91 @@ table) gives the half tiles 1.37x at 2,056 tokens, 1.65x at 8,195 and 2.03x at 3
 gave 1.37x, 1.65x and 2.05x. A 32,778-token summary request (`./ds4 -c 34816 --temp 0 -n 700 --prompt-file
 .../prompt_32768.txt`, n = 1) prefilled at 1,873 t/s and answered with three sentences drawn from the text.
 
+### D: decode research (phase 8b, Checkpoint 7; nothing landed)
+
+Paul, 2026-10-28: "Proceed with next step, I believe it is decode research". D1 and D2 measured decode at
+ea0f37b. Commands, n and raw logs are in the Measured table.
+
+**D1.** Each decode step is one command buffer of 535 dispatches, then one wait, the logits read and the CPU's
+sampling. Wall time is the CLI's generation rate. GPU time and the gap between steps come from
+`DS4_METAL_CB_TIMES` (255 or 256 decode buffers per length). Bandwidth is bytes per step, at the middle of
+the 256 generated tokens, over the median GPU time:
+
+| prompt tokens | t/s | wall per step | GPU per step | GPU idle between steps | encode | bytes per step | GB/s (of 575.4) | read floor |
+|---|---|---|---|---|---|---|---|---|
+| 100 | 133.15 | 7.510 ms | 6.908 ms (92.1%) | 0.591 ms | 0.3 ms | 2,376.5 MB | 344.0 (59.8%) | 4.130 ms, 242 t/s |
+| 2,056 | 119.08 | 8.398 ms | 7.920 ms (93.2%) | 0.598 ms | 0.3 ms | 2,438.8 MB | 307.9 (53.5%) | 4.238 ms, 236 t/s |
+| 8,195 | 116.67 | 8.571 ms | 8.314 ms (92.4%) | 0.620 ms | 0.3 ms | 2,526.8 MB | 303.9 (52.8%) | 4.391 ms, 228 t/s |
+| 32,778 | 98.15 | 10.188 ms | 9.495 ms (94.0%) | 0.626 ms | 0.3 ms | 2,879.3 MB | 303.2 (52.7%) | 5.004 ms, 200 t/s |
+
+So decode is GPU-bound: launch, encode and the wait cost the 0.6 ms of GPU idle per step, 7-8%.
+
+The kernel split comes from the encoder timeline, `anatomy.txt`. Each dispatch group there is its own pass,
+so durations are upper bounds and add up to about 12% more than the buffer's GPU span. At 2,056 tokens, per
+step:
+
+| kernel (threadgroups) | per step | each | data each | GB/s |
+|---|---|---|---|---|
+| experts gate + up, `moe_mid` (112x8) | 28 | 78.2 us | 35.1 MB | 449 |
+| experts down, `moe_down` (288x8) | 28 | 39.6 us | 17.5 MB | 443 |
+| Q projection (2,048) | 28 | 26.2 us | 10.0 MB | 383 |
+| output projection (1,152) | 28 | 21.9 us | 10.0 MB | 458 |
+| K and V projections (256) | 56 | 17.0 us | 1.25 MB | 74 |
+| output head (49,152) | 1 | 414.3 us | 240.6 MB | 581 |
+| F32 router, `multi_gemv` (8) | 28 | 15.1 us | 0.59 MB | 39 |
+| sliding attention, `mellum_attn_swa` (32) | 21 | 52.9 us | 2.1 MB | 40 |
+| full attention, decode + merge (64x4, 32) | 7 | 38.1 us | 2.2 MB | 58 |
+| norms, q/k norm and RoPE, adds, f16 copies, ring commit, MoE reduce, top-k | 361 | 2.0-7.0 us | KB | - |
+
+At 32,778 tokens, full attention is 254.8 + 22.0 us per layer (264 GB/s), and attention as a whole takes 28%
+of the summed durations, up from 7% at 100 tokens and 16% at 2,056.
+
+**D2, B0.** A two-row verify costs 1.318 decode steps at 100 ids of context, 1.290 at 2,048, 1.315 at 8,192
+and 1.439 at 32,768. That includes the row-0 head in its own command buffer, 0.61-0.68 ms. In the same
+buffer it would be about the head's 0.41 ms, giving about 1.26 at 2,048. Every run's two logit rows equal the
+decode steps' bytes, so a verify accepts exactly what greedy decode would. A verify that rejects its draft
+at depth one needs no restore: the rejected row's ring slot is outside the next position's window, and the
+next step overwrites it. Phase 8's B0 budget is a draft-and-verify cycle of at most 1.28 steps for 1.5x at
+92% acceptance, and 1.07 for 1.8x. The two-row verify alone is at or over 1.28 at every context, so B0 fails
+as the code stands. Not measured: why two rows cost 1.29 steps. The two-row projections run each row as its
+own threadgroups (the exact rows kernel), and the experts run per token, up to 16 distinct experts per
+layer.
+
+**D3, candidates ranked by ceiling.** A ceiling is the per-step saving if the kernels reached their read
+floor at 575.4 GB/s (timeline durations, so upper bounds), taken out of the CLI's wall step. All of them
+together are capped by the read floor: 1.98x at 2,056 tokens.
+
+| rank | candidate | ceiling at 2,056 tokens (others) | byte-equal decode? |
+|---|---|---|---|
+| 1 | sliding decode attention, 32 threadgroups at 40 GB/s: more parallel keys | 1.034 ms, **1.140x** (100: 1.043x; 8,195: 1.137x; 32,778: 1.123x) | only as a reordering-free change: screen S1, 1.038x measured; a split over more partitions changes the merge and needs a stated tolerance |
+| 2 | fuse the small kernels (norms, RoPE, adds, copies, commit, reduce, top-k: 1.24 ms) into neighbours | 1.239 ms, **1.173x** if all vanished | yes, if each value's arithmetic is kept |
+| 3 | K and V projections into the Q dispatch (and Q, output projections to the floor) | 0.828 ms, **1.109x** (all four: 1.197 ms, 1.166x) | yes: each output row is computed by the same kernel |
+| 4 | experts at the floor (449 and 443 GB/s now) | 0.738 ms, **1.096x** | yes, if the per-row order is kept; already the closest to peak |
+| 5 | GPU idle between steps (logits read, sampling, encode) | 0.598 ms, **1.077x** | yes; greedy needs an on-GPU argmax and the next step encoded first; sampling needs it on the GPU too |
+| 6 | full attention at long context (264 GB/s at 32,778) | 32,778: 1.118 ms, **1.123x**; 2,056: 1.026x | the decode kernel is upstream's; a change is not byte-equal |
+| 7 | F32 router with 8 threadgroups (39 GB/s) | 0.394 ms, **1.049x** (+0.196 ms if top-k fuses in) | yes |
+| 8 | prompt-lookup drafts, depth one, at B0's 1.290 | tool 1.074x, long C source 1.145x, code 0.992x, Unicode 1.021x, prose 0.912x (last 1-3 ids); last 3 ids only: 1.087x, 1.112x, 1.019x, 1.023x, 1.001x | yes (B0's verify equals decode) |
+| 9 | a cheaper two-row verify (B0 at 1.05 instead of 1.29) | prompt lookup then 1.227x (tool), 1.368x (long), 1.092x (code), 1.036x (prose); MTP below | depends on the kernels |
+| 10 | an MTP head | at 92% acceptance and depth one, with only the head's BF16 output read as draft cost (453 MB, 0.094 step): 1.388x at B0's 1.29, 1.252x at 32,768's 1.44, 1.679x at 1.05. The GGUF has no MTP tensors (all 339 counted), so a head comes from outside | yes for the verify |
+| 11 | the output head | 0: already at 581 GB/s | - |
+
+The prompt-lookup figures are teacher-forced on the files' own text, not the model's greedy output, and use
+ids per step / (share of steps verifying x B0 + the rest). Drafting every step breaks even at 29% acceptance
+at B0's 1.29. Deeper drafts need a (k + 1)-row verify, which was not measured.
+
+**Screen S1** (`misc/d-decode/s1-swa-prefetch.diff`, scratch, not landed). Each simdgroup of the sliding
+decode kernel loads its next P keys before folding them in, in the same order with the same arithmetic.
+Timeline at 2,056 tokens, n = 1 process each: P = 2, 3, 4 gave 39.7, 38.4 and 39.0 us against 52.9. P = 8 and
+16 gave 64.8 and 65.0 us, more registers held. A first version whose load loop could break out early gave
+68.1, 96.3 and 69.0 us for P = 4, 8, 16; those logs were overwritten by the predicated rerun, and the
+numbers are from the session's output. P = 2 passed:
+- the kernel tests;
+- the oracle: decode byte-equal to the old engine, and 64 equal greedy tokens;
+- the CLI A/B/B/A: 1.004x at 100 tokens, 1.038x at 2,056, 1.030x at 8,195, with identical generated text.
+
+S1 takes about a quarter of candidate 1's 1.14x ceiling at 2,056 tokens. The rest would need more partitions
+per head, which changes the merge.
+
 ## Rebase onto ee7e840 (review step RB, 2026-10-27)
 
 `mellum` was rebased from upstream `5379c1c` onto antirez `ee7e840`, upstream `main` that day. That adds two
