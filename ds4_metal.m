@@ -11481,6 +11481,7 @@ static int ds4_gpu_signal_batch_and_wait_event(const char *label) {
 #define DS4_GPU_STREAM_GATE_CAP 4096u
 static ds4_gpu_tensor *g_stream_gate;
 static uint32_t g_stream_gate_next;
+static bool g_stream_gate_overflow;   /* sticky until that gate's reset or another gate's bind */
 static uint64_t g_wait_count;
 static bool g_mellum_stream_no_readahead;
 static id<MTLComputePipelineState> g_stream_gate_trip_pipeline;
@@ -11509,11 +11510,15 @@ int ds4_gpu_stream_gate_reset(ds4_gpu_tensor *gate) {
     uint32_t *w = gate ? ds4_gpu_stream_gate_words(gate) : NULL;
     if (!w) return 0;
     memset(w, 0, DS4_GPU_STREAM_GATE_HEADER_WORDS * sizeof(uint32_t));
-    if (gate == g_stream_gate) g_stream_gate_next = 0;
+    if (gate == g_stream_gate) {
+        g_stream_gate_next = 0;
+        g_stream_gate_overflow = false;
+    }
     return 1;
 }
 
 int ds4_gpu_stream_gate_bind(ds4_gpu_tensor *gate_or_null) {
+    if (gate_or_null && gate_or_null != g_stream_gate) g_stream_gate_overflow = false;
     g_stream_gate = gate_or_null;
     g_stream_gate_next = 0;
     return 1;
@@ -11521,7 +11526,7 @@ int ds4_gpu_stream_gate_bind(ds4_gpu_tensor *gate_or_null) {
 
 int ds4_gpu_stream_gate_read(const ds4_gpu_tensor *gate, uint32_t *layer, bool *stopped) {
     const uint32_t *w = gate ? ds4_gpu_stream_gate_words(gate) : NULL;
-    if (!w || !layer || !stopped) return 0;
+    if (!w || !layer || !stopped || g_stream_gate_overflow) return 0;
     *stopped = w[0] != 0u;
     *layer = w[1];
     return 1;
@@ -11534,8 +11539,9 @@ static int ds4_gpu_dispatch_gated(id<MTLComputeCommandEncoder> enc, MTLSize grou
         return 1;
     }
     if (g_stream_gate_next >= DS4_GPU_STREAM_GATE_CAP) {
-        /* past the record cap the work runs unsuppressed: a stopped token's resume restores its state,
-         * so suppression only saves time */
+        /* past the record cap the gate cannot suppress this dispatch, and a stopped token must not repeat
+         * some of its writes (the sliding ring commit): the token reads back as an error */
+        g_stream_gate_overflow = true;
         [enc dispatchThreadgroups:groups threadsPerThreadgroup:threads];
         return 1;
     }
