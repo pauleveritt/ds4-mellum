@@ -352,3 +352,36 @@ records the earlier primitive matrix and exploratory replay. The
 records the later owned-session/profile checks and five source-checked captures.
 Raw direct-harness spools remain unqualified; use the checked publisher to obtain
 v2 evidence with observed profile descriptions.
+
+## First generated Phase 1 conversation
+
+The bounded [generated cohort plan](superpowers/plans/2026-10-28-mellum-generated-cohort.md)
+adds a separate research collector, leaving the teacher-forced publisher intact.
+`tools/mellum_generated_inputs.py` exposes `freeze_build(container,cpu,gpu)` and
+`prepare(bundle,model,cpu,container,build_receipt=receipt)`; the receipt must come
+from that fresh forced build. `tools/mellum_generated_publish.py` exposes
+`run(prepared,model,gpu,container)`. All paths are absolute. Containers must be
+new and remain reserved after any native launch failure. Preparation uses native
+CPU inspection once; collection owns the standard shared model lock.
+
+Freeze inputs only after all implementation/review commits; HEAD, source,
+policy and both binaries must remain unchanged until collection closes. Reject
+inherited inference, Git and Make controls (the app's `GIT_PAGER` may be explicitly
+removed from the launcher environment). No automatic retries. The fixed cutoff
+is 2026-10-28 12:00 UTC, the GPU child budget is 900 seconds including parity,
+and preparation has a separate 120-second limit. This is a one-time study,
+not a general benchmark CLI.
+
+The native collector commits every generated token, including EOS, preserves
+actual history through append, and compares all operation logits against one
+ordinary resident replay. Capped first responses receive an explicitly recorded
+host end marker; protocol stops fail. Raw evidence remains under `raw/`; a
+successful publication is `result/artifact`. Its frame schedule, token identities,
+profiles, runtime, tape and every closing source/input check must pass.
+
+Analysis uses one cold-start grouped LRU replay at 3 GiB, preserving cache state
+across initial prefill, both answers and the scripted review append. First-32,
+after-32 and last-256 windows are descriptive; overlapping tail windows must not
+be summed. The code is not executed and no Phase 1 tests are claimed to pass.
+This n=1 scripted conversation leaves real tool results and medium/8K coverage
+open, and establishes neither SSD inference speed nor physical 8 GB feasibility.

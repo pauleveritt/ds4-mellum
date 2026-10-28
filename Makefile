@@ -1757,3 +1757,9 @@ clean-mellum-generated-native:
 	rm -f tests/test_mellum_generate_loop tools/mellum_generate_cpu tools/mellum_generate
 clean: clean-mellum-generated-native
 test-mellum: test-mellum-generated-native
+
+.PHONY: test-mellum-generated-publish
+test-mellum-generated-publish:
+	python3 -I tests/test_mellum_generated_publish.py
+	python3 -I tests/test_mellum_generated_analysis.py
+test-mellum: test-mellum-generated-publish

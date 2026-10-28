@@ -136,9 +136,12 @@ Keep the completed attempt and its reservation; no automatic rerun follows.
 The first ac-demo task remains Phase 1 only; later phases
 require their own requests and prior-phase checkpoints.
 
-Prepare the representative workload while GPU time is unavailable, then collect
-its frozen matrix when GPU time is available. Preserve held-out evaluation;
-existing diagnostic traces do not substitute for representative locality.
+The [first generated Phase 1 plan](docs/superpowers/plans/2026-10-28-mellum-generated-cohort.md)
+is being qualified for one bounded coding conversation plus scripted user review,
+with exact-token resident parity and frozen 3 GiB global LRU. It executes no model
+output and does not close tool-result or medium/8K coverage. Preserve held-out
+evaluation; existing diagnostic traces do not substitute for representative
+locality. S4 remains separate until this result is reviewed.
 
 Exit: measured miss curves and storage-read performance, followed by an explicit
 assessment of what they permit or rule out under stated scheduling assumptions.
