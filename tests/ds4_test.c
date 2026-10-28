@@ -796,6 +796,37 @@ static void test_mellum_stream_faults(void) {
     free(got);
 }
 
+/* S4 review minor (DS4_TEST_MELLUM_MODEL): ds4_engine_close(NULL) is a no-op, so it must leave an open
+ * streamed engine's uncached model descriptor alone; that engine's next loads still read. */
+static void test_mellum_stream_close_null(void) {
+    const char *model = getenv("DS4_TEST_MELLUM_MODEL");
+    if (!model || !model[0]) {
+        puts("mellum-stream-close: DS4_TEST_MELLUM_MODEL unset, skipped");
+        return;
+    }
+    ds4_engine *engine = NULL;
+    ds4_engine_options opt = { .model_path = model, .backend = DS4_BACKEND_METAL, .context_size = 8192,
+                               .ssd_streaming = true, .ssd_streaming_cache_experts = 64u };
+    TEST_ASSERT(ds4_engine_open(&engine, &opt) == 0 && engine);
+    if (!engine) return;
+    ds4_session *s = NULL;
+    TEST_ASSERT(ds4_session_create(&s, engine, 8192) == 0 && s);
+    ds4_engine_close(NULL);
+    char err[256] = {0};
+    ds4_tokens prefix = {0};
+    for (int i = 0; i < 4; i++) ds4_tokens_push(&prefix, test_mellum_token(i));
+    uint64_t loads = 0;
+    if (s) {
+        TEST_ASSERT(ds4_session_sync(s, &prefix, err, sizeof(err)) == 0);
+        TEST_ASSERT(ds4_test_mellum_stream_loads(s, &loads) && loads > 0);
+        printf("mellum-stream-close: after ds4_engine_close(NULL), the sync %s with %llu loads%s%s\n",
+               err[0] ? "failed" : "succeeded", (unsigned long long)loads, err[0] ? ": " : "", err);
+        ds4_session_free(s);
+    }
+    ds4_tokens_free(&prefix);
+    ds4_engine_close(engine);
+}
+
 static void test_mellum_stream_identity(void) {
     const char *model = getenv("DS4_TEST_MELLUM_MODEL");
     if (!model || !model[0]) {
@@ -8148,6 +8179,7 @@ static const ds4_test_entry test_entries[] = {
     {"--mellum-stream-identity", "mellum-stream-identity", "S4: Mellum decode from a bounded expert-slot cache equals resident, word for word, at 6 GiB and 64 slots (DS4_TEST_MELLUM_MODEL)", test_mellum_stream_identity},
     {"--mellum-stream-prefill", "mellum-stream-prefill", "S4: Mellum prefill from a bounded expert-slot cache equals resident last-row logits at 2,200 and 31 tokens (DS4_TEST_MELLUM_MODEL)", test_mellum_stream_prefill_identity},
     {"--mellum-stream-faults", "mellum-stream-faults", "S4: a failed streamed load and a cancellation end the eval and a re-sync recovers resident logits (DS4_TEST_MELLUM_MODEL)", test_mellum_stream_faults},
+    {"--mellum-stream-close", "mellum-stream-close", "S4: ds4_engine_close(NULL) leaves an open streamed engine's descriptor and its loads working (DS4_TEST_MELLUM_MODEL)", test_mellum_stream_close_null},
     {"--mellum-rewind", "mellum-rewind", "Mellum session rewind: one token keeps the caches, deeper replays; logits equal a straight decode (DS4_TEST_MELLUM_MODEL)", test_mellum_rewind},
     {"--mellum-moe", "mellum-moe", "Mellum MoE driver on the real model's layers against a double reference (DS4_TEST_MELLUM_MODEL)", test_mellum_moe_real},
     {"--qwen4-restore-reuse", "qwen4-restore-reuse", "Qwen restore discards old verifier state and rejects truncated payloads", test_qwen_restore_reused_session},
