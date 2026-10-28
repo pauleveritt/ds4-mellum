@@ -72,5 +72,55 @@ def test_busy_and_deadline_refuse_before_reservation():
             except ValueError:pass
             else:raise AssertionError('cutoff accepted')
 
+def validation_fixture(api,root):
+    native=root/'native';native.mkdir();prepared=root/'prepared';prepared.mkdir()
+    spool,ops,tokens=fixture(api,native)
+    (native/'tokens.txt').write_text(' '.join(map(str,tokens)))
+    api.common.write_json(native/'result.json',dict(complete=True,parity=True,counts=[1,2],stop_classes=[1,2],host_separator_tokens=1,response0_end=3,response1_start=5,tokens=7))
+    (native/'gold.f32').write_bytes(b'\0'*(5*393216))
+    (native/'emitted.txt').write_text('1 3 10\n3 6 20\n3 7 30\n')
+    for name,words in zip(api.inputs.TOKEN_FILES,('1 2','5','9 4','4')):
+        (prepared/name).write_text(words)
+        (prepared/name.replace('.tokens','.rendered')).write_bytes(b'rendered')
+    recreated=native/'recreated';recreated.mkdir()
+    for name in (*api.inputs.TOKEN_FILES,*api.inputs.RENDERED_FILES):(recreated/name).write_bytes((prepared/name).read_bytes())
+    receipt=dict(receipt_version=1,context_tokens=8192,cap_tokens=2,capabilities=dict(tensor_tiles_available=True,pre_m5_apple=False,m5_apple=True))
+    api.common.write_json(native/'runtime.json',receipt)
+    f=load('profile_fixture',ROOT/'tests/test_mellum_capture_publish.py')
+    (native/'owned.profiles').write_text('0 '+f.VALID_PROFILE+'\n')
+    frozen=dict(source_identity=dict(revision='a'*40,source_state_id='b'*64,files={}),build=dict(gpu=dict(sha256='c'*64),log=dict(path=str(root/'build.log'))),inputs=dict(model={}),policy=dict(sha256='d'*64),source_content_id='e'*64)
+    (root/'build.log').write_text('forced build')
+    return prepared,native,frozen,dict(host=dict(cpu='M5 Max',model='Mac17,7',ram_bytes=128*2**30))
+
+
+def test_validated_export_requires_parity_exact_native_inputs_and_complete_tape():
+    api=module();validation=api.identity.sibling('mellum_generated_validation')
+    with tempfile.TemporaryDirectory() as d:
+        prepared,native,frozen,host=validation_fixture(api,Path(d))
+        report=validation.validate(prepared,native,frozen,host)
+        assert report['complete'] is True and report['analysis']['whole']['policy']=='lru'
+        assert report['native']['counts']==[1,2]
+        assert (native/'trace.jsonl').exists()
+    for bad in ('parity','tokens','tape','emitted','count','stop','rendered','nonfinite'):
+        with tempfile.TemporaryDirectory() as d:
+            prepared,native,frozen,host=validation_fixture(api,Path(d))
+            result=api.common.load_json(native/'result.json')
+            if bad=='parity':result['parity']=False
+            if bad=='count':result['counts'][0]=2
+            if bad=='stop':result['stop_classes'][0]=3
+            if bad=='tokens':(native/'tokens.txt').write_text('9 2 3 4 5 6 7')
+            if bad=='tape':(native/'gold.f32').write_bytes(b'')
+            if bad=='nonfinite':
+                import struct
+                with (native/'gold.f32').open('r+b') as stream:stream.write(struct.pack('<f',float('nan')))
+            if bad=='emitted':(native/'emitted.txt').write_text('1 3 10\n3 7 20\n3 6 30\n')
+            if bad=='rendered':(native/'recreated/initial.rendered').write_bytes(b'changed')
+            (native/'result.json').unlink();api.common.write_json(native/'result.json',result)
+            try:validation.validate(prepared,native,frozen,host)
+            except ValueError:pass
+            else:raise AssertionError(bad+' accepted')
+            assert not (native/'trace.jsonl').exists()
+
+
 def load_tests(loader,tests,pattern):return unittest.TestSuite(unittest.FunctionTestCase(v) for k,v in globals().items() if k.startswith('test_'))
 if __name__=='__main__':unittest.main()
