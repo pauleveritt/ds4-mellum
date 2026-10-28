@@ -111,6 +111,7 @@ struct ds4_metal_args_mellum_attn_swa {
 };
 
 #define MELLUM_SWA_NSG 8u   /* simdgroups per (head, row): keys split by their index in the logical sequence */
+#define MELLUM_SWA_PF 2u    /* keys each simdgroup loads before folding them in (kernel_mellum_attn_swa) */
 #define MELLUM_SWA_D 128u   /* head_dim; a lane owns four dims */
 
 /* Sliding-window attention of one (head, row), prefill and decode alike.
@@ -154,27 +155,36 @@ kernel void kernel_mellum_attn_swa(
     float4 acc = float4(0.0f);
     float m = -3.0e38f, l = 0.0f;
     uint bad = 0u;
-    for (uint i = sgitg; i < n; i += MELLUM_SWA_NSG) {
-        const uint pos = first + i;
-        float4 kf, vf;
-        if (pos < args.pos0) {
-            const uint slot = pos % args.window;
-            bad |= (uint)(ring_tag[slot] != (int32_t)pos);
-            const uint64_t at = (uint64_t)slot * width + kvh * MELLUM_SWA_D + tiisg * 4u;
-            kf = float4(*reinterpret_cast<device const half4 *>(ring_k + at));
-            vf = float4(*reinterpret_cast<device const half4 *>(ring_v + at));
-        } else {
-            const uint64_t at = (uint64_t)(pos - args.pos0) * width + kvh * MELLUM_SWA_D + tiisg * 4u;
-            kf = float4(*reinterpret_cast<device const half4 *>(stage_k + at));
-            vf = float4(*reinterpret_cast<device const half4 *>(stage_v + at));
+    /* Each simdgroup loads its next MELLUM_SWA_PF keys before folding any of them in, so that many loads are in
+     * flight; a slot past the end reloads the last key (the query's own, staged, never tag-checked) and is skipped.
+     * The keys, the order they are folded in and every operation are kernel_mellum_attn_swa_ref's (phase 8c, S1),
+     * and the kernel tests hold the two to the same words. */
+    for (uint i0 = sgitg; i0 < n; i0 += MELLUM_SWA_PF * MELLUM_SWA_NSG) {
+        float4 kf[MELLUM_SWA_PF], vf[MELLUM_SWA_PF];
+        _Pragma("unroll") for (uint j = 0u; j < MELLUM_SWA_PF; j++) {
+            const uint pos = first + min(i0 + j * MELLUM_SWA_NSG, n - 1u);
+            if (pos < args.pos0) {
+                const uint slot = pos % args.window;
+                bad |= (uint)(ring_tag[slot] != (int32_t)pos);
+                const uint64_t at = (uint64_t)slot * width + kvh * MELLUM_SWA_D + tiisg * 4u;
+                kf[j] = float4(*reinterpret_cast<device const half4 *>(ring_k + at));
+                vf[j] = float4(*reinterpret_cast<device const half4 *>(ring_v + at));
+            } else {
+                const uint64_t at = (uint64_t)(pos - args.pos0) * width + kvh * MELLUM_SWA_D + tiisg * 4u;
+                kf[j] = float4(*reinterpret_cast<device const half4 *>(stage_k + at));
+                vf[j] = float4(*reinterpret_cast<device const half4 *>(stage_v + at));
+            }
         }
-        const float s = simd_sum(dot(qv, kf));
-        const float m_new = max(m, s);
-        const float corr = exp(m - m_new);
-        const float w = exp(s - m_new);
-        l = l * corr + w;
-        acc = acc * corr + w * vf;
-        m = m_new;
+        _Pragma("unroll") for (uint j = 0u; j < MELLUM_SWA_PF; j++) {
+            if (i0 + j * MELLUM_SWA_NSG >= n) continue;
+            const float s = simd_sum(dot(qv, kf[j]));
+            const float m_new = max(m, s);
+            const float corr = exp(m - m_new);
+            const float w = exp(s - m_new);
+            l = l * corr + w;
+            acc = acc * corr + w * vf[j];
+            m = m_new;
+        }
     }
     if (tiisg == 0u) {
         part_m[sgitg] = m;
