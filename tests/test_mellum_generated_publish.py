@@ -10,7 +10,11 @@ ROOT=Path(__file__).resolve().parents[1]
 def load(name,path):
     spec=importlib.util.spec_from_file_location(name,path);module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module);return module
 
-def module():return load('generated_publish',ROOT/'tools/mellum_generated_publish.py')
+def module():
+    m=load('generated_publish',ROOT/'tools/mellum_generated_publish.py')
+    # Fake-boundary tests run inside the frozen window, whatever the wall clock says.
+    from datetime import timedelta
+    m.utc_now=lambda:m.DEADLINE-timedelta(hours=1);return m
 
 def fixture(api,root,*,wrong_segment=False,wrong_token=False):
     f=load('spool_fixture',ROOT/'tests/test_mellum_routes_to_trace.py')

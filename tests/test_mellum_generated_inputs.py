@@ -11,7 +11,10 @@ from unittest.mock import patch
 ROOT=Path(__file__).resolve().parents[1]
 def module():
     path=ROOT/'tools/mellum_generated_inputs.py';assert path.exists(),'generated inputs missing'
-    spec=importlib.util.spec_from_file_location('generated_inputs_test',path);m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m);return m
+    spec=importlib.util.spec_from_file_location('generated_inputs_test',path);m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+    # Fake-boundary tests run inside the frozen window, whatever the wall clock says.
+    from datetime import timedelta
+    m.utc_now=lambda:m.DEADLINE-timedelta(hours=1);return m
 
 def bundle(api,root):
     files={}
@@ -111,7 +114,7 @@ def test_same_size_model_substitution_refuses_before_native_inspect():
 
 def test_cpu_inspect_and_build_commands_must_fit_frozen_cutoff():
     api=module()
-    from datetime import datetime, timezone
+    from datetime import timedelta
     from contextlib import ExitStack
     with tempfile.TemporaryDirectory() as d:
         root=Path(d);b=root/'bundle';b.mkdir();v=bundle(api,b);model=root/'model';model.write_bytes(b'model');cpu=root/'cpu';gpu=root/'gpu'
@@ -119,7 +122,7 @@ def test_cpu_inspect_and_build_commands_must_fit_frozen_cutoff():
         with ExitStack() as stack:
             stack.enter_context(patch.object(api,'CONTENT_ID',v['content_id']));stack.enter_context(patch.object(api,'REVISION',v['source']['commit']))
             stack.enter_context(patch.object(api,'MODEL_BYTES',5));stack.enter_context(patch.object(api,'MODEL_STAT',api.identity.file_stat(model)))
-            stack.enter_context(patch.object(api,'utc_now',return_value=datetime(2026,10,28,11,59,30,tzinfo=timezone.utc),create=True))
+            stack.enter_context(patch.object(api,'utc_now',return_value=api.DEADLINE-timedelta(seconds=30),create=True))
             native=stack.enter_context(patch.object(api.observer,'command',side_effect=AssertionError('native command crossed cutoff')))
             for action in (lambda:api.prepare(b,model,cpu,root/'input'),lambda:api.freeze_build(root/'build',cpu,gpu)):
                 try:action()
