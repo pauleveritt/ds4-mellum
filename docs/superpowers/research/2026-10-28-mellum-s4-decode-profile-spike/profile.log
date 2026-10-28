@@ -1,0 +1,4 @@
+PROFILE tokens 128 ms/token: total 34.47 encode 2.38 finish(wait) 23.09 load 9.00 (msync 0.62)
+PROFILE tokens 256 ms/token: total 34.69 encode 2.43 finish(wait) 23.20 load 9.06 (msync 0.47)
+PROFILE tokens 384 ms/token: total 33.82 encode 2.34 finish(wait) 22.61 load 8.87 (msync 0.41)
+PROFILE tokens 512 ms/token: total 32.65 encode 2.25 finish(wait) 21.93 load 8.47 (msync 0.36)

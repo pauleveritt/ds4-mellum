@@ -1,0 +1,84 @@
+diff --git a/ds4.c b/ds4.c
+index 85f6a8d..057f09a 100644
+--- a/ds4.c
++++ b/ds4.c
+@@ -51,6 +51,11 @@ static bool g_mellum_stream_engine;
+ static int g_mellum_stream_fd = -1;
+ /* tests/ds4_test.c --mellum-stream-faults: fail the nth streamed load from when it was set (0: never) */
+ static uint64_t g_mellum_stream_fail_load_at, g_mellum_stream_load_count;
++/* SPIKE: profile */
++extern uint64_t g_prof_inval_ns;
++static uint64_t g_prof_encode, g_prof_finish, g_prof_load, g_prof_tokens, g_prof_decode;
++#include <time.h>
++static uint64_t prof_ns(void) { return clock_gettime_nsec_np(CLOCK_UPTIME_RAW); }
+ #endif
+ #include "ds4_mellum_capture_state.h"
+ #include "ds4_mellum_observer.h"
+@@ -60940,7 +60945,11 @@ typedef struct {
+     int32_t token;
+ } mellum_stream_ctx;
+ 
++static bool mellum_stream_encode_real(void *ctx, uint32_t from_layer, bool resume);
+ static bool mellum_stream_encode(void *ctx, uint32_t from_layer, bool resume) {
++    const uint64_t t = prof_ns(); const bool ok = mellum_stream_encode_real(ctx, from_layer, resume); g_prof_encode += prof_ns() - t; return ok;
++}
++static bool mellum_stream_encode_real(void *ctx, uint32_t from_layer, bool resume) {
+     mellum_stream_ctx *c = ctx;
+     ds4_qwen4_gpu_graph *g = c->g;
+     ds4_gpu_tensor *const *s = g->mellum_scratch;
+@@ -60963,7 +60972,11 @@ static bool mellum_stream_encode(void *ctx, uint32_t from_layer, bool resume) {
+     return ok && mellum_graph_head(g, c->m, c->w, 0);
+ }
+ 
++static bool mellum_stream_finish_real(void *ctx, bool *stopped, ds4_mellum_stream_stop *stop);
+ static bool mellum_stream_finish(void *ctx, bool *stopped, ds4_mellum_stream_stop *stop) {
++    const uint64_t t = prof_ns(); const bool ok = mellum_stream_finish_real(ctx, stopped, stop); g_prof_finish += prof_ns() - t; return ok;
++}
++static bool mellum_stream_finish_real(void *ctx, bool *stopped, ds4_mellum_stream_stop *stop) {
+     mellum_stream_ctx *c = ctx;
+     ds4_qwen4_gpu_graph *g = c->g;
+     uint32_t layer = 0;
+@@ -60983,7 +60996,8 @@ static bool mellum_stream_finish(void *ctx, bool *stopped, ds4_mellum_stream_sto
+ 
+ static bool mellum_stream_load(void *ctx, uint32_t layer, const int32_t *ids, uint32_t n) {
+     mellum_stream_ctx *c = ctx;
+-    return mellum_stream_load_ids(c->m, &c->w->layer[layer], layer, ids, n, &c->g->mellum_stream_loads);
++    const uint64_t t = prof_ns(); const bool ok = mellum_stream_load_ids(c->m, &c->w->layer[layer], layer, ids, n, &c->g->mellum_stream_loads);
++    g_prof_load += prof_ns() - t; return ok;
+ }
+ 
+ static bool mellum_stream_cancelled(void *ctx) {
+@@ -60994,6 +61008,7 @@ static bool mellum_stream_cancelled(void *ctx) {
+ static bool mellum_stream_decode(ds4_qwen4_gpu_graph *g, const ds4_model *m, const ds4_weights *w, int32_t token,
+                                  float *logits_out) {
+     mellum_stream_ctx c = { g, m, w, token };
++    const uint64_t t0 = prof_ns();
+     const ds4_mellum_stream_ops ops = { &c, mellum_stream_encode, mellum_stream_finish, mellum_stream_load,
+                                         mellum_stream_cancelled };
+     uint32_t stops = 0;
+@@ -61002,6 +61017,8 @@ static bool mellum_stream_decode(ds4_qwen4_gpu_graph *g, const ds4_model *m, con
+     (void)ds4_gpu_stream_gate_bind(NULL);
+     g->mellum_stream_resume = UINT32_MAX;
+     g->mellum_stream_stops += stops;
++    g_prof_decode += prof_ns() - t0;
++    if (++g_prof_tokens % 128 == 0) fprintf(stderr, "PROFILE tokens %llu ms/token: total %.2f encode %.2f finish(wait) %.2f load %.2f (msync %.2f)\n", (unsigned long long)g_prof_tokens, g_prof_decode/1e6/g_prof_tokens, g_prof_encode/1e6/g_prof_tokens, g_prof_finish/1e6/g_prof_tokens, g_prof_load/1e6/g_prof_tokens, g_prof_inval_ns/1e6/g_prof_tokens);
+     if (rc != DS4_MELLUM_STREAM_OK) {
+         fprintf(stderr, "ds4: Mellum streamed decode failed at position %u (%d after %u stops)\n", g->pos, rc, stops);
+         return false;
+diff --git a/ds4_metal.m b/ds4_metal.m
+index 1519602..2838daf 100644
+--- a/ds4_metal.m
++++ b/ds4_metal.m
+@@ -51305,7 +51305,12 @@ static void *g_mellum_stream_inval_map;
+ static uint64_t g_mellum_stream_inval_size;
+ static int g_mellum_stream_inval_fd = -1;
+ 
++uint64_t g_prof_inval_ns;
++static void ds4_gpu_mellum_stream_invalidate_real(uint64_t model_size, uint64_t offset, uint64_t len);
+ static void ds4_gpu_mellum_stream_invalidate(uint64_t model_size, uint64_t offset, uint64_t len) {
++    const uint64_t t = clock_gettime_nsec_np(CLOCK_UPTIME_RAW); ds4_gpu_mellum_stream_invalidate_real(model_size, offset, len); g_prof_inval_ns += clock_gettime_nsec_np(CLOCK_UPTIME_RAW) - t;
++}
++static void ds4_gpu_mellum_stream_invalidate_real(uint64_t model_size, uint64_t offset, uint64_t len) {
+     if (g_model_fd < 0 || len == 0 || offset > model_size || len > model_size - offset) return;
+     if (!g_mellum_stream_inval_map || g_mellum_stream_inval_fd != g_model_fd || g_mellum_stream_inval_size != model_size) {
+         if (g_mellum_stream_inval_map) munmap(g_mellum_stream_inval_map, (size_t)g_mellum_stream_inval_size);
