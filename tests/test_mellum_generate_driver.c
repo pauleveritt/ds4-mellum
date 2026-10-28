@@ -11,11 +11,11 @@ static int mode;
 static FILE *fault_stream;
 FILE *mellum_test_open(const char *path,const char *flags) {
     FILE *stream=fopen(path,flags);
-    if(mode==1 && strstr(path,"/owned.routes")) fault_stream=stream;
+    if((mode==1 && strstr(path,"/owned.routes")) || (mode==4 && strstr(path,"/result"))) fault_stream=stream;
     return stream;
 }
 int mellum_test_close(FILE *stream) {
-    int fail=stream==fault_stream && mode==1;
+    int fail=stream==fault_stream && (mode==1 || mode==4);
     int rc=fclose(stream);if(fail) { fault_stream=NULL;return EOF; }return rc;
 }
 void ds4_tokens_push(ds4_tokens *tokens,int token) {
@@ -66,7 +66,7 @@ static void contains(const char *dir,const char *name,const char *needle) {
 int main(int argc,char **argv) {
     char root[]="/tmp/mellum-gen-driver-XXXXXX";assert(mkdtemp(root));char input[512];snprintf(input,sizeof(input),"%s/input",root);assert(!mkdir(input,0700));
     assert(!mellum_generated_prepare(NULL,input,input));
-    for(mode=0;mode<=3;mode++) {
+    for(mode=0;mode<=4;mode++) {
         if(argc==2 && mode!=atoi(argv[1])) continue;
         char output[512];snprintf(output,sizeof(output),"%s/run%d",root,mode);assert(!mkdir(output,0700));
         int rc=mellum_generated_collect(NULL,input,output);
