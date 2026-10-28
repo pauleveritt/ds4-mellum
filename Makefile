@@ -71,7 +71,7 @@ METAL_LDLIBS := $(LDLIBS)
 endif
 
 # Native diagnostic helpers are GPU-free; unsupported builds keep linkable APIs.
-MELLUM_CAPTURE_OBJS = ds4_mellum_routes.o ds4_mellum_profile.o ds4_mellum_capture_state.o ds4_mellum_observer.o
+MELLUM_CAPTURE_OBJS = ds4_mellum_routes.o ds4_mellum_profile.o ds4_mellum_capture_state.o ds4_mellum_observer.o ds4_mellum_stream.o
 MELLUM_CAPTURE_HEADERS = ds4_mellum_capture.h ds4_mellum_capture_state.h ds4_mellum_observer.h ds4_mellum_profile.h ds4_mellum_routes.h
 override CORE_OBJS := $(filter-out $(MELLUM_CAPTURE_OBJS),$(CORE_OBJS)) $(MELLUM_CAPTURE_OBJS)
 override CPU_CORE_OBJS := $(filter-out $(MELLUM_CAPTURE_OBJS),$(CPU_CORE_OBJS)) $(MELLUM_CAPTURE_OBJS)
