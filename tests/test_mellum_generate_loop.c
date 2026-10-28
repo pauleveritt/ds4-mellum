@@ -12,13 +12,13 @@ static int logits(void *ctx,float *values,int n) {
     fake *f=ctx;for(int i=0;i<n;i++) values[i]=0;
     values[f->position<3 ? 2:5]=1;
     if(f->mode==1) values[0]=NAN;
-    if(f->mode==2) values[3]=1; /* equal logits, lowest id wins */
+    if(f->mode==2 && f->position<3) values[3]=1; /* equal logits, lowest id wins */
     if(f->mode==3) values[7]=2; /* parity mismatch */
     return n;
 }
 static int stop(void *ctx,int token) { return token==5 ? (((fake *)ctx)->fail ? DS4_STOP_PROTOCOL:DS4_STOP_EOS):0; }
 int main(void) {
-    fake f={0};mellum_generated_backend backend={&f,sync_tokens,eval,logits,stop};
+    fake f={.mode=2};mellum_generated_backend backend={&f,sync_tokens,eval,logits,stop};
     ds4_tokens history={0};ds4_tokens_push(&history,1);
     FILE *ops=tmpfile(),*gold=tmpfile(),*emitted=tmpfile();assert(ops && gold && emitted);
     float values[8];int count=0,reason=0;
@@ -27,9 +27,9 @@ int main(void) {
     assert(!mellum_generated_turn(&backend,&history,10,1,ops,gold,emitted,values,8,&count,&reason));
     assert(count==3 && reason==DS4_STOP_EOS && history.len==4 && history.v[1]==2 && history.v[3]==5);
     fflush(ops);fflush(gold);rewind(ops);rewind(gold);
-    f=(fake){0};assert(!mellum_generated_parity(&backend,&history,ops,gold,values,8));
+    f=(fake){.mode=2};assert(!mellum_generated_parity(&backend,&history,ops,gold,values,8));
     rewind(ops);rewind(gold);f=(fake){.mode=3};assert(mellum_generated_parity(&backend,&history,ops,gold,values,8));
-    rewind(ops);rewind(gold);f=(fake){0};fputc(0,gold);fflush(gold);rewind(gold);
+    rewind(ops);rewind(gold);f=(fake){.mode=2};fputc(0,gold);fflush(gold);rewind(gold);
     assert(mellum_generated_parity(&backend,&history,ops,gold,values,8));
     f=(fake){.mode=1};assert(mellum_generated_sync(&backend,&history,0,ops,gold,values,8));
     f=(fake){.fail=1,.position=3};assert(!logits(&f,values,8) || values[5]==1);
