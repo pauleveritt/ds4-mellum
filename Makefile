@@ -1763,3 +1763,15 @@ test-mellum-generated-publish:
 	python3 -I tests/test_mellum_generated_publish.py
 	python3 -I tests/test_mellum_generated_analysis.py
 test-mellum: test-mellum-generated-publish
+
+tests/mellum_generate_driver_fault.o: tools/mellum_generate_driver.c tests/mellum_generate_driver_fault.h
+	$(CC) $(MELLUM_GENERATE_CFLAGS) -include tests/mellum_generate_driver_fault.h -c tools/mellum_generate_driver.c -o $@
+tests/test_mellum_generate_driver: tests/test_mellum_generate_driver.c tests/mellum_generate_driver_fault.o tools/mellum_generate_loop.c tools/mellum_generate_io.c
+	$(CC) $(MELLUM_GENERATE_CFLAGS) tests/test_mellum_generate_driver.c tests/mellum_generate_driver_fault.o tools/mellum_generate_loop.c tools/mellum_generate_io.c -o $@
+.PHONY: test-mellum-generated-driver clean-mellum-generated-driver
+test-mellum-generated-driver: tests/test_mellum_generate_driver
+	./tests/test_mellum_generate_driver
+test-mellum: test-mellum-generated-driver
+clean-mellum-generated-driver:
+	rm -f tests/test_mellum_generate_driver tests/mellum_generate_driver_fault.o
+clean: clean-mellum-generated-driver

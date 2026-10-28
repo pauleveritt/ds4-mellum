@@ -148,3 +148,4 @@ __pycache__/
 /tests/test_mellum_generate_loop
 /tools/mellum_generate_cpu
 /tools/mellum_generate
+/tests/test_mellum_generate_driver
