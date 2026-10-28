@@ -18,6 +18,10 @@ numbered checkpoints. This roadmap tracks the separate SSD investigation.
 
 ## SSD streaming milestones
 
+Target order (owner decision 2026-10-28, [retarget](docs/superpowers/research/2026-10-28-mellum-ssd-retarget.md)):
+16 GB first, with Q8 weights unchanged, then 8 GB (S6). Streaming stays opt-in
+(`--ssd-streaming`); with it off, resident speed must not regress.
+
 ### S0 — Offline replay foundation: complete
 
 Version 1 trace validation, grouped LRU, fixed-order relaxed optimal replay,
@@ -89,7 +93,7 @@ Exit met on M5 Max / 128 GiB: matching-path parity, no added per-layer host
 wait, bounded recorder storage and append-capable qualified collection. This
 establishes neither physical 8 GB peak memory nor SSD inference performance.
 
-### S3 — Locality and read service assessed; miss curve, cold reads and resident timing open
+### S3 — Locality and read service assessed: complete
 
 The user selected `../ac-demo` and its roadmap as the workload source. The
 [S3a proposal](docs/superpowers/specs/2026-10-27-mellum-storage-evidence-design.md)
@@ -157,16 +161,35 @@ worst 119.2. No token was all-hit, which rules out an all-hit warm regime
 for this trace. Every token under 100 ms is ruled out by reads alone. The
 recorded resident decode compute (7.5–8.6 ms/token, n=3, MELLUM.md) puts the
 serial mean at about 22 tok/s, with reads 81–83% of token time. Overlapping
-reads with compute can recover at most that compute. Still open: a miss curve beyond
-3 GiB, physical cold reads, concurrency and answer-phase locality. S4 should
-treat miss recovery as the common path.
+reads with compute can recover at most that compute.
 
-Exit: measured miss curves and storage-read performance, followed by an explicit
+Closed 2026-10-28 by the [deep review and retarget](docs/superpowers/research/2026-10-28-mellum-ssd-retarget.md).
+The read term is bandwidth-bound: about 10 GB/s, so bytes per token decide
+the ceiling. A descriptive miss curve on the held-out trace (n=1) gives LRU
+demand of 651 MB/token at 2 GiB, 372 at 3, 47 at 7 and 23 at 8. A 10 tok/s
+mean at 3 GiB would need sustained miss-order reads of about 3.7 GB/s or
+more. Carried open: physical cold reads, concurrency, and answer-phase or
+tool-result locality.
+
+Exit met: measured miss curves and storage-read performance, followed by an explicit
 assessment of what they permit or rule out under stated scheduling assumptions.
 These measurements inform S4/S5; they do not establish streamed generation speed
 or physical 8 GB feasibility. Any rejection names the scheduling class and
 objective it actually rules out. 10 tok/s remains a proposed checkpoint, not a
 requirement or prediction.
+
+### S3b — 16 GB fit, measured on a 16 GB Mac: paper only
+
+On paper, a 16 GB Mac's Metal `recommendedMaxWorkingSetSize` is about 10.67
+GiB (secondary sources, unverified). That is below resident Q8's 12.44 GiB
+plan at 8K, so Q8 needs streaming there. The engine's 7/8 budget leaves
+about 7 GiB of expert cache. Measure on a 16 GB Mac before S5 relies on it:
+the real working-set limit, whether resident Q8 runs without swapping, and
+optionally that machine's miss-order read service. No GPU work on this
+laptop is needed.
+
+Exit: measured limit and resident behavior on 16 GB, and the expert-cache
+budget derived from them. Requires borrowed hardware.
 
 ### S4 — Cached execution and miss recovery proof: not started
 
@@ -174,9 +197,13 @@ Prove GPU-readable Q8 slots through decode and E1 prefill. Specify address
 translation, slot ownership/readiness and the resume boundary before building
 a full scheduler. Exercise all-hit, forced-miss, eviction, cancellation and
 read-failure paths. Preserve arithmetic and original expert reduction order.
+At about 7 GiB, the 16 GB target, the -02 trace has 0.25 misses per layer
+per token, so all-hit layers are the common path. Their cost must be zero.
 
 Exit: equality with the matching resident path; no additional host wait on
 all-hit layers; safe miss recovery and slot reuse; refreshed peak-memory plan.
+With streaming off, resident decode and prefill speed stay within noise of the
+pre-streaming baseline, measured A/B/B/A as for E1 in MELLUM.md.
 The existing top-6 host-waiting validator is not Mellum's top-8 solution.
 
 ### S5 — Bounded streaming and deployment validation: not started
@@ -187,9 +214,21 @@ staging, recorder state and in-flight references at the same peak. Compare
 resident and streamed behavior under the same numerical configuration.
 
 Exit: correct bounded engine on the development laptop, then whole-machine
-memory pressure and useful latency on physical 8 GB hardware. Native host
+memory pressure and useful latency on physical 16 GB hardware. Native host
 integration in `../ds4-engine` follows engine correctness and measurements;
 Python owns workflow policy, while C/Rust owns inference-critical scheduling.
+
+### S6 — 8 GB target: deferred
+
+Reopen when one of these holds:
+- a target-class SSD read bench measures sustained miss-order reads of about
+  3.7 GB/s or more at 6.6 MB;
+- two or more non-thinking conversations show demand at 3 GiB well below the
+  -02 trace's 372 MB/token;
+- the owner accepts lower-bit streamed experts (about a quarter of the bytes
+  at 3 GiB, estimated).
+
+Also needed: an 8 GB memory plan with the measured Metal limit.
 
 ## Working rules
 
