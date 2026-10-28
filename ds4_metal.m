@@ -11475,6 +11475,101 @@ static int ds4_gpu_signal_batch_and_wait_event(const char *label) {
     }
 }
 
+/* S4 streamed decode gate.  See ds4_gpu.h.  The gate is a shared buffer: a 16-word header, then one
+ * indirect-arguments record per gated dispatch since the last bind or reset. */
+#define DS4_GPU_STREAM_GATE_HEADER_WORDS 16u
+#define DS4_GPU_STREAM_GATE_CAP 4096u
+static ds4_gpu_tensor *g_stream_gate;
+static uint32_t g_stream_gate_next;
+static uint64_t g_wait_count;
+static id<MTLComputePipelineState> g_stream_gate_trip_pipeline;
+
+uint64_t ds4_gpu_wait_count(void) {
+    return g_wait_count;
+}
+
+ds4_gpu_tensor *ds4_gpu_stream_gate_create(void) {
+    return ds4_gpu_tensor_alloc((uint64_t)(DS4_GPU_STREAM_GATE_HEADER_WORDS + 3u * DS4_GPU_STREAM_GATE_CAP) *
+                                sizeof(uint32_t));
+}
+
+static uint32_t *ds4_gpu_stream_gate_words(const ds4_gpu_tensor *gate) {
+    id<MTLBuffer> buf = ds4_gpu_tensor_buffer(gate);
+    if (!buf) return NULL;
+    return (uint32_t *)((uint8_t *)[buf contents] + ds4_gpu_tensor_offset(gate));
+}
+
+int ds4_gpu_stream_gate_reset(ds4_gpu_tensor *gate) {
+    uint32_t *w = gate ? ds4_gpu_stream_gate_words(gate) : NULL;
+    if (!w) return 0;
+    memset(w, 0, DS4_GPU_STREAM_GATE_HEADER_WORDS * sizeof(uint32_t));
+    if (gate == g_stream_gate) g_stream_gate_next = 0;
+    return 1;
+}
+
+int ds4_gpu_stream_gate_bind(ds4_gpu_tensor *gate_or_null) {
+    g_stream_gate = gate_or_null;
+    g_stream_gate_next = 0;
+    return 1;
+}
+
+int ds4_gpu_stream_gate_read(const ds4_gpu_tensor *gate, uint32_t *layer, bool *stopped) {
+    const uint32_t *w = gate ? ds4_gpu_stream_gate_words(gate) : NULL;
+    if (!w || !layer || !stopped) return 0;
+    *stopped = w[0] != 0u;
+    *layer = w[1];
+    return 1;
+}
+
+/* Every encoder on the streamed decode path dispatches through here.  Unbound, it is the plain dispatch. */
+static int ds4_gpu_dispatch_gated(id<MTLComputeCommandEncoder> enc, MTLSize groups, MTLSize threads) {
+    if (!g_stream_gate) {
+        [enc dispatchThreadgroups:groups threadsPerThreadgroup:threads];
+        return 1;
+    }
+    if (g_stream_gate_next >= DS4_GPU_STREAM_GATE_CAP) {
+        fprintf(stderr, "ds4: streamed decode gate holds at most %u dispatches\n", DS4_GPU_STREAM_GATE_CAP);
+        return 0;
+    }
+    const uint32_t record = DS4_GPU_STREAM_GATE_HEADER_WORDS + 3u * g_stream_gate_next++;
+    uint32_t *w = ds4_gpu_stream_gate_words(g_stream_gate);
+    w[record + 0u] = (uint32_t)groups.width;
+    w[record + 1u] = (uint32_t)groups.height;
+    w[record + 2u] = (uint32_t)groups.depth;
+    [enc dispatchThreadgroupsWithIndirectBuffer:ds4_gpu_tensor_buffer(g_stream_gate)
+                           indirectBufferOffset:ds4_gpu_tensor_offset(g_stream_gate) + record * sizeof(uint32_t)
+                          threadsPerThreadgroup:threads];
+    return 1;
+}
+
+int ds4_gpu_stream_gate_trip_if_zero_tensor(ds4_gpu_tensor *gate, const ds4_gpu_tensor *probe, uint32_t layer) {
+    if (!g_initialized && !ds4_gpu_init()) return 0;
+    if (!gate || !probe || ds4_gpu_tensor_bytes(probe) < sizeof(float)) return 0;
+    @autoreleasepool {
+        if (!g_stream_gate_trip_pipeline) {
+            g_stream_gate_trip_pipeline = ds4_gpu_get_pipeline("kernel_mellum_stream_gate_trip_if_zero");
+            if (!g_stream_gate_trip_pipeline) return 0;
+        }
+        int owned = 0;
+        id<MTLCommandBuffer> cb = ds4_gpu_command_buffer(&owned);
+        if (!cb) return 0;
+        /* the records still to be encoded on this gate, from the next gated dispatch on */
+        const uint32_t next = gate == g_stream_gate ? g_stream_gate_next : 0u;
+        const uint32_t args[4] = { layer, next, DS4_GPU_STREAM_GATE_CAP, 0u };
+        id<MTLComputeCommandEncoder> enc = ds4_gpu_compute_encoder(cb);
+        [enc setComputePipelineState:g_stream_gate_trip_pipeline];
+        [enc setBuffer:ds4_gpu_tensor_buffer(gate) offset:ds4_gpu_tensor_offset(gate) atIndex:0];
+        [enc setBuffer:ds4_gpu_tensor_buffer(probe) offset:ds4_gpu_tensor_offset(probe) atIndex:1];
+        [enc setBytes:args length:sizeof(args) atIndex:2];
+        const NSUInteger n = DS4_GPU_STREAM_GATE_CAP - next, nth = 256u;
+        [enc dispatchThreadgroups:MTLSizeMake((n + nth - 1u) / nth, 1, 1) threadsPerThreadgroup:MTLSizeMake(nth, 1, 1)];
+        [enc memoryBarrierWithScope:MTLBarrierScopeBuffers];
+        ds4_gpu_end_compute_encoder(cb, enc);
+        if (!ds4_gpu_finish_command_buffer(cb, owned, "stream gate trip")) return 0;
+    }
+    return 1;
+}
+
 int ds4_gpu_end_commands(void) {
     if (!g_batch_cb) {
         ds4_gpu_parallel_ffn_reset_state(YES);
@@ -11487,6 +11582,7 @@ int ds4_gpu_end_commands(void) {
     g_batch_has_work = NO;
     g_stream_expert_cache_owned_seq = g_stream_expert_cache_batch_seq;
     g_stream_expert_cache_batch_seq = 0;
+    g_wait_count++;
     return ds4_gpu_finish_command_buffer(cb, 1, "command batch");
 }
 
@@ -31226,8 +31322,10 @@ int ds4_gpu_add_tensor(
         [enc setBuffer:abuf offset:ds4_gpu_tensor_offset(a) atIndex:1];
         [enc setBuffer:bbuf offset:ds4_gpu_tensor_offset(b) atIndex:2];
         [enc setBuffer:outbuf offset:ds4_gpu_tensor_offset(out) atIndex:3];
-        [enc dispatchThreadgroups:MTLSizeMake(groups, 1, 1)
-             threadsPerThreadgroup:MTLSizeMake(nth, 1, 1)];
+        if (!ds4_gpu_dispatch_gated(enc, MTLSizeMake(groups, 1, 1), MTLSizeMake(nth, 1, 1))) {
+            ds4_gpu_end_compute_encoder(cb, enc);
+            return 0;
+        }
         ds4_gpu_end_compute_encoder(cb, enc);
         (void)mellum_observer_encode("kernel_add2_f32",0,NULL);
 

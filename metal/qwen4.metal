@@ -4758,3 +4758,24 @@ kernel void kernel_qwen4_q8_concat(
     if (group.x < first) kernel_mul_mv_q8_0_f32_impl<2, constant ds4_metal_args_mul_mv &>(a, wa, x, oa, shared, group, lane, sg);
     else { group.x -= first; kernel_mul_mv_q8_0_f32_impl<2, constant ds4_metal_args_mul_mv &>(b, wb, x, ob, shared, group, lane, sg); }
 }
+
+/* S4 streamed decode gate (ds4_gpu_stream_gate_*): words 0..15 are the header (0 stopped, 1 layer), then
+ * one MTLDispatchThreadgroupsIndirectArguments per gated dispatch.  A zero probe stops the gate at the
+ * first trip and zeroes the counts of every dispatch from a.y on, so later work does nothing. */
+kernel void kernel_mellum_stream_gate_trip_if_zero(
+        device uint        *gate  [[buffer(0)]],
+        device const float *probe [[buffer(1)]],
+        constant uint4     &a     [[buffer(2)]],
+        uint                tid   [[thread_position_in_grid]]) {
+    if (probe[0] != 0.0f) return;
+    if (tid == 0 && gate[0] == 0u) {
+        gate[0] = 1u;
+        gate[1] = a.x;
+    }
+    if (tid < a.z - a.y) {
+        device uint *args = gate + 16u + 3u * (a.y + tid);
+        args[0] = 0u;
+        args[1] = 0u;
+        args[2] = 0u;
+    }
+}

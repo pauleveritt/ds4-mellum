@@ -3812,6 +3812,17 @@ typedef struct {
     uint64_t down_offset;
 } ds4_gpu_mellum_moe;
 
+/* S4 streamed decode gate.  While a gate is bound, gated encoders dispatch indirectly from it, and a
+ * trip zeroes every later dispatch's threadgroup counts on the GPU: work encoded after the trip does
+ * nothing.  Unbound, gated encoders dispatch exactly as before. */
+ds4_gpu_tensor *ds4_gpu_stream_gate_create(void);
+int ds4_gpu_stream_gate_reset(ds4_gpu_tensor *gate);
+int ds4_gpu_stream_gate_bind(ds4_gpu_tensor *gate_or_null);
+int ds4_gpu_stream_gate_trip_if_zero_tensor(ds4_gpu_tensor *gate, const ds4_gpu_tensor *probe, uint32_t layer);
+int ds4_gpu_stream_gate_read(const ds4_gpu_tensor *gate, uint32_t *layer, bool *stopped);
+/* Host waits taken by ds4_gpu_end_commands since process start. */
+uint64_t ds4_gpu_wait_count(void);
+
 int ds4_gpu_mellum_moe_tensor(
         ds4_gpu_tensor *out, const ds4_gpu_tensor *x, ds4_gpu_tensor *logits,
         ds4_gpu_tensor *selected, ds4_gpu_tensor *weights, ds4_gpu_tensor *mid, ds4_gpu_tensor *part,
