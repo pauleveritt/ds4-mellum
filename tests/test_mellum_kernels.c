@@ -2177,6 +2177,41 @@ static void test_rope_rows(fixture_t *f, uint32_t T, uint32_t pos0, int full) {
     free(xq); free(xk); free(rq); free(rk); free(sq); free(sk);
 }
 
+/* The one-dispatch q/k norm and rope (ds4_gpu_mellum_qk_norm_rope_fused_tensor, decode's) against the two
+ * dispatches it replaces (ds4_gpu_mellum_qk_norm_rope_tensor), word for word, q and k, both layer kinds. */
+static void test_qk_fused_case(fixture_t *f, uint32_t T, uint32_t pos0, int full) {
+    const uint64_t nq = (uint64_t)T * MELLUM_N_HEAD * MELLUM_HEAD_DIM;
+    const uint64_t nk = (uint64_t)T * MELLUM_N_HEAD_KV * MELLUM_HEAD_DIM;
+    float *xq = rand_vec(nq, 2.0f), *xk = rand_vec(nk, 2.0f);
+    const ds4_gpu_mellum_rope p = model_rope(1.0f);
+    float *rq = NULL, *rk = NULL;
+    require_ok(run_host(f, xq, xk, T, pos0, full, &p, &rq, &rk), "mellum qk norm rope");
+    ds4_gpu_tensor *tq = upload(xq, nq), *tk = upload(xk, nk);
+    const int ok = ds4_gpu_mellum_qk_norm_rope_fused_tensor(tq, tk, f->arena.base, f->arena.size, f->q_off, f->k_off,
+                                                            T, pos0, kind_of(full), &p);
+    CHECK(ok, "the fused q/k norm and rope refused %s T=%u pos0=%u", full ? "full" : "sliding", T, pos0);
+    if (ok) {
+        float *gq = download(tq, nq), *gk = download(tk, nk);
+        const uint64_t dq = bit_diffs(gq, rq, nq, NULL), dk = bit_diffs(gk, rk, nk, NULL);
+        CHECK(dq == 0 && dk == 0, "fused q/k norm and rope vs the two dispatches, %s T=%u pos0=%u: %llu q and %llu k "
+              "words differ", full ? "full" : "sliding", T, pos0, (unsigned long long)dq, (unsigned long long)dk);
+        free(gq); free(gk);
+    }
+    ds4_gpu_tensor_free(tq); ds4_gpu_tensor_free(tk);
+    free(xq); free(xk); free(rq); free(rk);
+}
+
+static void test_qk_fused(fixture_t *f) {
+    static const uint32_t pos[] = { 0, 1, 1023, 1024, 8191 };
+    for (int full = 0; full < 2; full++) {
+        for (size_t i = 0; i < sizeof(pos) / sizeof(pos[0]); i++) {
+            test_qk_fused_case(f, 1, pos[i], full);
+            test_qk_fused_case(f, 3, pos[i], full);
+        }
+    }
+    printf("  fused    q and k in one dispatch vs two, both kinds, T 1 and 3 at 5 positions: word for word\n");
+}
+
 static void test_rope_rows_all(fixture_t *f) {
     printf("Mellum prefill equals decode (rows against one-row calls, raw bits)\n");
     for (int batched = 0; batched <= 1; batched++) {
@@ -2510,6 +2545,7 @@ int main(void) {
     test_double_scale_control(&f, 0, 1025);
     test_refusals(&f);
     test_rope_rows_all(&f);
+    test_qk_fused(&f);
 
     printf("Mellum attention (GQA 32/4, head 128, sliding window 1,024, f16 keys; max|d| / max|ref|)\n");
     static const uint32_t swa_counts[] = { 26, 1000, 1023, 1024, 1025, 1057, 2100 };
