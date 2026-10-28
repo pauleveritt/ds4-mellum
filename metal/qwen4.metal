@@ -3077,6 +3077,75 @@ kernel void kernel_qwen4_moe_down(
     }
 }
 
+/* S4 address-table variants for Mellum's routed experts: the resident kernels' bodies for a routed slot,
+ * with each expert's base read from a uint64 GPU-address table (one entry per expert) instead of
+ * base + selected * expert_bytes.  A zero address leaves that expert's rows untouched.  Same row dots,
+ * same function constants, same per-lane order: the bits equal the resident kernels'.  No shared expert. */
+kernel void kernel_qwen4_moe_mid_addr(
+        constant ds4_metal_args_qwen4_moe & args,
+        device const ulong   *gate_addrs,
+        device const ulong   *up_addrs,
+        device const int32_t *selected,   /* [T][n_slots] */
+        device const float   *x,          /* [T][in_dim] */
+        device float         *mid,        /* [T][n_slots][out_rows] */
+        uint3 tgpig [[threadgroup_position_in_grid]],
+        ushort tiisg [[thread_index_in_simdgroup]],
+        ushort sgitg [[simdgroup_index_in_threadgroup]],
+        ushort3 ntg [[threads_per_threadgroup]]) {
+    const uint slot = tgpig.y;
+    const uint tok = tgpig.z;
+    const uint nr = is_function_constant_defined(qwen4_mv_rows) ? qwen4_mv_rows : 2u;
+    const uint dim = is_function_constant_defined(qwen4_mv_dim) ? qwen4_mv_dim : args.in_dim;
+    const uint wt = is_function_constant_defined(qwen4_mv_type) ? qwen4_mv_type : args.weight_type;
+    const uint row0 = (tgpig.x * (ntg.x / 32u) + (uint)sgitg) * nr;
+    if (row0 >= args.out_rows || slot >= args.n_slots || tok >= args.n_tokens) return;
+    const uint e = (uint)selected[(uint64_t)tok * args.n_slots + slot];
+    if (e >= args.n_total_expert) return;
+    const ulong ga = gate_addrs[e], ua = up_addrs[e];
+    if (ga == 0 || ua == 0) return;
+    device const char *gb = reinterpret_cast<device const char *>(ga);
+    device const char *ub = reinterpret_cast<device const char *>(ua);
+    device const float *xt = x + (uint64_t)tok * args.in_dim;
+    for (uint r = row0; r < row0 + nr && r < args.out_rows; r++) {
+        const uint64_t off = (uint64_t)r * args.row_bytes;
+        const float g = qwen4_row_dot(gb + off, xt, wt, dim, tiisg);
+        const float u = qwen4_row_dot(ub + off, xt, wt, dim, tiisg);
+        if (tiisg == 0) {
+            mid[((uint64_t)tok * args.n_slots + slot) * args.out_rows + r] = qwen4_silu(g) * u;
+        }
+    }
+}
+
+kernel void kernel_qwen4_moe_down_addr(
+        constant ds4_metal_args_qwen4_moe & args,
+        device const ulong   *down_addrs,
+        device const int32_t *selected,   /* [T][n_slots] */
+        device const float   *mid,        /* [T][n_slots][in_dim] */
+        device float         *part,       /* [T][n_slots][out_rows] */
+        uint3 tgpig [[threadgroup_position_in_grid]],
+        ushort tiisg [[thread_index_in_simdgroup]],
+        ushort sgitg [[simdgroup_index_in_threadgroup]],
+        ushort3 ntg [[threads_per_threadgroup]]) {
+    const uint slot = tgpig.y;
+    const uint tok = tgpig.z;
+    const uint nr = is_function_constant_defined(qwen4_mv_rows) ? qwen4_mv_rows : 2u;
+    const uint dim = is_function_constant_defined(qwen4_mv_dim) ? qwen4_mv_dim : args.in_dim;
+    const uint wt = is_function_constant_defined(qwen4_mv_type) ? qwen4_mv_type : args.weight_type;
+    const uint row0 = (tgpig.x * (ntg.x / 32u) + (uint)sgitg) * nr;
+    if (row0 >= args.out_rows || slot >= args.n_slots || tok >= args.n_tokens) return;
+    const uint e = (uint)selected[(uint64_t)tok * args.n_slots + slot];
+    if (e >= args.n_total_expert) return;
+    const ulong da = down_addrs[e];
+    if (da == 0) return;
+    device const char *db = reinterpret_cast<device const char *>(da);
+    const uint64_t pair = (uint64_t)tok * args.n_slots + slot;
+    device const float *m = mid + pair * args.in_dim;
+    for (uint r = row0; r < row0 + nr && r < args.out_rows; r++) {
+        const float v = qwen4_row_dot(db + (uint64_t)r * args.row_bytes, m, wt, dim, tiisg);
+        if (tiisg == 0) part[pair * args.out_rows + r] = v;
+    }
+}
+
 /* MXFP4 routed down rows with four blocks per lane requested before the
  * accumulation chain.  The shipped qwen4_row_dot loop for type 39 compiles
  * to s = t0*y0 + t1*y1 + t2*y16 + t3*y17 (left to right), acc += s*d; that

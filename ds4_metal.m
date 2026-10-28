@@ -11484,6 +11484,11 @@ static uint32_t g_stream_gate_next;
 static uint64_t g_wait_count;
 static id<MTLComputePipelineState> g_stream_gate_trip_pipeline;
 
+uint64_t ds4_gpu_tensor_gpu_address(const ds4_gpu_tensor *tensor) {
+    id<MTLBuffer> buf = tensor ? ds4_gpu_tensor_buffer(tensor) : nil;
+    return buf ? (uint64_t)[buf gpuAddress] + (uint64_t)ds4_gpu_tensor_offset(tensor) : 0u;
+}
+
 uint64_t ds4_gpu_wait_count(void) {
     return g_wait_count;
 }
@@ -48321,6 +48326,8 @@ enum {
     QWEN4_K_VIS_ATTENTION,
     QWEN4_K_VIS_BIAS_RESIDUAL,
     QWEN4_K_VIS_BIAS_ACT,
+    QWEN4_K_MOE_MID_ADDR,
+    QWEN4_K_MOE_DOWN_ADDR,
     QWEN4_K_COUNT,
 };
 
@@ -48426,6 +48433,8 @@ static const char *const qwen4_kernel_names[QWEN4_K_COUNT] = {
     "kernel_qwen4_vis_attention",
     "kernel_qwen4_vis_bias_residual",
     "kernel_qwen4_vis_bias_act",
+    "kernel_qwen4_moe_mid_addr",
+    "kernel_qwen4_moe_down_addr",
 };
 
 typedef struct {
@@ -48494,7 +48503,8 @@ static int qwen4_dispatch_resident(int kernel, const void *args, size_t args_len
         id<MTLComputePipelineState> pipeline = nil;
         uint32_t observed[5]={0};
         size_t observed_count=0;
-        if (kernel == QWEN4_K_MOE_MID || kernel == QWEN4_K_MOE_DOWN || kernel == QWEN4_K_MOE_DOWN_MXFP4_PF) {
+        if (kernel == QWEN4_K_MOE_MID || kernel == QWEN4_K_MOE_DOWN || kernel == QWEN4_K_MOE_DOWN_MXFP4_PF ||
+            kernel == QWEN4_K_MOE_MID_ADDR || kernel == QWEN4_K_MOE_DOWN_ADDR) {
             const qwen4_moe_args *a = args;
             const bool specialize = qwen4_moe_mv_specialize(a->weight_type);
             const uint32_t values[] = {a->weight_type, a->shared_type, specialize ? a->in_dim : 0u, specialize ? qwen4_moe_mv_rows() : 0u};
@@ -49801,6 +49811,76 @@ int ds4_gpu_qwen4_moe_mid_tensor(
     return qwen4_dispatch(kernel, &args, sizeof(args), b, 7,
                           MTLSizeMake((ff_dim + rows_per_tg - 1) / rows_per_tg, n_out, n_tokens),
                           MTLSizeMake(32u * nsg, 1, 1), 0);
+}
+
+/* S4: decode mid and down for routed Q8_0 experts reached through per-expert GPU-address tables (uint64,
+ * n_total_expert entries).  The launch geometry and function constants are the resident encoders' for the
+ * same weight type, so each row is computed as the resident kernel computes it.  resident lists the slot
+ * buffers the tables point into, made resident for the dispatch. */
+static int qwen4_moe_addr_resident(qwen4_bind *res, ds4_gpu_tensor *const *resident, uint32_t n_resident) {
+    if (n_resident > QWEN4_ATTN_ROWS_MAX * 5u || (n_resident && !resident)) return 0;
+    for (uint32_t i = 0; i < n_resident; i++) {
+        if (!qwen4_bind_tensor(&res[i], resident[i], 1u, "moe addr slot")) return 0;
+    }
+    return 1;
+}
+
+int ds4_gpu_qwen4_moe_mid_addr_tensor(
+        ds4_gpu_tensor *mid, const ds4_gpu_tensor *x, const ds4_gpu_tensor *selected,
+        const ds4_gpu_tensor *gate_addrs, const ds4_gpu_tensor *up_addrs,
+        ds4_gpu_tensor *const *resident, uint32_t n_resident,
+        uint32_t weight_type, uint32_t n_total_expert, uint32_t n_tokens, uint32_t n_slots,
+        uint32_t in_dim, uint32_t ff_dim) {
+    const uint32_t row_bytes = qwen4_expert_row_bytes(weight_type, in_dim);
+    const uint64_t expert_bytes = (uint64_t)row_bytes * ff_dim;
+    qwen4_moe_args args = { n_tokens, n_slots, in_dim, ff_dim, weight_type, row_bytes, expert_bytes,
+                            0u, 0u, 0u, n_total_expert, 0u, 0u };
+    qwen4_bind b[5], res[QWEN4_ATTN_ROWS_MAX * 5u];
+    if (weight_type != 8u || n_tokens == 0 || n_slots == 0 || n_total_expert == 0 || row_bytes == 0 || ff_dim == 0 ||
+        !qwen4_bind_tensor(&b[0], gate_addrs, (uint64_t)n_total_expert * sizeof(uint64_t), "moe gate addresses") ||
+        !qwen4_bind_tensor(&b[1], up_addrs, (uint64_t)n_total_expert * sizeof(uint64_t), "moe up addresses") ||
+        !qwen4_bind_tensor(&b[2], selected, (uint64_t)n_tokens * n_slots * sizeof(int32_t), "moe selected") ||
+        !qwen4_bind_tensor(&b[3], x, (uint64_t)n_tokens * in_dim * sizeof(float), "moe input") ||
+        !qwen4_bind_tensor(&b[4], mid, (uint64_t)n_tokens * n_slots * ff_dim * sizeof(float), "moe mid") ||
+        !qwen4_moe_addr_resident(res, resident, n_resident)) {
+        return 0;
+    }
+    /* the resident encoder's Q8_0 geometry */
+    const bool specialize = qwen4_moe_mv_specialize(weight_type);
+    const uint32_t nr = specialize ? qwen4_moe_mv_rows() : 2u;
+    const uint32_t nsg = specialize ? qwen4_moe_mv_groups(weight_type) : 4u;
+    const uint32_t rows_per_tg = nr * nsg;
+    return qwen4_dispatch_resident(QWEN4_K_MOE_MID_ADDR, &args, sizeof(args), b, 5,
+                                   MTLSizeMake((ff_dim + rows_per_tg - 1) / rows_per_tg, n_slots, n_tokens),
+                                   MTLSizeMake(32u * nsg, 1, 1), 0, res, n_resident);
+}
+
+int ds4_gpu_qwen4_moe_down_addr_tensor(
+        ds4_gpu_tensor *part, const ds4_gpu_tensor *mid, const ds4_gpu_tensor *selected,
+        const ds4_gpu_tensor *down_addrs, ds4_gpu_tensor *const *resident, uint32_t n_resident,
+        uint32_t weight_type, uint32_t n_total_expert, uint32_t n_tokens, uint32_t n_slots,
+        uint32_t ff_dim, uint32_t out_dim) {
+    const uint32_t row_bytes = qwen4_expert_row_bytes(weight_type, ff_dim);
+    const uint64_t expert_bytes = (uint64_t)row_bytes * out_dim;
+    qwen4_moe_args args = { n_tokens, n_slots, ff_dim, out_dim, weight_type, row_bytes, expert_bytes,
+                            0u, 0u, 0u, n_total_expert, 0u, 0u };
+    qwen4_bind b[4], res[QWEN4_ATTN_ROWS_MAX * 5u];
+    if (weight_type != 8u || n_tokens == 0 || n_slots == 0 || n_total_expert == 0 || row_bytes == 0 ||
+        (ff_dim % 32u) != 0 || out_dim == 0 ||
+        !qwen4_bind_tensor(&b[0], down_addrs, (uint64_t)n_total_expert * sizeof(uint64_t), "moe down addresses") ||
+        !qwen4_bind_tensor(&b[1], selected, (uint64_t)n_tokens * n_slots * sizeof(int32_t), "moe selected") ||
+        !qwen4_bind_tensor(&b[2], mid, (uint64_t)n_tokens * n_slots * ff_dim * sizeof(float), "moe mid") ||
+        !qwen4_bind_tensor(&b[3], part, (uint64_t)n_tokens * n_slots * out_dim * sizeof(float), "moe partial") ||
+        !qwen4_moe_addr_resident(res, resident, n_resident)) {
+        return 0;
+    }
+    const bool specialize = qwen4_moe_mv_specialize(weight_type);
+    const uint32_t nr = specialize ? qwen4_moe_mv_rows() : 2u;
+    const uint32_t nsg = specialize ? qwen4_moe_mv_groups(weight_type) : 4u;
+    const uint32_t rows_per_tg = nr * nsg;
+    return qwen4_dispatch_resident(QWEN4_K_MOE_DOWN_ADDR, &args, sizeof(args), b, 4,
+                                   MTLSizeMake((out_dim + rows_per_tg - 1) / rows_per_tg, n_slots, n_tokens),
+                                   MTLSizeMake(32u * nsg, 1, 1), 0, res, n_resident);
 }
 
 int ds4_gpu_qwen4_moe_down_tensor(

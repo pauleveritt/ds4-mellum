@@ -3820,6 +3820,21 @@ int ds4_gpu_stream_gate_reset(ds4_gpu_tensor *gate);
 int ds4_gpu_stream_gate_bind(ds4_gpu_tensor *gate_or_null);
 int ds4_gpu_stream_gate_trip_if_zero_tensor(ds4_gpu_tensor *gate, const ds4_gpu_tensor *probe, uint32_t layer);
 int ds4_gpu_stream_gate_read(const ds4_gpu_tensor *gate, uint32_t *layer, bool *stopped);
+/* GPU virtual address of a tensor's first byte (0 if it has no buffer), for address tables. */
+uint64_t ds4_gpu_tensor_gpu_address(const ds4_gpu_tensor *tensor);
+/* S4: decode MoE mid and down for Q8_0 experts reached through per-expert uint64 address tables; bits equal
+ * ds4_gpu_qwen4_moe_mid_tensor / _down_tensor for the same experts, and a zero address writes nothing. */
+int ds4_gpu_qwen4_moe_mid_addr_tensor(
+        ds4_gpu_tensor *mid, const ds4_gpu_tensor *x, const ds4_gpu_tensor *selected,
+        const ds4_gpu_tensor *gate_addrs, const ds4_gpu_tensor *up_addrs,
+        ds4_gpu_tensor *const *resident, uint32_t n_resident,
+        uint32_t weight_type, uint32_t n_total_expert, uint32_t n_tokens, uint32_t n_slots,
+        uint32_t in_dim, uint32_t ff_dim);
+int ds4_gpu_qwen4_moe_down_addr_tensor(
+        ds4_gpu_tensor *part, const ds4_gpu_tensor *mid, const ds4_gpu_tensor *selected,
+        const ds4_gpu_tensor *down_addrs, ds4_gpu_tensor *const *resident, uint32_t n_resident,
+        uint32_t weight_type, uint32_t n_total_expert, uint32_t n_tokens, uint32_t n_slots,
+        uint32_t ff_dim, uint32_t out_dim);
 /* Host waits taken by ds4_gpu_end_commands since process start. */
 uint64_t ds4_gpu_wait_count(void);
 
