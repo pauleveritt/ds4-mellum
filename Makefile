@@ -1742,3 +1742,18 @@ test-mellum-generated-inputs: tests/test_mellum_generate_io
 clean-mellum-generated-inputs:
 	rm -f tests/test_mellum_generate_io
 clean: clean-mellum-generated-inputs
+
+MELLUM_GENERATE_SOURCES = tools/mellum_generate.c tools/mellum_generate_driver.c tools/mellum_generate_loop.c tools/mellum_generate_io.c
+tools/mellum_generate_cpu: tools/mellum_generate.c tools/mellum_generate_io.c $(CPU_CORE_OBJS)
+	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -DDS4_NO_GPU -I. tools/mellum_generate.c tools/mellum_generate_io.c $(CPU_CORE_OBJS) $(LDLIBS) -o $@
+tools/mellum_generate: $(MELLUM_GENERATE_SOURCES) $(CORE_OBJS)
+	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -I. $(MELLUM_GENERATE_SOURCES) $(CORE_OBJS) $(METAL_LDLIBS) -o $@
+tests/test_mellum_generate_loop: tests/test_mellum_generate_loop.c tools/mellum_generate_loop.c tools/mellum_generate_loop.h
+	$(CC) $(MELLUM_GENERATE_CFLAGS) tests/test_mellum_generate_loop.c tools/mellum_generate_loop.c -o $@
+.PHONY: test-mellum-generated-native clean-mellum-generated-native
+test-mellum-generated-native: test-mellum-generated-inputs tests/test_mellum_generate_loop tools/mellum_generate_cpu
+	./tests/test_mellum_generate_loop
+clean-mellum-generated-native:
+	rm -f tests/test_mellum_generate_loop tools/mellum_generate_cpu tools/mellum_generate
+clean: clean-mellum-generated-native
+test-mellum: test-mellum-generated-native

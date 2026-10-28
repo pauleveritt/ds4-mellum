@@ -145,3 +145,6 @@ __pycache__/
 /tests/test_mellum_stage
 /tests/mellum_stage_fault
 /tests/test_mellum_generate_io
+/tests/test_mellum_generate_loop
+/tools/mellum_generate_cpu
+/tools/mellum_generate
