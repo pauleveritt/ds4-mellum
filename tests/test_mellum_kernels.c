@@ -2476,6 +2476,54 @@ static void check_gate_overflow_is_error(void) {
     ds4_gpu_tensor_free(gate); ds4_gpu_tensor_free(acc); ds4_gpu_tensor_free(one);
 }
 
+/* the Q8_0 projection chain and the f32 -> f16 copy are on the streamed decode path too: after a trip they
+ * must write nothing; unbound they run as before */
+static void check_gate_suppresses_projection_and_copy(void) {
+    const uint64_t in = 256, out = 64, wbytes = out * (in / 32u) * 34u;
+    uint8_t *arena = mmap(NULL, 1u << 20, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
+    require_ok(arena != MAP_FAILED, "projection arena");
+    fill_q8(arena, out * (in / 32u));
+    require_ok(ds4_gpu_set_model_map(arena, 1u << 20), "projection arena map");
+    float *xh = rand_vec(in, 1.0f), sent[64];
+    for (uint32_t i = 0; i < out; i++) sent[i] = 12345.0f;
+    uint16_t sent16[256];
+    for (uint32_t i = 0; i < in; i++) sent16[i] = 0xABCDu;
+    for (int bound = 1; bound >= 0; bound--) {
+        for (uint32_t rows = 1; rows <= 8; rows += 7) {
+            ds4_gpu_tensor *x = ds4_gpu_tensor_alloc(rows * in * 4u), *o = ds4_gpu_tensor_alloc(rows * out * 4u);
+            ds4_gpu_tensor *d16 = ds4_gpu_tensor_alloc(in * 2u), *zero = gate_filled(0.0f);
+            ds4_gpu_tensor *gate = ds4_gpu_stream_gate_create();
+            require_ok(x && o && d16 && gate && ds4_gpu_stream_gate_reset(gate), "projection tensors");
+            for (uint32_t r = 0; r < rows; r++) require_ok(ds4_gpu_tensor_write(x, r * in * 4u, xh, in * 4u), "x");
+            for (uint32_t r = 0; r < rows; r++) require_ok(ds4_gpu_tensor_write(o, r * out * 4u, sent, out * 4u), "o");
+            require_ok(ds4_gpu_tensor_write(d16, 0, sent16, in * 2u), "d16");
+            require_ok(ds4_gpu_stream_gate_bind(bound ? gate : NULL) && ds4_gpu_begin_commands(), "begin");
+            require_ok(ds4_gpu_stream_gate_trip_if_zero_tensor(gate, zero, 0), "trip");
+            require_ok(ds4_gpu_matmul_q8_0_tensor(o, arena, 1u << 20, 0, in, out, x, rows), "projection");
+            require_ok(ds4_gpu_tensor_copy_f32_to_f16(d16, 0, x, 0, in), "copy");
+            require_ok(ds4_gpu_end_commands() && ds4_gpu_stream_gate_bind(NULL), "end");
+            float *oh = download(o, rows * out);
+            uint16_t got16[256];
+            require_ok(ds4_gpu_tensor_read(d16, 0, got16, in * 2u), "d16 read");
+            bool o_kept = true;
+            for (uint32_t r = 0; r < rows; r++) o_kept = o_kept && memcmp(oh + r * out, sent, out * 4u) == 0;
+            const bool d_kept = memcmp(got16, sent16, in * 2u) == 0;
+            if (bound) {
+                CHECK(o_kept, "gate: a Q8_0 projection of %u rows after a trip must write nothing", rows);
+                CHECK(d_kept, "gate: an f32-to-f16 copy after a trip must write nothing");
+            } else {
+                CHECK(!o_kept && !d_kept, "gate: unbound, the projection (%u rows) and copy must run", rows);
+            }
+            free(oh);
+            ds4_gpu_tensor_free(x); ds4_gpu_tensor_free(o); ds4_gpu_tensor_free(d16); ds4_gpu_tensor_free(zero);
+            ds4_gpu_tensor_free(gate);
+        }
+    }
+    (void)wbytes;
+    free(xh);
+    munmap(arena, 1u << 20);
+}
+
 static void check_unbound_gate_inert(void) {
     ds4_gpu_tensor *acc = gate_filled(0.0f), *one = gate_filled(1.0f), *zero = gate_filled(0.0f);
     ds4_gpu_tensor *gate = ds4_gpu_stream_gate_create();
@@ -2540,6 +2588,7 @@ int main(void) {
     check_gate_suppresses_after_trip();
     check_gate_all_hit_one_wait();
     check_unbound_gate_inert();
+    check_gate_suppresses_projection_and_copy();
     check_gate_overflow_is_error();
 
     printf("%d checks, %d failures\n", g_checks, g_failures);
