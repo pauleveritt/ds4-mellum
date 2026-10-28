@@ -24,8 +24,11 @@ inference ran, and no stall, generation rate or 8 GB result is measured.
    0.655 ms (repetitions 1–2; 0.658 ms in repetition 0). Queueing, concurrency
    and recovery overhead are excluded.
 4. **Read time adds to compute.** With compute `Tc` per token, token time is
-   `Tc + reads`. `Tc` for resident Mellum decode without the recorder is not
-   measured on this branch.
+   `Tc + reads`. MELLUM.md records resident CLI generation on this M5 Max
+   (step 29, n=3 per prompt): 132.6–133.1 t/s after a short prompt and
+   116.2–117.8 t/s after a 3,235-token prompt, so `Tc` is about 7.5–8.6 ms.
+   It has not been re-measured at Checkpoint 3.6, or at this trace's context
+   of up to 7,144 tokens.
 
 ## Results
 
@@ -51,6 +54,10 @@ At the mean, the arithmetic gives `1000 / (Tc + 37.0)` tok/s:
 - 11.5 tok/s at 50 ms;
 - 10.0 tok/s at 63 ms.
 
+At the recorded `Tc` of 7.5–8.6 ms, the arithmetic gives 21.9–22.4 tok/s.
+Reads are 81–83% of token time, and 29–33 tokens exceed 100 ms. Per layer,
+compute is about 0.31 ms against 1.32 ms of serial reads.
+
 The mean only exhausts a 100 ms token by itself if service rises to 1.77 ms
 per expert, 2.7 times the measured median. Prefill reads: initial 3484 misses
 (2.28 s serial for 1950 tokens); append 1259 (0.82 s for 74 tokens).
@@ -72,8 +79,9 @@ cache.
 
 **Not ruled out:**
 
-- A mean of 10 tok/s under on-demand serial one-worker reads, *if* resident
-  `Tc` ≤ about 63 ms/token and the measured service holds on misses.
+- A mean of 10 tok/s under on-demand serial one-worker reads. That needs
+  `Tc` ≤ about 63 ms/token, and the recorded 7.5–8.6 ms is well inside it.
+  The measured service must also hold on misses.
 - Concurrency, overlap with compute, or within-layer read parallelism could
   each lower the read term. None is measured, so none is credited here.
 
@@ -90,9 +98,10 @@ cache.
 - **S4.** Miss recovery is the common path, not an exception: about two per
   layer per token, with no all-hit tokens. S4's proof should exercise it
   under that rate, not only in forced-miss tests.
-- **Resident `Tc` is the missing input.** It decides whether 10 tok/s is
-  plausible under the serial class above. Measuring it without recorder
-  overhead is cheap next to SSD work.
+- **Reads dominate, so overlap is not the lever.** Hiding reads behind
+  compute can recover at most `Tc`, about 8 ms of a roughly 45 ms token.
+  The levers are read concurrency, fewer misses and the service time on real
+  misses. A finer `Tc` measurement would barely move any conclusion here.
 - **The worst case is after a prefill.** First-token bursts (175–182 misses)
   suggest prefill-end or turn-start prefetch as an S5 candidate. That is a
   hypothesis, not a result.
@@ -110,8 +119,9 @@ python3 -I -c "import json;t=json.load(open('/Users/pauleveritt/.codex/visualiza
 
 ## What would falsify this
 
-- **Resident `Tc` above about 63 ms/token.** That would rule out a 10 tok/s
-  mean under the serial class, regardless of SSD.
+- **Resident `Tc` above about 63 ms/token at long context.** That would rule
+  out a 10 tok/s mean under the serial class, regardless of SSD; the recorded
+  figure is 7.5–8.6 ms.
 - **Higher service times on misses.** Storage-observed cold reads of real
   miss streams averaging above about 1.77 ms/expert would make reads alone
   exhaust the mean token budget.
@@ -124,5 +134,5 @@ python3 -I -c "import json;t=json.load(open('/Users/pauleveritt/.codex/visualiza
 n=1 locality, thinking-only, from one task. The read service is one layout,
 one worker, uniform-order 512-expert batches, not the trace's miss order.
 Adding medians ignores tail service (p99 up to 0.744 ms, max about 3.3 ms
-per expert), so serial worst cases are understated. `Tc` is unknown, and
-every rate above is conditional on it.
+per expert), so serial worst cases are understated. `Tc` comes from step 29,
+at up to 3,491 positions, not from Checkpoint 3.6 at 7,144.
