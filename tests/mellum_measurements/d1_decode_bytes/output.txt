@@ -1,0 +1,18 @@
+command: python3 -I tests/mellum_decode_bytes.py ~/models/Mellum2.1-12B-A2.5B-Thinking-Q8_0.gguf 100 2048 8192 32768
+head: f4a0432
+
+model: ~/models/Mellum2.1-12B-A2.5B-Thinking-Q8_0.gguf (GGUF v3, 339 tensors, 12.922 GB on disk)
+layers 28 (21 sliding, window 1024), experts 8 of 64, kv heads 4 x 128
+  embedding row                   0.002 MB  Q8_0
+  norms                           0.554 MB  F32
+  attention projections         631.702 MB  Q8_0
+  router                         16.515 MB  F32
+  experts (8 of 64)            1473.970 MB  Q8_0
+  output head                   240.648 MB  Q8_0
+  weights per step             2363.391 MB
+
+context  KV read (MB)  total (MB)  KV share
+    100          5.74     2369.13      0.2%
+   2048         73.49     2436.88      3.0%
+   8192        161.57     2524.96      6.4%
+  32768        513.89     2877.28     17.9%
