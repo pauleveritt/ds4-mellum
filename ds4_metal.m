@@ -51296,6 +51296,31 @@ int ds4_gpu_mellum_stream_layer_tables(uint32_t layer, ds4_gpu_tensor **gate, ds
     return 0;
 }
 
+/* S4: drop an expert slice's cached file pages after it is read into a slot, so its next load reads the SSD
+ * on any page-cache size.  F_NOCACHE alone still lets re-reads come from the cache, and posix_madvise(DONTNEED)
+ * does not drop them; msync(MS_INVALIDATE) over a read-only shared mapping of the streaming descriptor does
+ * (docs/superpowers/research/2026-10-28-mellum-s4-cached-reads-spike.md).  The range is rounded inward to whole
+ * pages, so a page shared with a neighbouring tensor is never dropped. */
+static void *g_mellum_stream_inval_map;
+static uint64_t g_mellum_stream_inval_size;
+static int g_mellum_stream_inval_fd = -1;
+
+static void ds4_gpu_mellum_stream_invalidate(uint64_t model_size, uint64_t offset, uint64_t len) {
+    if (g_model_fd < 0 || len == 0 || offset > model_size || len > model_size - offset) return;
+    if (!g_mellum_stream_inval_map || g_mellum_stream_inval_fd != g_model_fd || g_mellum_stream_inval_size != model_size) {
+        if (g_mellum_stream_inval_map) munmap(g_mellum_stream_inval_map, (size_t)g_mellum_stream_inval_size);
+        g_mellum_stream_inval_map = NULL;
+        void *p = mmap(NULL, (size_t)model_size, PROT_READ, MAP_SHARED, g_model_fd, 0);
+        if (p == MAP_FAILED) return;
+        g_mellum_stream_inval_map = p;
+        g_mellum_stream_inval_size = model_size;
+        g_mellum_stream_inval_fd = g_model_fd;
+    }
+    const uint64_t page = (uint64_t)getpagesize();
+    const uint64_t start = (offset + page - 1u) / page * page, end = (offset + len) / page * page;
+    if (end > start) (void)msync((uint8_t *)g_mellum_stream_inval_map + start, (size_t)(end - start), MS_INVALIDATE);
+}
+
 /* One group of at most DS4_METAL_MAX_ROUTED_EXPERT_USED experts: peek, load the missing, publish addresses. */
 static int ds4_gpu_mellum_stream_load_group(const ds4_gpu_stream_expert_table *t, const int32_t *ids, uint32_t n,
                                             uint32_t *n_loaded) {
@@ -51316,6 +51341,12 @@ static int ds4_gpu_mellum_stream_load_group(const ds4_gpu_stream_expert_table *t
                                                                       t->n_total_expert, n, ga, ua, da, gb, db,
                                                                       missing, entries)) {
         return 0;
+    }
+    for (uint32_t i = 0; i < n; i++) {
+        if (!(missing & (1u << i))) continue;
+        ds4_gpu_mellum_stream_invalidate(t->model_size, ga[i], gb);
+        ds4_gpu_mellum_stream_invalidate(t->model_size, ua[i], gb);
+        ds4_gpu_mellum_stream_invalidate(t->model_size, da[i], db);
     }
     for (uint32_t i = 0; i < n; i++) {
         ds4_gpu_stream_expert_cache_entry *e = entries[i];
