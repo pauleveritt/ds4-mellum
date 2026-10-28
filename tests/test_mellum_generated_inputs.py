@@ -51,7 +51,7 @@ def test_prepared_inputs_bind_policy_and_preserve_native_failure():
             for name in api.TOKEN_FILES:(out/name).write_text('1 2\n')
             for name in api.RENDERED_FILES:(out/name).write_bytes(b'exact rendered')
             return dict(argv=argv,pid=1,returncode=0,stdout=b'',stderr=b'')
-        with patch.object(api,'CONTENT_ID',v['content_id']),patch.object(api,'REVISION',v['source']['commit']),patch.object(api,'MODEL_BYTES',5),patch.object(api.observer,'command',side_effect=native):
+        with patch.object(api,'CONTENT_ID',v['content_id']),patch.object(api,'REVISION',v['source']['commit']),patch.object(api,'MODEL_BYTES',5),patch.object(api,'MODEL_STAT',api.identity.file_stat(model),create=True),patch.object(api.observer,'command',side_effect=native):
             prepared=api.prepare(b,model,binary,root/'prepared');value=api.verify(prepared)
             assert value['split']=='evaluation' and value['settings']['caps']==[4096,1024]
             assert value['policy']['sha256']==api.common.file_identity(ROOT/'tools/mellum_ssd_replay.py')['sha256']
@@ -95,6 +95,18 @@ def test_forced_build_freezes_both_binaries_and_preparation_preserves_receipt():
         assert value['gpu']==api.bindings.binding(gpu)
         assert value['cpu']==api.bindings.binding(cpu)
         assert value['source_identity']==api.common.source_identity(ROOT)
+
+
+def test_same_size_model_substitution_refuses_before_native_inspect():
+    api=module()
+    with tempfile.TemporaryDirectory() as d:
+        root=Path(d);model=root/'model';model.write_bytes(b'model')
+        binary=root/'binary';binary.write_bytes(b'fake');bundle_path=root/'bundle';bundle_path.mkdir();v=bundle(api,bundle_path)
+        with patch.object(api,'MODEL_BYTES',5),patch.object(api,'CONTENT_ID',v['content_id']),patch.object(api,'REVISION',v['source']['commit']),patch.object(api.observer,'command',side_effect=AssertionError('unverified model reached native inspect')) as native:
+            try:api.prepare(bundle_path,model,binary,root/'inputs')
+            except ValueError as exc:assert 'model' in str(exc)
+            else:raise AssertionError('unverified same-size model accepted')
+            assert native.call_count==0
 
 
 def isolated(function):
