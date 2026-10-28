@@ -50787,6 +50787,25 @@ int ds4_gpu_mellum_qk_norm_rope_fused_tensor(
                                rope, true);
 }
 
+/* Two f32 -> f16 copies of count values in one dispatch (ds4_gpu.h). */
+int ds4_gpu_mellum_copy2_f32_to_f16(ds4_gpu_tensor *dst_a, uint64_t a_off, const ds4_gpu_tensor *src_a,
+                                     ds4_gpu_tensor *dst_b, uint64_t b_off, const ds4_gpu_tensor *src_b,
+                                     uint32_t count) {
+    qwen4_bind b[4];
+    if (count == 0 || (a_off & 1u) || (b_off & 1u) ||
+        !qwen4_bind_tensor(&b[0], src_a, (uint64_t)count * sizeof(float), "mellum copy2 source a") ||
+        !qwen4_bind_tensor(&b[1], dst_a, a_off + (uint64_t)count * sizeof(uint16_t), "mellum copy2 destination a") ||
+        !qwen4_bind_tensor(&b[2], src_b, (uint64_t)count * sizeof(float), "mellum copy2 source b") ||
+        !qwen4_bind_tensor(&b[3], dst_b, b_off + (uint64_t)count * sizeof(uint16_t), "mellum copy2 destination b")) {
+        return 0;
+    }
+    b[1].off += a_off;
+    b[3].off += b_off;
+    const uint32_t n = count;
+    return mellum_dispatch("kernel_mellum_cpy2_f32_f16", &n, sizeof(n), b, 4,
+                           MTLSizeMake(((count + 3u) / 4u + 255u) / 256u, 1, 1), MTLSizeMake(256, 1, 1));
+}
+
 /* Commit n_rows rows of a sliding layer's f32 K and V to its f16 ring, row r
  * at slot (pos0 + r) % ring_slots with that slot's tag set to pos0 + r. */
 int ds4_gpu_mellum_ring_commit_tensor(

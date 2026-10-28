@@ -86,6 +86,29 @@ kernel void kernel_mellum_qk_norm_rope2(
     }
 }
 
+/* Two contiguous f32 -> f16 conversions of n values in one dispatch, each as kernel_cpy_contig_f32_f16_4 does it:
+ * four values per thread, a ragged tail of 1-3 one at a time (ds4_gpu_mellum_copy2_f32_to_f16). */
+kernel void kernel_mellum_cpy2_f32_f16(
+        constant uint & n,
+        device const float * src_a,
+        device       half  * dst_a,
+        device const float * src_b,
+        device       half  * dst_b,
+        uint gid [[thread_position_in_grid]]) {
+    const uint i = gid * 4u;
+    if (i >= n) return;
+    const uint remaining = n - i;
+    if (remaining >= 4u) {
+        ((device packed_half4 *)dst_a)[gid] = packed_half4(half4(float4(((device const packed_float4 *)src_a)[gid])));
+        ((device packed_half4 *)dst_b)[gid] = packed_half4(half4(float4(((device const packed_float4 *)src_b)[gid])));
+        return;
+    }
+    for (uint lane = 0; lane < remaining; ++lane) {
+        dst_a[i + lane] = half(src_a[i + lane]);
+        dst_b[i + lane] = half(src_b[i + lane]);
+    }
+}
+
 /* --- the sliding layers' K/V ring ------------------------------------------ */
 
 struct ds4_metal_args_mellum_ring_commit {

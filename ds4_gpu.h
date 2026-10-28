@@ -3743,6 +3743,11 @@ int ds4_gpu_mellum_qk_norm_rope_fused_tensor(
  * ring_commit: n_rows rows of f32 K and V ([n_rows][width]) into the f16
  * rings ([ring_slots][width]), row r at slot (pos0 + r) % ring_slots, and that
  * slot's int32 tag set to pos0 + r.  At most ring_slots rows per call. */
+/* dst_a at byte a_off and dst_b at byte b_off get count f16 values each, src_a's and src_b's f32 rounded as
+ * ds4_gpu_tensor_copy_f32_to_f16 rounds them, in one dispatch.  Offsets must be even; count > 0. */
+int ds4_gpu_mellum_copy2_f32_to_f16(ds4_gpu_tensor *dst_a, uint64_t a_off, const ds4_gpu_tensor *src_a,
+                                     ds4_gpu_tensor *dst_b, uint64_t b_off, const ds4_gpu_tensor *src_b,
+                                     uint32_t count);
 int ds4_gpu_mellum_attn_swa_tensor(
         ds4_gpu_tensor *out, const ds4_gpu_tensor *q,
         const ds4_gpu_tensor *ring_k, const ds4_gpu_tensor *ring_v, const ds4_gpu_tensor *ring_tags,
