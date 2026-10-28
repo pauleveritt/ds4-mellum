@@ -59340,6 +59340,7 @@ typedef struct ds4_qwen4_gpu_graph {
     ds4_gpu_tensor *mellum_stream_addr[DS4_MAX_LAYER][3];
     uint32_t mellum_stream_resume;
     uint64_t mellum_stream_stops;
+    uint64_t mellum_stream_loads;     /* experts read into slots */
     /* Arena only, grown on demand: one logit row per batch member, the
      * attention rows' cache table (one entry per row and layer) and their
      * split partials. */
@@ -60576,7 +60577,7 @@ static uint32_t mellum_tiled_min_rows(const ds4_qwen4_gpu_graph *g) {
 #if defined(__APPLE__)
 /* S4: make `ids` of layer il resident in the expert cache and publish their addresses. */
 static bool mellum_stream_load_ids(const ds4_model *m, const ds4_layer_weights *l, uint32_t il, const int32_t *ids,
-                                   uint32_t n) {
+                                   uint32_t n, uint64_t *loads) {
     if (g_mellum_stream_fail_load_at && ++g_mellum_stream_load_count == g_mellum_stream_fail_load_at) {
         fprintf(stderr, "ds4: Mellum streamed load of layer %u failed (test fault)\n", il);
         return false;
@@ -60585,7 +60586,9 @@ static bool mellum_stream_load_ids(const ds4_model *m, const ds4_layer_weights *
     if (!streaming_layer_gate_down_expert_bytes(l, &gate_bytes, &down_bytes)) return false;
     const ds4_gpu_stream_expert_table table = graph_stream_expert_table_make(m, l, il, gate_bytes, down_bytes);
     uint32_t loaded = 0;
-    return ds4_gpu_mellum_stream_load(&table, ids, n, &loaded) != 0;
+    const bool ok = ds4_gpu_mellum_stream_load(&table, ids, n, &loaded) != 0;
+    if (loads) *loads += loaded;
+    return ok;
 }
 #endif
 
@@ -60663,7 +60666,7 @@ static bool mellum_graph_moe(ds4_qwen4_gpu_graph *g, const ds4_model *m, const d
             ds4_gpu_end_commands() != 0 &&
             ds4_gpu_tensor_read(s[MELLUM_S_SELECTED], 0, sel, (uint64_t)T * p.n_used * sizeof(int32_t)) != 0;
         const uint32_t n_unique = ok ? ds4_mellum_stream_unique(sel, T, p.n_used, uniq) : UINT32_MAX;
-        ok = ok && n_unique != UINT32_MAX && mellum_stream_load_ids(m, l, il, uniq, n_unique) &&
+        ok = ok && n_unique != UINT32_MAX && mellum_stream_load_ids(m, l, il, uniq, n_unique, &g->mellum_stream_loads) &&
              glm_graph_begin_commands_if_needed();
         if (tiled) {
             ok = ok &&
@@ -60980,7 +60983,7 @@ static bool mellum_stream_finish(void *ctx, bool *stopped, ds4_mellum_stream_sto
 
 static bool mellum_stream_load(void *ctx, uint32_t layer, const int32_t *ids, uint32_t n) {
     mellum_stream_ctx *c = ctx;
-    return mellum_stream_load_ids(c->m, &c->w->layer[layer], layer, ids, n);
+    return mellum_stream_load_ids(c->m, &c->w->layer[layer], layer, ids, n, &c->g->mellum_stream_loads);
 }
 
 static bool mellum_stream_cancelled(void *ctx) {
@@ -89262,6 +89265,13 @@ bool ds4_test_mellum_stream_fail_load(ds4_session *s, uint64_t nth) {
     if (!s || !ds4_session_is_qwen4(s) || !s->qwen4_graph.mellum_stream) return false;
     g_mellum_stream_fail_load_at = nth;
     g_mellum_stream_load_count = 0;
+    return true;
+}
+
+/* For tests/ds4_test.c --mellum-stream-identity and tools/mellum_s4_measure: experts read into slots. */
+bool ds4_test_mellum_stream_loads(ds4_session *s, uint64_t *loads) {
+    if (!s || !loads || !ds4_session_is_qwen4(s) || !s->qwen4_graph.mellum_stream) return false;
+    *loads = s->qwen4_graph.mellum_stream_loads;
     return true;
 }
 
