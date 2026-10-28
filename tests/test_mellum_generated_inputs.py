@@ -131,6 +131,22 @@ def test_cpu_inspect_and_build_commands_must_fit_frozen_cutoff():
             assert native.call_count==0
 
 
+def test_owner_window_of_2026_10_28_ends_2200z_for_cpu_and_gpu():
+    # The owner reopened the window to 18:00 Eastern; both guards share it.
+    api=module()
+    from datetime import datetime, timezone
+    spec=importlib.util.spec_from_file_location('generated_publish_window',ROOT/'tools/mellum_generated_publish.py')
+    publish=importlib.util.module_from_spec(spec);spec.loader.exec_module(publish)
+    cutoff=datetime(2026,10,28,22,tzinfo=timezone.utc)
+    assert api.DEADLINE==cutoff and api.SETTINGS['deadline_utc']=='2026-10-28T22:00:00Z'
+    assert publish.DEADLINE==api.DEADLINE
+    with patch.object(api,'utc_now',return_value=datetime(2026,10,28,15,30,tzinfo=timezone.utc)):api.require_time(120)
+    with patch.object(api,'utc_now',return_value=datetime(2026,10,28,21,58,1,tzinfo=timezone.utc)):
+        try:api.require_time(120)
+        except ValueError as exc:assert 'cutoff' in str(exc)
+        else:raise AssertionError('CPU command crossed reopened cutoff')
+
+
 def isolated(function):
     def run():
         # Make/app inject control variables; fake-boundary tests start clean.
