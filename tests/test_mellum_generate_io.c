@@ -7,7 +7,7 @@
 void ds4_tokens_push(ds4_tokens *v,int t) {
     v->v=realloc(v->v,(size_t)(v->len+1)*sizeof(int));assert(v->v);v->v[v->len++]=t;
 }
-char *ds4_token_text(ds4_engine *e,int token,size_t *n) { (void)e;(void)token;*n=1;return "x"; }
+char *ds4_token_text(ds4_engine *e,int token,size_t *n) { (void)e;(void)token;*n=1;return strdup("x"); }
 int main(void) {
     char directory[]="/tmp/mellum-gen-io-XXXXXX";assert(mkdtemp(directory));
     char path[256];snprintf(path,sizeof(path),"%s/tokens",directory);
