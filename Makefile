@@ -1739,5 +1739,6 @@ tests/test_mellum_generate_io: tests/test_mellum_generate_io.c tools/mellum_gene
 test-mellum-generated-inputs: tests/test_mellum_generate_io
 	./tests/test_mellum_generate_io
 	python3 -I tests/test_mellum_generated_inputs.py
-clean:
+clean-mellum-generated-inputs:
 	rm -f tests/test_mellum_generate_io
+clean: clean-mellum-generated-inputs
