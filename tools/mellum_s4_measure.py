@@ -73,10 +73,10 @@ def verify_copy(src: Path, dest: Path, block: int = 64 << 20) -> dict:
     return dict(path=str(dest), bytes=src.stat().st_size)
 
 
-def classify_reads(logical: int, device: int) -> str:
+def classify_reads(logical: int, device: int, cap: int = READ_CAP) -> str:
     """logical: expert bytes the run read into slots (loads x EXPERT_BYTES); device: block-driver read bytes
     over the run (static weights only add to it)."""
-    if logical > READ_CAP:
+    if logical > cap:
         return 'over-read-cap'
     return 'device-observed' if device >= 0.99 * logical else 'cache-contaminated'
 
