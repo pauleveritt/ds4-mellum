@@ -93,4 +93,4 @@ def validate(prepared: Path,raw: Path,frozen: dict,progress: dict) -> dict:
         trace_sha256=common.file_identity(raw/'trace.jsonl')['sha256'],
         truncation=[reason==0 for reason in native['stop_classes']],
         timing='emitted monotonic timestamps include recorder and logit snapshot overhead; parity is separate; no SSD inference',
-        files={str(p.relative_to(raw)):common.file_identity(p) for p in raw.rglob('*') if p.is_file()})
+        files={str(p.relative_to(raw)):{k:v for k,v in common.file_identity(p).items() if k in ('size','sha256')} for p in raw.rglob('*') if p.is_file()})
