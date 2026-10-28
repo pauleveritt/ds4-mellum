@@ -1,0 +1,31 @@
+diff --git a/ds4.c b/ds4.c
+index 1d04f8e..6d914c7 100644
+--- a/ds4.c
++++ b/ds4.c
+@@ -60806,6 +60806,12 @@ static bool mellum_graph_forward_tokens(ds4_qwen4_gpu_graph *g, const ds4_model
+               glm_graph_begin_commands_if_needed() &&
+               ds4_gpu_embed_tokens_q8_0_tensor(s[MELLUM_S_HIDDEN], s[MELLUM_S_TOKENS], m->map, m->size,
+                                                w->token_embd->abs_offset, (uint32_t)w->token_embd->dim[1], T, E) != 0;
++    static int spike_sync = -1;
++    if (spike_sync < 0) {
++        const char *env = getenv("DS4_SPIKE_LAYER_SYNC");
++        spike_sync = env ? atoi(env) : 0;
++        fprintf(stderr, "ds4: SPIKE per-layer sync mode %d\n", spike_sync);
++    }
+     uint32_t full_slot = 0;
+     for (uint32_t il = 0; il < n_layer && ok; il++) {
+         ok = mellum_graph_layer(g, m, &w->layer[il], il, full_slot, pos0, T, &rope);
+@@ -60837,6 +60843,13 @@ static bool mellum_graph_forward_tokens(ds4_qwen4_gpu_graph *g, const ds4_model
+             }
+             if (ok && il + 1u < n_layer) ok = glm_graph_begin_commands_if_needed();
+         }
++        /* THROWAWAY SPIKE: per-layer host sync cost on resident decode. 1 = wait, 2 = wait + read IDs. */
++        if (ok && T == 1u && spike_sync && il + 1u < n_layer) {
++            ok = ds4_gpu_end_commands() != 0;
++            int32_t spike_ids[8];
++            if (ok && spike_sync > 1) ok = ds4_gpu_tensor_read(s[MELLUM_S_SELECTED], 0, spike_ids, sizeof spike_ids) != 0;
++            if (ok) ok = glm_graph_begin_commands_if_needed();
++        }
+     }
+     /* the head: each traced row's logits (a wait and a read each), then the last row's for the caller */
+     bool last_done = false;
