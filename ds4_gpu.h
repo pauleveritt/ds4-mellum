@@ -3713,6 +3713,13 @@ int ds4_gpu_mellum_qk_norm_rope_tensor(
         uint64_t q_norm_offset, uint64_t k_norm_offset,
         uint32_t n_tok, uint32_t pos0, int layer_kind,
         const ds4_gpu_mellum_rope *rope);
+/* The same in one dispatch, q's heads and k's together; each head's words equal ds4_gpu_mellum_qk_norm_rope_tensor's. */
+int ds4_gpu_mellum_qk_norm_rope_fused_tensor(
+        ds4_gpu_tensor *q, ds4_gpu_tensor *k,
+        const void *model_map, uint64_t model_size,
+        uint64_t q_norm_offset, uint64_t k_norm_offset,
+        uint32_t n_tok, uint32_t pos0, int layer_kind,
+        const ds4_gpu_mellum_rope *rope);
 
 /* Mellum 2.1 sliding-window attention (metal/mellum.metal), one contract for
  * prefill and decode (decode is n_tok == 1):

@@ -50690,12 +50690,12 @@ static double mellum_rope_corr_dim(double head_dim, double n_ctx_orig, double n_
     return head_dim * log(n_ctx_orig / (n_rot * 2.0 * M_PI)) / (2.0 * log(base));
 }
 
-int ds4_gpu_mellum_qk_norm_rope_tensor(
+static int mellum_qk_norm_rope(
         ds4_gpu_tensor *q, ds4_gpu_tensor *k,
         const void *model_map, uint64_t model_size,
         uint64_t q_norm_offset, uint64_t k_norm_offset,
         uint32_t n_tok, uint32_t pos0, int layer_kind,
-        const ds4_gpu_mellum_rope *rope) {
+        const ds4_gpu_mellum_rope *rope, bool one_dispatch) {
     if (!rope || n_tok == 0u || (layer_kind != DS4_MELLUM_LAYER_SLIDING && layer_kind != DS4_MELLUM_LAYER_FULL) ||
         rope->head_dim != 128u || rope->n_head_q == 0u || rope->n_head_k == 0u ||
         !(rope->freq_base_sliding > 1.0f) || !(rope->freq_base_full > 1.0f) ||
@@ -50751,10 +50751,40 @@ int ds4_gpu_mellum_qk_norm_rope_tensor(
                            "mellum k norm")) {
         return 0;
     }
+    if (one_dispatch) {
+        struct {
+            uint32_t n_rows, n_head, head_dim, rope_dims, pos0; float eps; float mscale; uint32_t pad1;
+            float inv_freq[128];
+        } args = { n_tok, rope->n_head_q, D, D, pos0, rope->eps, mscale, rope->n_head_k, { 0 } };
+        memcpy(args.inv_freq, inv_freq, (D / 2u) * sizeof(float));
+        const qwen4_bind b[4] = { probe[0], probe[2], probe[1], probe[3] };   /* q, its norm, k, its norm */
+        return mellum_dispatch("kernel_mellum_qk_norm_rope2", &args, sizeof(args), b, 4,
+                               MTLSizeMake(rope->n_head_q + rope->n_head_k, n_tok, 1), MTLSizeMake(32, 1, 1));
+    }
     return mellum_qk_norm_rope_dispatch(q, q, model_map, model_size, q_norm_offset, n_tok, rope->n_head_q, D,
                                         pos0, D, inv_freq, mscale, rope->eps) &&
            mellum_qk_norm_rope_dispatch(k, k, model_map, model_size, k_norm_offset, n_tok, rope->n_head_k, D,
                                         pos0, D, inv_freq, mscale, rope->eps);
+}
+
+int ds4_gpu_mellum_qk_norm_rope_tensor(
+        ds4_gpu_tensor *q, ds4_gpu_tensor *k,
+        const void *model_map, uint64_t model_size,
+        uint64_t q_norm_offset, uint64_t k_norm_offset,
+        uint32_t n_tok, uint32_t pos0, int layer_kind,
+        const ds4_gpu_mellum_rope *rope) {
+    return mellum_qk_norm_rope(q, k, model_map, model_size, q_norm_offset, k_norm_offset, n_tok, pos0, layer_kind,
+                               rope, false);
+}
+
+int ds4_gpu_mellum_qk_norm_rope_fused_tensor(
+        ds4_gpu_tensor *q, ds4_gpu_tensor *k,
+        const void *model_map, uint64_t model_size,
+        uint64_t q_norm_offset, uint64_t k_norm_offset,
+        uint32_t n_tok, uint32_t pos0, int layer_kind,
+        const ds4_gpu_mellum_rope *rope) {
+    return mellum_qk_norm_rope(q, k, model_map, model_size, q_norm_offset, k_norm_offset, n_tok, pos0, layer_kind,
+                               rope, true);
 }
 
 /* Commit n_rows rows of a sliding layer's f32 K and V to its f16 ring, row r

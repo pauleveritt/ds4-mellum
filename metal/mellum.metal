@@ -21,19 +21,13 @@ struct ds4_metal_args_mellum_qk_norm_rope {
  * as llama.cpp's Metal rope forms it; cos and sin are the precise ones, so
  * the only error past the float angle is its own rounding.  (Re-homed from the
  * ds4-engine fork's kernel_dflash_head_norm_rope, the arithmetic unchanged.) */
-kernel void kernel_mellum_qk_norm_rope(
-        constant ds4_metal_args_mellum_qk_norm_rope & args,
-        device const float *x,         /* [n_rows][n_head][head_dim] */
-        device const float *w,         /* [head_dim] */
-        device float       *y,         /* [n_rows][n_head][head_dim], may alias x */
-        uint3 tgpig [[threadgroup_position_in_grid]],
-        ushort tiisg [[thread_index_in_simdgroup]]) {
-    const uint h = tgpig.x, r = tgpig.y;
-    if (h >= args.n_head || r >= args.n_rows) return;
+static inline void mellum_qk_norm_rope_head(constant ds4_metal_args_mellum_qk_norm_rope & args, device const float *x,
+                                            device const float *w, device float *y, uint n_head, uint h, uint r,
+                                            ushort tiisg, threadgroup float *row) {
+    if (h >= n_head || r >= args.n_rows) return;
     const uint D = args.head_dim, npt = D / 32u;
-    device const float *src = x + ((uint64_t)r * args.n_head + h) * D;
-    device float *dst = y + ((uint64_t)r * args.n_head + h) * D;
-    threadgroup float row[256];
+    device const float *src = x + ((uint64_t)r * n_head + h) * D;
+    device float *dst = y + ((uint64_t)r * n_head + h) * D;
     float ss = 0.0f;
     for (uint k = 0; k < npt; k++) {
         const float v = src[tiisg + 32u * k];
@@ -60,6 +54,35 @@ kernel void kernel_mellum_qk_norm_rope(
                                 : row[i - half_dims] * s + row[i] * c;
         }
         dst[i] = out;
+    }
+}
+
+kernel void kernel_mellum_qk_norm_rope(
+        constant ds4_metal_args_mellum_qk_norm_rope & args,
+        device const float *x,         /* [n_rows][n_head][head_dim] */
+        device const float *w,         /* [head_dim] */
+        device float       *y,         /* [n_rows][n_head][head_dim], may alias x */
+        uint3 tgpig [[threadgroup_position_in_grid]],
+        ushort tiisg [[thread_index_in_simdgroup]]) {
+    threadgroup float row[256];
+    mellum_qk_norm_rope_head(args, x, w, y, args.n_head, tgpig.x, tgpig.y, tiisg, row);
+}
+
+/* Q's heads (args.n_head of them) and then K's (args.pad1) in one dispatch, each in place, each head as
+ * kernel_mellum_qk_norm_rope computes it (ds4_gpu_mellum_qk_norm_rope_fused_tensor). */
+kernel void kernel_mellum_qk_norm_rope2(
+        constant ds4_metal_args_mellum_qk_norm_rope & args,
+        device float       *q,         /* [n_rows][n_head][head_dim] */
+        device const float *wq,
+        device float       *k,         /* [n_rows][pad1][head_dim] */
+        device const float *wk,
+        uint3 tgpig [[threadgroup_position_in_grid]],
+        ushort tiisg [[thread_index_in_simdgroup]]) {
+    threadgroup float row[256];
+    if (tgpig.x < args.n_head) {
+        mellum_qk_norm_rope_head(args, q, wq, q, args.n_head, tgpig.x, tgpig.y, tiisg, row);
+    } else {
+        mellum_qk_norm_rope_head(args, k, wk, k, args.pad1, tgpig.x - args.n_head, tgpig.y, tiisg, row);
     }
 }
 
