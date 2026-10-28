@@ -4,7 +4,8 @@
 # The prompt is the start of speed-bench/promessi_sposi.txt (cut at a line end) and one request, sized so its
 # templated token count (--dump-tokens) is the smallest at or above each target.  The context is that count plus
 # 64, rounded up to 1,024.  At each length the arms run in blocks A, B, B, A (A = DS4_MELLUM_MOE_NAX=0, B = the
-# default), COOL seconds without GPU work before a block and GAP seconds between its PER processes.  ds4 runs one
+# default; A_ENV and B_ENV, space-separated assignments, replace them, A_NAME and B_NAME their labels), COOL
+# seconds without GPU work before a block and GAP seconds between its PER processes.  ds4 runs one
 # prefill per process (after its own GPU warmup), so a block's first process is dropped, not a process's first run.
 # Every process's stderr is kept; power and thermal state go to events.txt before and after each block.
 set -u
@@ -13,6 +14,9 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 DS4=${DS4:-$ROOT/ds4}
 TEXT=$ROOT/speed-bench/promessi_sposi.txt
 PER=${PER:-4}; COOL=${COOL:-45}; GAP=${GAP:-10}
+read -r -a A_ARM <<< "${A_ENV-DS4_MELLUM_MOE_NAX=0}"
+read -r -a B_ARM <<< "${B_ENV-}"
+export A_NAME=${A_NAME:-DS4_MELLUM_MOE_NAX=0} B_NAME=${B_NAME:-E1 on (default)}
 ASK=$'\n\nSummarize the text above in three sentences.'
 mkdir -p "$OUT"
 
@@ -43,7 +47,8 @@ PY
 
 { echo "machine: $(sysctl -n machdep.cpu.brand_string) $(sysctl -n hw.memsize) bytes"
   echo "head: $(git -C "$ROOT" rev-parse --short HEAD)  ds4: $(stat -f %Sm "$DS4")"
-  echo "PER=$PER COOL=$COOL GAP=$GAP"; } > "$OUT/setup.txt"
+  echo "PER=$PER COOL=$COOL GAP=$GAP"
+  echo "A ($A_NAME): ${A_ARM[*]+${A_ARM[*]}}"; echo "B ($B_NAME): ${B_ARM[*]+${B_ARM[*]}}"; } > "$OUT/setup.txt"
 
 for target in "$@"; do
     # bisect the character count: about 2.8 characters per token in this text
@@ -59,7 +64,7 @@ for target in "$@"; do
     b=0
     for arm in A B B A; do
         b=$((b + 1))
-        if [ $arm = A ]; then envs=(DS4_MELLUM_MOE_NAX=0); else envs=(); fi
+        if [ $arm = A ]; then envs=(${A_ARM[@]+"${A_ARM[@]}"}); else envs=(${B_ARM[@]+"${B_ARM[@]}"}); fi
         sleep "$COOL"
         echo "state before $target $b$arm: $(state)" >> "$OUT/events.txt"
         for p in $(seq 1 "$PER"); do
@@ -76,15 +81,15 @@ for target in "$@"; do
 done
 
 python3 -I - "$OUT/runs.txt" <<'PY' | tee "$OUT/summary.txt"
-import statistics, sys
+import os, statistics, sys
 rows = [l.split() for l in open(sys.argv[1])]
 for target in dict.fromkeys(r[0] for r in rows):
     kept = [r for r in rows if r[0] == target and r[4] != '1']
     med = {}
-    for arm, name in (('A', 'DS4_MELLUM_MOE_NAX=0'), ('B', 'E1 on (default)')):
+    for arm, name in (('A', os.environ['A_NAME']), ('B', os.environ['B_NAME'])):
         v = [float(r[5]) for r in kept if r[2] == arm]
         med[arm] = statistics.median(v)
         print('%s (%s tokens) %s: n %d, median %.0f t/s, range %.0f-%.0f' %
               (target, kept[0][1], name, len(v), med[arm], min(v), max(v)))
-    print('%s: E1 / NAX=0 median %.3f' % (target, med['B'] / med['A']))
+    print('%s: B / A median %.3f' % (target, med['B'] / med['A']))
 PY
