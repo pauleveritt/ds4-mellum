@@ -37,6 +37,10 @@ preregistered and not retried. Never `--raw-prompt`. Nothing discarded: failed r
 - [ ] Check out the branch at a named commit and run `make` and `make test-mellum` (CPU-only).
 - [ ] In a GPU window, run `make test-mellum-kernels`. It includes the address-table variants at decode
   and tiled levels and the stream-gate tests. Record the pass/fail counts against this laptop's 564/0.
+  - Watch `check_stream_check_kernel` ("the layer's resume state must be saved in its slot"). The
+    check kernel saves expert ids as float bit patterns (`as_type<float>`), which for ids 0–63 are
+    denormals. A failure there means this GPU flushes them on store: fix with an integer save region
+    (the deferred S4 minor) before any live run.
 - [ ] Record the startup line: whether the Metal 4 tensor API is on, and whether E1's tensor-tile experts
   run or prefill falls back to the tiled kernels.
 
