@@ -49,6 +49,8 @@
 /* S4: set at engine open when the engine streams Mellum's experts; sessions read it at allocation. */
 static bool g_mellum_stream_engine;
 static int g_mellum_stream_fd = -1;
+/* tests/ds4_test.c --mellum-stream-faults: fail the nth streamed load from when it was set (0: never) */
+static uint64_t g_mellum_stream_fail_load_at, g_mellum_stream_load_count;
 #endif
 #include "ds4_mellum_capture_state.h"
 #include "ds4_mellum_observer.h"
@@ -59332,6 +59334,8 @@ typedef struct ds4_qwen4_gpu_graph {
      * layer's saved resume state, views of the expert cache's per-layer address tables, the layer a
      * resumed encode starts at (UINT32_MAX: none) and the stops taken. */
     bool mellum_stream;
+    ds4_session_cancel_fn mellum_stream_cancel;   /* the session's, polled between stops */
+    void *mellum_stream_cancel_ud;
     ds4_gpu_tensor *mellum_stream_gate, *mellum_stream_save;
     ds4_gpu_tensor *mellum_stream_addr[DS4_MAX_LAYER][3];
     uint32_t mellum_stream_resume;
@@ -60573,6 +60577,10 @@ static uint32_t mellum_tiled_min_rows(const ds4_qwen4_gpu_graph *g) {
 /* S4: make `ids` of layer il resident in the expert cache and publish their addresses. */
 static bool mellum_stream_load_ids(const ds4_model *m, const ds4_layer_weights *l, uint32_t il, const int32_t *ids,
                                    uint32_t n) {
+    if (g_mellum_stream_fail_load_at && ++g_mellum_stream_load_count == g_mellum_stream_fail_load_at) {
+        fprintf(stderr, "ds4: Mellum streamed load of layer %u failed (test fault)\n", il);
+        return false;
+    }
     uint64_t gate_bytes = 0, down_bytes = 0;
     if (!streaming_layer_gate_down_expert_bytes(l, &gate_bytes, &down_bytes)) return false;
     const ds4_gpu_stream_expert_table table = graph_stream_expert_table_make(m, l, il, gate_bytes, down_bytes);
@@ -60976,8 +60984,8 @@ static bool mellum_stream_load(void *ctx, uint32_t layer, const int32_t *ids, ui
 }
 
 static bool mellum_stream_cancelled(void *ctx) {
-    (void)ctx;
-    return false;
+    const ds4_qwen4_gpu_graph *g = ((mellum_stream_ctx *)ctx)->g;
+    return g->mellum_stream_cancel && g->mellum_stream_cancel(g->mellum_stream_cancel_ud);
 }
 
 static bool mellum_stream_decode(ds4_qwen4_gpu_graph *g, const ds4_model *m, const ds4_weights *w, int32_t token,
@@ -76549,6 +76557,9 @@ void ds4_session_set_cancel(ds4_session *s, ds4_session_cancel_fn fn, void *ud) 
     if (!s) return;
     s->cancel = fn;
     s->cancel_ud = ud;
+    /* S4: a streamed Mellum decode polls it between stops */
+    s->qwen4_graph.mellum_stream_cancel = fn;
+    s->qwen4_graph.mellum_stream_cancel_ud = ud;
 }
 
 static bool ds4_session_cancelled(ds4_session *s) {
@@ -89244,6 +89255,14 @@ bool ds4_test_mellum_moe(ds4_engine *engine, uint32_t layer, const float *x, uin
     return false;
 #endif
 }
+/* For tests/ds4_test.c --mellum-stream-faults: fail the nth streamed load from now (0: never). */
+bool ds4_test_mellum_stream_fail_load(ds4_session *s, uint64_t nth) {
+    if (!s || !ds4_session_is_qwen4(s) || !s->qwen4_graph.mellum_stream) return false;
+    g_mellum_stream_fail_load_at = nth;
+    g_mellum_stream_load_count = 0;
+    return true;
+}
+
 /* For tests/ds4_test.c --mellum-stream-identity: the stops a streamed Mellum session has taken. */
 bool ds4_test_mellum_stream_stops(ds4_session *s, uint64_t *stops) {
     if (!s || !stops || !ds4_session_is_qwen4(s) || !s->qwen4_graph.mellum_stream) return false;
