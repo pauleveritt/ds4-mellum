@@ -1,3 +1,69 @@
+# Mellum 2.1 on DwarfStar (ds4-mellum)
+
+This is a fork of antirez's [DwarfStar](https://github.com/antirez/ds4) (ds4) that runs JetBrains' Mellum 2.1
+(12B parameters, 2.5B active per token, a thinking coding model) on a Mac and serves it to a coding agent. Mellum
+mixes 64 routed experts (8 per token) with sliding-window and full attention layers, 3 to 1; this branch adds
+Metal kernels for that shape.
+
+**Before you start**
+
+- **Mac only.** Metal on Apple Silicon. CUDA, ROCm, the CPU path and distributed inference are not built or
+  tested for Mellum.
+- **Q8_0 only.** The loader accepts JetBrains' Q8_0 file and refuses every other quant, including the Q4_K_M
+  that JetBrains' model card recommends.
+- **One machine measured.** Everything here was run on an Apple M5 Max with 128 GB. Part of the prefill speed
+  comes from Metal 4 tensor tiles that the port uses only on M5-class chips, so an M4 or earlier is untested and
+  will be slower.
+
+## Get the model
+
+```bash
+hf download JetBrains/Mellum2.1-12B-A2.5B-Thinking-GGUF \
+  Mellum2.1-12B-A2.5B-Thinking-Q8_0.gguf --local-dir ~/models
+```
+
+This writes `~/models/Mellum2.1-12B-A2.5B-Thinking-Q8_0.gguf`, replacing a file of that name if you have one:
+12,925,417,760 bytes, sha256 `69e0ac02a16586c2c9e991f1e3b8a1eb403882e7ab9e69ea01eb23dbbbc6841f` (Hugging Face
+commit `0af0a45b98`).
+
+## Build
+
+```bash
+git clone https://github.com/pauleveritt/ds4-mellum
+cd ds4-mellum
+make
+```
+
+Run the commands below from this directory: `ds4` and `ds4-server` load their Metal kernels from `metal/` at
+startup.
+
+## Try it
+
+```bash
+./ds4 -m ~/models/Mellum2.1-12B-A2.5B-Thinking-Q8_0.gguf -c 32768 \
+  -p "Write a Python function that checks whether a string is a palindrome."
+```
+
+Mellum thinks first: its reasoning prints as plain text, then the answer. The last line on stderr gives the
+prefill and generation rates.
+
+## Serve it
+
+```bash
+./ds4-server -m ~/models/Mellum2.1-12B-A2.5B-Thinking-Q8_0.gguf -c 32768 --port 8099
+```
+
+The server speaks the OpenAI chat-completions API, with tools and streaming, and returns Mellum's reasoning
+separately as `reasoning_content`. `curl http://127.0.0.1:8099/v1/models` lists `mellum-2.1`. Any
+OpenAI-compatible client can use it; the next section connects Pi.
+
+---
+
+# DwarfStar (upstream README)
+
+Everything below is antirez's DwarfStar README as of the commit this branch is based on, unchanged. It describes
+upstream's models and backends; for Mellum, the guide above and [`MELLUM.md`](MELLUM.md) apply.
+
 <p align="center">
   <img src="logo.svg" alt="DwarfStar logo" width="220">
 </p>
