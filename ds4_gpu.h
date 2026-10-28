@@ -3755,6 +3755,14 @@ int ds4_gpu_mellum_attn_tiled_tensor(
         const ds4_gpu_tensor *k16, const ds4_gpu_tensor *v16,
         uint32_t n_tok, uint32_t pos0, uint32_t window,
         uint32_t n_head, uint32_t n_head_kv, uint32_t head_dim, float scale);
+/* The same with half operands: the scaled queries and the probabilities rounded to half, f32 accumulation, tiles
+ * of 32 keys (kernel_mellum_attn_tiled_half).  A precision change against the f32 tiles. */
+int ds4_gpu_mellum_attn_tiled_half_tensor(
+        ds4_gpu_tensor *out, const ds4_gpu_tensor *q,
+        const ds4_gpu_tensor *ring_k, const ds4_gpu_tensor *ring_v, const ds4_gpu_tensor *ring_tags,
+        const ds4_gpu_tensor *k16, const ds4_gpu_tensor *v16,
+        uint32_t n_tok, uint32_t pos0, uint32_t window,
+        uint32_t n_head, uint32_t n_head_kv, uint32_t head_dim, float scale);
 int ds4_gpu_mellum_ring_commit_tensor(
         ds4_gpu_tensor *ring_k, ds4_gpu_tensor *ring_v, ds4_gpu_tensor *ring_pos,
         const ds4_gpu_tensor *k, const ds4_gpu_tensor *v,
