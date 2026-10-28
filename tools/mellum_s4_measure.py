@@ -42,8 +42,8 @@ def build_prompt(root: Path, budget_bytes: int) -> dict:
 
 
 def fresh_copy(src: Path, dest: Path, block: int = 64 << 20) -> dict:
-    """An exclusive copy written and compared through F_NOCACHE descriptors, so neither leaves its pages in the
-    unified buffer cache; a streamed run reading it then reads the device."""
+    """An exclusive copy written through F_NOCACHE descriptors and fsynced, and never read back: reading it
+    would leave it in the unified buffer cache (cached-reads spike).  verify_copy checks it after the run."""
     out = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     try:
         fcntl.fcntl(out, F_NOCACHE, 1)
@@ -56,18 +56,21 @@ def fresh_copy(src: Path, dest: Path, block: int = 64 << 20) -> dict:
         os.fsync(out)
     finally:
         os.close(out)
-    size = src.stat().st_size
-    if dest.stat().st_size != size:
+    if os.stat(dest).st_size != src.stat().st_size:
         raise ValueError('copy size differs')
-    with open(src, 'rb', buffering=0) as a, open(dest, 'rb', buffering=0) as b:
-        fcntl.fcntl(a.fileno(), F_NOCACHE, 1)
-        fcntl.fcntl(b.fileno(), F_NOCACHE, 1)
-        while (x := a.read(block)) or True:
-            if x != b.read(block):
+    return dict(path=str(dest), bytes=src.stat().st_size)
+
+
+def verify_copy(src: Path, dest: Path, block: int = 64 << 20) -> dict:
+    """Byte comparison of a copy with its source; run it after any timed read of the copy."""
+    with open(src, 'rb') as a, open(dest, 'rb') as b:
+        while True:
+            x, y = a.read(block), b.read(block)
+            if x != y:
                 raise ValueError('copy bytes differ')
             if not x:
                 break
-    return dict(path=str(dest), bytes=size)
+    return dict(path=str(dest), bytes=src.stat().st_size)
 
 
 def classify_reads(logical: int, device: int) -> str:
