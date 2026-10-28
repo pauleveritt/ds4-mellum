@@ -60725,9 +60725,11 @@ static bool mellum_graph_layer(ds4_qwen4_gpu_graph *g, const ds4_model *m, const
               mellum_proj(g, s[MELLUM_S_Q], m, l->attn_q, s[MELLUM_S_ATTN_NORM], T) &&
               mellum_proj(g, s[MELLUM_S_K], m, l->attn_k, s[MELLUM_S_ATTN_NORM], T) &&
               mellum_proj(g, s[MELLUM_S_V], m, l->attn_v, s[MELLUM_S_ATTN_NORM], T) &&
-              ds4_gpu_mellum_qk_norm_rope_tensor(s[MELLUM_S_Q], s[MELLUM_S_K], m->map, m->size,
-                                                 l->attn_q_norm->abs_offset, l->attn_k_norm->abs_offset, T, pos0,
-                                                 sliding ? DS4_MELLUM_LAYER_SLIDING : DS4_MELLUM_LAYER_FULL, rope) != 0;
+              /* decode: q's and k's heads in one dispatch, the same words as the two */
+              (T == 1u ? ds4_gpu_mellum_qk_norm_rope_fused_tensor : ds4_gpu_mellum_qk_norm_rope_tensor)(
+                  s[MELLUM_S_Q], s[MELLUM_S_K], m->map, m->size, l->attn_q_norm->abs_offset,
+                  l->attn_k_norm->abs_offset, T, pos0, sliding ? DS4_MELLUM_LAYER_SLIDING : DS4_MELLUM_LAYER_FULL,
+                  rope) != 0;
     const bool tiled = g->mellum_attn_tiled != 0u && T >= mellum_tiled_min_rows(g);
     int (*const tiled_attn)(ds4_gpu_tensor *, const ds4_gpu_tensor *, const ds4_gpu_tensor *, const ds4_gpu_tensor *,
                             const ds4_gpu_tensor *, const ds4_gpu_tensor *, const ds4_gpu_tensor *, uint32_t, uint32_t,
