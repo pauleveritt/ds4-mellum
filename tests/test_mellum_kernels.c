@@ -2455,6 +2455,27 @@ static void check_gate_all_hit_one_wait(void) {
     ds4_gpu_tensor_free(gate); ds4_gpu_tensor_free(acc); ds4_gpu_tensor_free(one);
 }
 
+/* past its record cap the gate can no longer suppress, so a token that overflows it must read back as an
+ * error rather than as a clean all-hit or a stop */
+static void check_gate_overflow_is_error(void) {
+    ds4_gpu_tensor *acc = gate_filled(0.0f), *one = gate_filled(1.0f);
+    ds4_gpu_tensor *gate = ds4_gpu_stream_gate_create();
+    require_ok(gate != NULL && ds4_gpu_stream_gate_reset(gate) && ds4_gpu_stream_gate_bind(gate), "gate create");
+    require_ok(ds4_gpu_begin_commands(), "overflow begin");
+    for (uint32_t i = 0; i < 4100u; i++) require_ok(ds4_gpu_add_tensor(acc, acc, one, GATE_N), "overflow add");
+    require_ok(ds4_gpu_end_commands(), "overflow end");
+    require_ok(ds4_gpu_stream_gate_bind(NULL), "gate unbind");
+    uint32_t layer = 0;
+    bool stopped = false;
+    CHECK(!ds4_gpu_stream_gate_read(gate, &layer, &stopped), "gate: more dispatches than records must read back as an error");
+    /* a reset clears it: the next token is judged on its own */
+    require_ok(ds4_gpu_stream_gate_reset(gate) && ds4_gpu_stream_gate_bind(gate), "gate reset");
+    gate_chain(acc, one, gate, one, -1);
+    require_ok(ds4_gpu_stream_gate_bind(NULL), "gate unbind");
+    CHECK(ds4_gpu_stream_gate_read(gate, &layer, &stopped) && !stopped, "gate: a reset gate must read cleanly again");
+    ds4_gpu_tensor_free(gate); ds4_gpu_tensor_free(acc); ds4_gpu_tensor_free(one);
+}
+
 static void check_unbound_gate_inert(void) {
     ds4_gpu_tensor *acc = gate_filled(0.0f), *one = gate_filled(1.0f), *zero = gate_filled(0.0f);
     ds4_gpu_tensor *gate = ds4_gpu_stream_gate_create();
@@ -2519,6 +2540,7 @@ int main(void) {
     check_gate_suppresses_after_trip();
     check_gate_all_hit_one_wait();
     check_unbound_gate_inert();
+    check_gate_overflow_is_error();
 
     printf("%d checks, %d failures\n", g_checks, g_failures);
     return g_failures ? 1 : 0;
