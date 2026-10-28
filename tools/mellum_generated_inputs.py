@@ -44,7 +44,11 @@ def messages(bundle: Path) -> dict[str,bytes]:
 def linked_publish(container: Path,raw: Path,value: dict | None = None) -> Path:
     import os
     def build(stage):
-        for path in raw.iterdir():os.link(path,stage/path.name)
+        for path in sorted(raw.rglob('*')):
+            target=stage/path.relative_to(raw)
+            if path.is_symlink():raise ValueError('symlink evidence unsupported')
+            if path.is_dir():target.mkdir()
+            else:os.link(path,target)
         if value is not None:
             # Link creation changes ctime; bind each published inode afterward.
             value['files']={name:dict(bindings.binding(stage/name),path=name) for name in value['files']}
