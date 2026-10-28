@@ -385,3 +385,11 @@ after-32 and last-256 windows are descriptive; overlapping tail windows must not
 be summed. The code is not executed and no Phase 1 tests are claimed to pass.
 This n=1 scripted conversation leaves real tool results and medium/8K coverage
 open, and establishes neither SSD inference speed nor physical 8 GB feasibility.
+
+The first real CPU preparation stopped before tokenization because ordinary
+Mellum inspect mode does not load a vocabulary. The CPU research binary now
+uses `mellum_generate_inspect.c` to load only the existing native tokenizer;
+its sparse-GGUF integration check and the full model-free gate pass. This repair
+has not been rerun on the real model. Preserve the spent original preparation
+root and obtain the owner's fresh-attempt decision; do not invoke the old
+launcher again. See the [failure and repair evidence](superpowers/research/2026-10-28-mellum-generated-phase1-evidence.md).
