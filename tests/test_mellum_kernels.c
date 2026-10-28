@@ -2212,6 +2212,43 @@ static void test_qk_fused(fixture_t *f) {
     printf("  fused    q and k in one dispatch vs two, both kinds, T 1 and 3 at 5 positions: word for word\n");
 }
 
+/* The K and V f32 -> f16 copies in one dispatch (ds4_gpu_mellum_copy2_f32_to_f16, decode's) against the two
+ * ds4_gpu_tensor_copy_f32_to_f16 calls it replaces, word for word: counts with and without a ragged tail of 1-3,
+ * destinations at offset 0 and at a cache row, values past half's range and below its normal range included. */
+static void test_copy2_case(uint32_t count, uint64_t dst_off) {
+    float *a = rand_vec(count, 3.0e4f), *b = rand_vec(count, 1.0e-3f);
+    if (count > 2) { a[0] = 7.0e4f; a[1] = -1.0e5f; b[2] = 3.0e-6f; }
+    const uint64_t dst_bytes = dst_off + (uint64_t)count * 2u;
+    ds4_gpu_tensor *ta = upload(a, count), *tb = upload(b, count);
+    ds4_gpu_tensor *ra = zeroed(dst_bytes), *rb = zeroed(dst_bytes), *ga = zeroed(dst_bytes), *gb = zeroed(dst_bytes);
+    require_ok(ds4_gpu_tensor_copy_f32_to_f16(ra, dst_off, ta, 0, count) &&
+               ds4_gpu_tensor_copy_f32_to_f16(rb, dst_off, tb, 0, count), "f32 to f16 copies");
+    const int ok = ds4_gpu_mellum_copy2_f32_to_f16(ga, dst_off, ta, gb, dst_off, tb, count);
+    CHECK(ok, "the paired f16 copy refused count %u at offset %llu", count, (unsigned long long)dst_off);
+    uint8_t *x = malloc(dst_bytes), *y = malloc(dst_bytes);
+    require_ok(x && y, "malloc");
+    uint64_t differ = 0;
+    for (int k = 0; ok && k < 2; k++) {
+        require_ok(ds4_gpu_tensor_read(k ? rb : ra, 0, x, dst_bytes) && ds4_gpu_tensor_read(k ? gb : ga, 0, y, dst_bytes),
+                   "copy readback");
+        for (uint64_t i = 0; i < dst_bytes; i++) differ += x[i] != y[i];
+    }
+    CHECK(differ == 0, "paired f16 copy vs two copies, count %u at offset %llu: %llu bytes differ", count,
+          (unsigned long long)dst_off, (unsigned long long)differ);
+    free(x); free(y); free(a); free(b);
+    ds4_gpu_tensor_free(ta); ds4_gpu_tensor_free(tb);
+    ds4_gpu_tensor_free(ra); ds4_gpu_tensor_free(rb); ds4_gpu_tensor_free(ga); ds4_gpu_tensor_free(gb);
+}
+
+static void test_copy2(void) {
+    static const uint32_t counts[] = { 1, 2, 3, 4, 5, 7, 512, 513, 515, 4096 };
+    for (size_t i = 0; i < sizeof(counts) / sizeof(counts[0]); i++) {
+        test_copy2_case(counts[i], 0);
+        test_copy2_case(counts[i], 3u * 1024u);
+    }
+    printf("  fused    K and V f16 copies in one dispatch vs two, 10 counts, offsets 0 and 3,072 bytes: byte for byte\n");
+}
+
 static void test_rope_rows_all(fixture_t *f) {
     printf("Mellum prefill equals decode (rows against one-row calls, raw bits)\n");
     for (int batched = 0; batched <= 1; batched++) {
@@ -2546,6 +2583,7 @@ int main(void) {
     test_refusals(&f);
     test_rope_rows_all(&f);
     test_qk_fused(&f);
+    test_copy2();
 
     printf("Mellum attention (GQA 32/4, head 128, sliding window 1,024, f16 keys; max|d| / max|ref|)\n");
     static const uint32_t swa_counts[] = { 26, 1000, 1023, 1024, 1025, 1057, 2100 };
