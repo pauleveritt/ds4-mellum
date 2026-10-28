@@ -191,12 +191,21 @@ laptop is needed.
 Exit: measured limit and resident behavior on 16 GB, and the expert-cache
 budget derived from them. Requires borrowed hardware.
 
-### S4 — Cached execution and miss recovery proof: designed and planned
+### S4 — Cached execution and miss recovery proof: implemented; streamed reads not yet device-bound
 
-[Design](docs/superpowers/specs/2026-10-28-mellum-s4-cached-execution-design.md)
-(owner-approved) and [plan](docs/superpowers/plans/2026-10-28-mellum-s4-cached-execution.md).
-Decode stops only at missed layers; the [layer-sync spike](docs/superpowers/research/2026-10-28-mellum-layer-sync-spike.md)
-measured 164 µs per host sync (n=4 per arm). Implementation has not started.
+The [design](docs/superpowers/specs/2026-10-28-mellum-s4-cached-execution-design.md) and
+[plan](docs/superpowers/plans/2026-10-28-mellum-s4-cached-execution.md) are implemented:
+`--ssd-streaming` for Mellum. Decode stops only at missed layers; prefill syncs per layer.
+
+The [measurement](docs/superpowers/research/2026-10-28-mellum-s4-measurement.md) at 32K and 6 GiB:
+- **Exact:** 3 of 3 runs give resident's 2,048 token ids.
+- **No resident regression** (n=6 per arm).
+- **Memory:** peak footprint 6.93 GiB, Metal allocation 7.81 GiB.
+- **Speed:** decode 29–32 t/s against 94 resident; time to first token 40–46 s against 29 s.
+- **Reads were cache-served:** 480 GB of expert bytes, only 2% from the device, so these are recorded
+  failures. The inferred cause is unaligned `F_NOCACHE` reads.
+
+Next: make streamed reads device-bound, then a new preregistered run.
 
 
 Prove GPU-readable Q8 slots through decode and E1 prefill. Specify address
