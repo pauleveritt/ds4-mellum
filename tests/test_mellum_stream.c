@@ -191,6 +191,25 @@ static void test_stop_cap(void) {
     CHECK(rc == DS4_MELLUM_STREAM_PROTOCOL && f.next == 225u, "the 225th stop is a protocol error (rc %d, finishes %u)", rc, f.next);
 }
 
+/* ---- streamed prefill: one layer's chunk needs the unique experts its rows chose ---- */
+
+static void test_unique_sorted(void) {
+    const int32_t rows[3][8] = { { 5, 1, 9, 63, 2, 3, 4, 6 }, { 1, 5, 9, 0, 7, 8, 10, 11 }, { 63, 63, 0, 1, 2, 3, 4, 5 } };
+    int32_t out[64];
+    const uint32_t n = ds4_mellum_stream_unique(&rows[0][0], 3u, 8u, out);
+    static const int32_t want[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 63 };
+    CHECK(n == sizeof(want) / sizeof(want[0]), "unique: 13 distinct experts over three rows (got %u)", n);
+    CHECK(n == 13u && memcmp(out, want, sizeof(want)) == 0, "unique: the set comes back sorted");
+}
+
+static void test_unique_rejects_out_of_range(void) {
+    const int32_t rows[8] = { 0, 1, 2, 3, 4, 5, 6, 64 };
+    int32_t out[64];
+    CHECK(ds4_mellum_stream_unique(rows, 1u, 8u, out) == UINT32_MAX, "unique: an id of 64 is refused");
+    const int32_t neg[8] = { 0, 1, 2, 3, 4, 5, 6, -1 };
+    CHECK(ds4_mellum_stream_unique(neg, 1u, 8u, out) == UINT32_MAX, "unique: a negative id is refused");
+}
+
 int main(void) {
     test_slots();
     test_config_refuses_zero_cache();
@@ -204,6 +223,8 @@ int main(void) {
     test_load_failure();
     test_cancel_between_stops();
     test_stop_cap();
+    test_unique_sorted();
+    test_unique_rejects_out_of_range();
     printf("%d checks, %d failures\n", g_checks, g_failures);
     return g_failures ? 1 : 0;
 }

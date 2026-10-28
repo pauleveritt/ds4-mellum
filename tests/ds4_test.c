@@ -648,6 +648,63 @@ static int64_t mellum_stream_run(const char *model, bool streaming, uint32_t cac
     return diff;
 }
 
+/* S4 streamed prefill (DS4_TEST_MELLUM_MODEL): a prompt synced in one call (chunks of up to 1,024 rows, the
+ * tiled/E1 experts at 32 rows or more, the exact path below) gives the resident session's last-row logits
+ * word for word, at 6 GiB and at a 64-slot cache that holds no more than one layer's experts. */
+static int64_t mellum_stream_prefill(const char *model, bool streaming, uint32_t cache_experts, uint64_t cache_bytes,
+                                     int n, float *logits, bool record) {
+    ds4_engine *engine = NULL;
+    ds4_engine_options opt = {
+        .model_path = model, .backend = DS4_BACKEND_METAL, .context_size = 8192,
+        .ssd_streaming = streaming, .ssd_streaming_cache_experts = cache_experts, .ssd_streaming_cache_bytes = cache_bytes,
+    };
+    if (ds4_engine_open(&engine, &opt) != 0 || !engine) return -1;
+    ds4_session *s = NULL;
+    if (ds4_session_create(&s, engine, 8192) != 0 || !s) { ds4_engine_close(engine); return -1; }
+    ds4_tokens prompt = {0};
+    for (int i = 0; i < n; i++) ds4_tokens_push(&prompt, test_mellum_token(i));
+    char err[256] = {0};
+    float *got = malloc(98304u * sizeof(float));
+    int64_t diff = -1;
+    if (ds4_session_sync(s, &prompt, err, sizeof(err)) == 0 && ds4_session_copy_logits(s, got, 98304) == 98304) {
+        diff = 0;
+        if (record) memcpy(logits, got, 98304u * sizeof(float));
+        else for (uint32_t w = 0; w < 98304u; w++) diff += memcmp(&got[w], &logits[w], sizeof(float)) != 0;
+    } else {
+        fprintf(stderr, "mellum-stream-prefill: %d tokens: %s\n", n, err);
+    }
+    free(got);
+    ds4_tokens_free(&prompt);
+    ds4_session_free(s);
+    ds4_engine_close(engine);
+    return diff;
+}
+
+static void test_mellum_stream_prefill_identity(void) {
+    const char *model = getenv("DS4_TEST_MELLUM_MODEL");
+    if (!model || !model[0]) {
+        puts("mellum-stream-prefill: DS4_TEST_MELLUM_MODEL unset, skipped");
+        return;
+    }
+    float *ref = malloc(98304u * sizeof(float));
+    TEST_ASSERT(ref != NULL);
+    if (!ref) return;
+    static const int lens[] = { 2200, 31 };
+    for (size_t i = 0; i < sizeof(lens) / sizeof(lens[0]); i++) {
+        TEST_ASSERT(mellum_stream_prefill(model, false, 0, 0, lens[i], ref, true) == 0);
+        static const struct { const char *name; uint32_t experts; uint64_t bytes; } arms[] = {
+            { "6 GiB", 0, 6ull << 30 }, { "64 slots", 64, 0 },
+        };
+        for (size_t a = 0; a < sizeof(arms) / sizeof(arms[0]); a++) {
+            const int64_t diff = mellum_stream_prefill(model, true, arms[a].experts, arms[a].bytes, lens[i], ref, false);
+            TEST_ASSERT(diff == 0);
+            printf("mellum-stream-prefill: %d tokens, %s: %lld of 98304 last-row logit words differ\n", lens[i],
+                   arms[a].name, (long long)diff);
+        }
+    }
+    free(ref);
+}
+
 static void test_mellum_stream_identity(void) {
     const char *model = getenv("DS4_TEST_MELLUM_MODEL");
     if (!model || !model[0]) {
@@ -7994,6 +8051,7 @@ static const ds4_test_entry test_entries[] = {
     {"--mellum-session", "mellum-session", "Mellum session allocation equals its plan (DS4_TEST_MELLUM_MODEL)", test_mellum_session_allocation},
     {"--mellum-exact-prefill", "mellum-exact-prefill", "Mellum prefill equals decode byte for byte under DS4_MELLUM_EXACT_PREFILL=1 (DS4_TEST_MELLUM_MODEL)", test_mellum_exact_prefill},
     {"--mellum-stream-identity", "mellum-stream-identity", "S4: Mellum decode from a bounded expert-slot cache equals resident, word for word, at 6 GiB and 64 slots (DS4_TEST_MELLUM_MODEL)", test_mellum_stream_identity},
+    {"--mellum-stream-prefill", "mellum-stream-prefill", "S4: Mellum prefill from a bounded expert-slot cache equals resident last-row logits at 2,200 and 31 tokens (DS4_TEST_MELLUM_MODEL)", test_mellum_stream_prefill_identity},
     {"--mellum-rewind", "mellum-rewind", "Mellum session rewind: one token keeps the caches, deeper replays; logits equal a straight decode (DS4_TEST_MELLUM_MODEL)", test_mellum_rewind},
     {"--mellum-moe", "mellum-moe", "Mellum MoE driver on the real model's layers against a double reference (DS4_TEST_MELLUM_MODEL)", test_mellum_moe_real},
     {"--qwen4-restore-reuse", "qwen4-restore-reuse", "Qwen restore discards old verifier state and rejects truncated payloads", test_qwen_restore_reused_session},
