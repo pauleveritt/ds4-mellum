@@ -25,6 +25,8 @@ test prompt, max |d logit| against the exact path is 2.0 (1,100 tokens) and 8.5
 with the same top-1 token at every position (the experts alone: 0.65 and 0.87).
 On held-out prompts the top-1 token is not always the same. Router top-8 flips at near-ties change it
 at 4 of 64 positions of a Unicode prompt and 1 of 64 of a tool-call prompt ("Oracle caps" below).
+Since phase 8a such chunks also run their attention in tiles with half operands (T2, below): 1,100
+tokens mean KL 2.4e-3 against the old engine, top-1 63/65 with both changes at near-ties.
 Long prefills are exact only under the diagnostic `DS4_MELLUM_EXACT_PREFILL=1`
 (read at session start), which sends every chunk back through the exact paths;
 that is what the oracle uses to check long prefills byte for byte.
@@ -33,7 +35,9 @@ Speed on the M5 Max (Q8_0, Metal), step 29, through the CLI after a rest, n = 3
 each: a short chat prompt prefills at 440-450 t/s and generates at 132.6-133.1
 t/s; a 3,235-token prompt prefills at 1,842-1,871 t/s and then generates at
 116.2-117.8 t/s. The trace driver's 2,200-token prefill: about 2,000 t/s. Since E1 (routed Q8_0
-experts on the Metal 4 tensor tiles), about 2,880 t/s at 2,200 tokens and 2,060 at 6,000. The M4
+experts on the Metal 4 tensor tiles), about 2,880 t/s at 2,200 tokens and 2,060 at 6,000. Through the CLI
+since phase 8a (the attention tiles), medians of 6: 4,055 t/s at 2,056 tokens, 3,528 at 8,195 and 1,908 at
+32,778, against 2,968, 2,132 and 939 with `DS4_MELLUM_ATTN_TILED=0`. The M4
 Max was not measured. Session save/load refuses by name. Since step 34,
 ds4-agent runs Mellum with the Hermes syntax and Pi's four tools. Since phase
 6 (steps 41-43), ds4-server serves Mellum as `mellum-2.1`, with the Hermes
@@ -395,6 +399,17 @@ Phase 7b, the gaps left at Checkpoint 5 (steps 48-50, 2026-10-27):
   Pi's fuzzy edit still runs without NFKC, so a full-width or ligature
   difference is a miss here where Pi would match.
 
+Phase 8a, tiled prefill attention (T1 and T2, 2026-10-27; Paul's Checkpoint 6 answer: land both):
+
+- T1, CLI prefill with E1: `518ee06` the runner, `16b52ed` its state lines, `6cbf14e` raw logs,
+  `a06c490` arms from the environment, `fc6dece` the row.
+- T2, f32 tiles (probe variant 1b): `df8d1bb` (red), `5c2af4f` the kernel; `853087d` (red), `218bfef`
+  chunks of 32 rows or more use it, `DS4_MELLUM_ATTN_TILED=0` keeps the decode kernels.
+- T2, half operands (probe variant h32, a precision change): `e967e4b` (red), `52af643` the kernel and
+  the corrected staged reference; `339dded` (red), `81b5f61` the default, `DS4_MELLUM_ATTN_TILED=1`
+  keeps the f32 tiles.
+- `905b15e` the runner's empty arm, `1860c51` T2's raw logs.
+
 Review fixes and experiment E1 (after step 33, before step 34; the outside
 review of `5aa742c`):
 
@@ -545,6 +560,8 @@ fixed in `379aa54` (red) and `cfc9eab`.
 | E1 landed (tensor-tile experts on by default) vs `DS4_MELLUM_MOE_NAX=0`, 2d0756d, 2,200 tokens | `abba.sh` (session scratchpad; copy in `misc/e1-q8-tensor-tiles/`): A/B/B/A, arm A `DS4_MELLUM_MOE_NAX=0`, arm B default, 6 runs per process, first dropped, 45 s between processes, AC, Automatic, no thermal or performance warning before or after any process | second round: A median 2,045 t/s (1,897-2,057), B 2,881 (2,814-2,893), **+41%**. A first round gave A 1,628 and B 2,742 (+68%), but its first A process ran at 1,253-1,423 against 1,832-1,994 for the same arm at the round's end, so that round is not used. Each arm's two processes gave byte-identical logits in both rounds | 10 per arm, x2 |
 | the same, 6,000 tokens (`mellum_heldout_long`) | the same, 4 runs per process, first dropped | A median 1,596 t/s (1,389-1,719), B 2,057 (1,828-2,220), **+29%** | 6 per arm |
 | CLI prefill, E1 on (default) vs `DS4_MELLUM_MOE_NAX=0`, phase 8a T1, 518ee06 | `PER=4 COOL=45 GAP=10 tests/mellum_cli_prefill_abba.sh OUT $MODEL 2048 8192 32768`: `ds4 -c CTX --temp 0 -n 1 --prompt-file` on the start of `speed-bench/promessi_sposi.txt` (Italian prose) plus one request; blocks NAX=0, E1, E1, NAX=0 of 4 processes, each block's first process dropped (ds4 runs one prefill per process, after its GPU warmup), 45 s before a block, 10 s between processes; M5 Max, 128 GB (`sysctl`), AC, Automatic, no thermal or performance warning before or after any block. Raw logs: `tests/mellum_measurements/t1_cli_prefill/` | 2,056 tokens (ctx 3,072): NAX=0 median 1,966 t/s (1,957-1,982), E1 2,792 (2,781-2,852), **+42%**. 8,195 tokens (ctx 9,216): 1,623 (1,599-1,638), 2,108 (2,056-2,122), **+30%**. 32,778 tokens (ctx 33,792 is enough): 737 (681-797), 850 (806-881), **+15%** | 6 per arm per length |
+| CLI prefill, attention tiles (T2), 81b5f61 | T1's runner, prompts and conditions (`A_ENV=DS4_MELLUM_ATTN_TILED=0`, B the default, then B `DS4_MELLUM_ATTN_TILED=1`); raw logs `tests/mellum_measurements/t2_attention_tiles/` | half tiles (default) vs decode kernels: 2,056 tokens 4,055 (4,039-4,078) vs 2,968 (2,964-2,977) t/s, **1.37x**; 8,195: 3,528 (3,522-3,529) vs 2,132 (2,131-2,133), **1.65x**; 32,778: 1,908 (1,802-2,026) vs 939 (870-1,000), **2.03x**. f32 tiles vs decode kernels: 3,331 vs 2,975 (1.12x); 2,576 vs 2,133 (1.21x); 1,260 vs 936 (1.35x) | 6 per arm per length |
+| oracle and fast paths with the half tiles, 81b5f61 | `tests/mellum_oracle_compare.sh ORACLE_DIR $MODEL 64`; `DS4_TEST_MELLUM_MODEL=... ./tests/test_mellum_fastpath.sh` | oracle PASS: 1,100 tokens top-1 63/65 (2 changes at near-ties), mean KL 2.35e-3, worst 4.4e-2; 2,200: 65/65, 1.96e-3, worst 2.1e-2; exact prefill, decode and 64 greedy tokens byte-equal. Fast paths 45/45, worst release-vs-exact KL 4.8e-3, 32/32 greedy. At 218bfef (the f32 tiles default): oracle PASS, 1,100 64/65 (1 near-tie), mean KL 2.52e-3; 2,200 64/65, 1.65e-3; fast paths 45/45 | 1 |
 | oracle, fast paths, exact switch at 2d0756d | `tests/mellum_oracle_compare.sh ORACLE_DIR $MODEL 64`, `make test-mellum-fastpath`, `./ds4_test --mellum-exact-prefill`, `--mellum-moe` | oracle PASS under the near-tie rule (1,100 and 2,200 tokens: top-1 64/65 each, the one change at a near-tie, mean KL 1.6e-3 and 1.3e-3; exact prefill, decode and 64 greedy tokens byte-equal); fast paths 45/45; `DS4_MELLUM_EXACT_PREFILL=1` 0 of 98,304 words from decode; `--mellum-moe` OK, the default 64-row MoE differs from `DS4_MELLUM_MOE_NAX=0` in 147,181 of 147,456 words, both within 4.3e-5 of the staged reference | 1 |
 | ds4-server renders vs the template (steps 41-42) | `./ds4_test --server`; `DS4_TEST_MELLUM_MODEL=... ./ds4_test --mellum-server-ids` | 11 requests (`tests/gen_mellum_server_cases.py`): text and ids equal 2.1's template. Parse, round trip, remembered text, live tail, error turn and stream checks pass | 1 |
 | ds4-server live (step 43), 462574c | `ds4-server -m $MODEL -c 16384 --port 8099`, then `curl /v1/chat/completions`: a system message, "How many lines does hello.py have? Use the bash tool.", one `bash` tool, seed 1, `max_tokens` 1024 | 1st request: one `bash` call, `{"command":"wc -l hello.py"}`, with `reasoning_content` split out, `finish_reason` "tool_calls", 274 tokens, 2.4 s. 2nd request (the turn sent back, plus the tool result "6 hello.py"): "The file hello.py has 6 lines.", "stop", 1.2 s, `cached_tokens` 480 of 499: the live KV was reused. Before `8accdcc` the same 2nd request missed the cache (token mismatch at 469). Streamed (seed 2, "List the files here"): 107 reasoning chunks, the first "Ok", then one `bash` `ls` call in `tool_calls`, "tool_calls", `[DONE]`. `/v1/models` lists `mellum-2.1` | 1 each |
@@ -723,6 +740,59 @@ landed on the rebased branch:
 
 At the landed head prefill is +41% at 2,200 tokens and +29% at 6,000 (the Measured table). The patches
 and runner are also in `misc/e1-q8-tensor-tiles/`, which is git-ignored.
+
+### T2: tiled prefill attention (phase 8a, landed)
+
+T1 (the Measured table) put E1's gain at +42% at 2,056 tokens, falling to +15% at 32,778. A scratch stage
+profile (a wait after each stage group of each layer, `DS4_MELLUM_STAGE_PROFILE=1`, n = 1, on T1's prompts)
+shows why: attention (f16 staging, the kernel, the ring commit) took 46.8% of the layer time at 2,056 tokens,
+64.2% at 8,195 and 82.0% at 32,778 (29.2 s of attention, 5.4 s of FFN, 1.0 s of projections). The build has
+no such split; the profile is in the probe patches. The sliding kernel ran one (head, row) per threadgroup, and
+the full layers ran the decode-row kernels per row. So each row read its keys from memory on its own.
+
+`kernel_mellum_attn_tiled` takes one KV head and 8 consecutive tokens per threadgroup. Simdgroup s holds
+token t0 + s's eight query heads as one 8-row tile, so a tile has one query position and one mask. The eight
+simdgroups share each staged tile of keys. A sliding layer reads the ring below pos0 with the tag check (a
+stale slot makes the rows that need it NaN) and the staged rows above. A full layer reads its cache. The ring
+commit stays after attention, and the 1,024 chunk cap is unchanged. Chunks of 32 rows or more use it on the
+release path; decode, short chunks and `DS4_MELLUM_EXACT_PREFILL=1` keep the kernels they had.
+
+The probe (`misc/t2-tiled-attention/`, git-ignored; its README has every variant and log) tried, at 8,195
+tokens, attention profiled, n = 1 (the decode kernels: 2.71 s):
+
+| variant | change | attention |
+|---|---|---|
+| 1 | f32 operands, 16 keys per tile, scores and rescale through threadgroup memory | 2.17 s |
+| 1b (landed, `DS4_MELLUM_ATTN_TILED=1`) | 1, softmax on the fragments in registers | 2.10 s |
+| 1c | 1b with K/V staged as half and widened per fragment, 16 or 32 keys | 4.22 s, 2.49 s |
+| h16, h32 (h32 landed, the default) | precision: the scaled queries and the probabilities rounded to half, f32 accumulation, 16 or 32 keys | 1.44 s, 1.11 s |
+
+1c shows that h32's speed comes from the half-input matrix operations, not from staging K and V as half
+(which is exact; they are f16 already). Only 1b and h32 were gated.
+
+Kernel tests (`test_mellum_kernels`): every f32-tile row is within 6.5e-6 of the double reference (tolerance
+1e-5), on sliding sessions of 26 to 2,100 keys in three chunkings and on full-layer rows to 4,100 keys. The
+half tiles are within 3.1e-4 of a reference that stages as the kernel does, and 7.5e-4 to 9.1e-4 from the f32
+one. The staging explains part of the distance; the rest is not explained (rounding the scores, the partial
+products or the tile products to half, or flushing subnormal probabilities, each made it larger), so the
+tolerance is 5e-4, the worst seen with margin. Both pass the stale-tag control (63 of 64 rows NaN).
+
+Held-out log loss by E1b's method (four files, n = 2,826 tokens, 47 trace runs per path, one process at a
+time; variant minus the decode kernels per token, se and a 2,000-sample bootstrap 95% interval). At 81b5f61
+each level's per-token file is byte-identical to the probe's, and level 0 reproduces E1b's E1 column:
+
+| file | n | decode kernels | f32 tiles | half tiles | f32 - decode | half - decode |
+|---|---|---|---|---|---|---|
+| code | 163 | 2.11403 | 2.12039 | 2.11888 | +0.00635 [-0.0021, +0.0204] | +0.00484 [-0.0005, +0.0118] |
+| tool | 965 | 1.79014 | 1.77991 | 1.78278 | -0.01023 [-0.0276, +0.0064] | -0.00736 [-0.0226, +0.0076] |
+| unicode | 198 | 2.95309 | 2.95005 | 2.93287 | -0.00304 [-0.0109, +0.0049] | -0.02022 [-0.0584, +0.0135] |
+| long (every 4th) | 1,500 | 0.61641 | 0.61530 | 0.61595 | -0.00111 [-0.0023, +0.0002] | -0.00046 [-0.0016, +0.0007] |
+| all | 2,826 | 1.26730 | 1.26337 | 1.26341 | -0.00393, se 0.00300 [-0.0098, +0.0016] | -0.00389, se 0.00291 [-0.0103, +0.0014] |
+
+Neither is worse than the decode kernels beyond the spread. The A/B/B/A at the landed head (the Measured
+table) gives the half tiles 1.37x at 2,056 tokens, 1.65x at 8,195 and 2.03x at 32,778; the probe's own rounds
+gave 1.37x, 1.65x and 2.05x. A 32,778-token summary request (`./ds4 -c 34816 --temp 0 -n 700 --prompt-file
+.../prompt_32768.txt`, n = 1) prefilled at 1,873 t/s and answered with three sentences drawn from the text.
 
 ## Rebase onto ee7e840 (review step RB, 2026-10-27)
 
