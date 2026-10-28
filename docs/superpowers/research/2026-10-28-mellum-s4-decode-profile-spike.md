@@ -102,3 +102,18 @@ resident's.
 
 **Not pursued** (owner, 18:10): load overlap and other high-complexity changes for small gains. A
 dispatch count per pass, from the gate's record count, would confirm the suppressed-dispatch arithmetic.
+
+## Check-kernel trim: tried, not kept
+
+The trim sized the check kernel's grid to the layer (n_embd) instead of the gate's records, and zeroed
+records in a strided loop only on a trip. It passed the guard test (`check_stream_check_kernel`, which
+fails for a trim without the strided loop) and gave identical ids. On the same 256-token, 6 GiB run (n=1):
+
+| Per token | Before | Trimmed |
+|---|---:|---:|
+| GPU span | 12.25 ms | 11.59 ms |
+| Wall | 26.65 ms | 26.52 ms |
+
+The GPU span fell by about 5%, but wall time moved about 0.5%, inside run-to-run noise. Under the owner's
+rule (no change without a clear win), it is reverted. The guard test stays, as direct coverage of the check
+kernel.
