@@ -959,9 +959,22 @@ waits for Paul's repository and push.
 | measure on your own Mac | `ARMS=AA tests/mellum_cli_prefill_abba.sh ~/ds4-runs/prefill ~/models/… 2048`; `ARMS=AA tests/mellum_cli_decode_abba.sh ~/ds4-runs/decode ~/models/… tests/mellum_measurements/d1_decode_profile 2048` | both run and print a summary. Prefill 3,744 t/s (3,727-3,753), decode 123.30 t/s (122.78-124.47), as checks of the commands, not the README's numbers. The first prefill run, before `ba83406`, measured 2,447 t/s, because arm A still took T1's `DS4_MELLUM_MOE_NAX=0` (red `fff1b44`, fix `ba83406`) | 6 per runner |
 
 Waiting: the clone command, until Paul creates `pauleveritt/ds4-mellum` and pushes; RM2, the speed tables, until
-Paul's SSD-streaming decision. During the checks another model process, the Codex worktree's
-`tools/mellum_generate collect`, held the GPU for about a minute; ds4 refused to start beside it, and the checks
-waited.
+Paul's SSD-streaming decision.
+
+Overlap with another session's work (Paul's SSD-streaming work in the Codex worktree `mellum-ssd-replay`; times
+local, from that worktree's logs and this session's file times; the GPU was not monitored continuously):
+- the memory measurement (11:19:03-11:19:06) ran before that session's collect run (11:20:26-11:22:24);
+- the first smoke-test attempt was refused by ds4 because the collect run's model process
+  (`tools/mellum_generate collect`) was running. The check waited until no Mellum model process was left
+  (11:22:16), then ran the smoke test (about 11:22:20-11:22:43), during the collect script's last seconds after
+  its model process had exited. Its timing line (generation 88.89 t/s, against 131.12 for the same prompt at
+  11:19) is not reported;
+- `ds4-server` (11:22:49-11:35:31) was up, idle, while that session's validation ran (11:24:54-11:25:06); no
+  timed Pi task overlapped it (task 3 ended at 11:24:52; the JSON run started at 11:25:00 but sent no request
+  until it was stopped);
+- during the runner checks (11:36:27-11:47:36) that session wrote notes and a source-identity check
+  (11:38:10, file hashes); no model process of its was seen. The runner numbers above are checks of the
+  commands, not results.
 
 ## Rebase onto ee7e840 (review step RB, 2026-10-27)
 
