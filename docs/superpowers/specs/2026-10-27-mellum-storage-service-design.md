@@ -1,8 +1,11 @@
 # Mellum S3: first storage-observed expert read costs
 
 Date: 2026-10-27. Status: approved by the user’s “proceed” after `5953705`.
-The [implementation plan](../plans/2026-10-27-mellum-storage-service.md) is prepared
-for review; no implementation or experiment has run. Baseline `73c75ca`, existing `codex/mellum-ssd-replay` worktree.
+The [implementation plan](../plans/2026-10-27-mellum-storage-service.md) is complete.
+One bounded attempt passed calibration and three repetitions; see the
+[evidence](../research/2026-10-27-mellum-storage-service-evidence.md) and
+[execution ledger](../research/2026-10-27-mellum-storage-service-ledger.md).
+Design baseline `73c75ca`, existing `codex/mellum-ssd-replay` worktree.
 This is the next CPU-only work in [S3](../../../ROADMAP.md), before GPU time
 returns. [Previous evidence](../research/2026-10-27-mellum-device-observation-evidence.md)
 contains four successful warm-file runs with zero timed-window device reads.
@@ -190,7 +193,9 @@ next measurements rather than treating tooling completion as feasibility.
 
 A fresh independent macOS C99/Python storage-measurement builder read this
 design and existing verifier/budget contracts on 2026-10-27 and reported
-“nothing important left.” No implementation or new experiment has run.
+“nothing important left.” At that design-review checkpoint, no implementation or experiment had run.
+Execution subsequently completed at `010e30c`; the evidence above supersedes
+that historical status.
 
 My calls for user review: fresh aligned-write scratch files, one-worker packed
 subset only, 64-expert calibration followed by three 512-expert repetitions,

@@ -89,7 +89,7 @@ Exit met on M5 Max / 128 GiB: matching-path parity, no added per-layer host
 wait, bounded recorder storage and append-capable qualified collection. This
 establishes neither physical 8 GB peak memory nor SSD inference performance.
 
-### S3 — Source and warm-read evidence complete; SSD validation open
+### S3 — First storage-observed candidate result; locality and remaining read costs open
 
 The user selected `../ac-demo` and its roadmap as the workload source. The
 [S3a proposal](docs/superpowers/specs/2026-10-27-mellum-storage-evidence-design.md)
@@ -116,24 +116,24 @@ including both cache-avoidance cells. These warm-file timings leave SSD miss
 cost unresolved; `physical_io_verified=false` remains. See
 [execution evidence](docs/superpowers/research/2026-10-27-mellum-device-observation-evidence.md).
 
-The next S3 work must produce two decision-making measurements. Existing
-capture/replay/storage tools are foundations; further tool qualification alone
-does not complete either measurement.
+S3 now has its first candidate-layout storage-service measurement. The next
+work must add representative locality and remaining read costs so the results
+can inform scheduling. Tool qualification alone does not establish feasibility.
 
 | Next result | Evidence needed | GPU needed? |
 |---|---|---|
-| SSD read cost | Controlled reads of exact Q8 gate/up/down ranges and candidate contiguous layout that produce observed storage traffic; latency distributions and throughput at declared concurrency, with cache state and counter uncertainty recorded | No; CPU and SSD only |
+| SSD read cost | Aligned packed subset at one worker measured: service p50 0.655–0.658 ms/expert in three storage-observed repetitions. Original GGUF gate/up/down ranges and concurrency remain open; retain cache/counter uncertainty | No; CPU and SSD only |
 | Representative cache locality | Frozen Phase 1 ac-demo workload captures and held-out replay at roughly 3 GiB expert cache; miss bytes and demand bursts for warm, post-append and whole-session windows | Yes for native routing captures; preparation and offline replay use CPU only |
 
 The [storage-service design](docs/superpowers/specs/2026-10-27-mellum-storage-service-design.md)
 for controlled reads on this laptop is approved; its [implementation plan](docs/superpowers/plans/2026-10-27-mellum-storage-service.md)
-now has CPU-only staging, frozen plans, post-read byte verification and a
-one-shot runner implemented. Model-free integration tests cover actual tiny
-writer/reader children and failure retention; the full gate, independent review
-and one bounded real attempt are the next acceptance steps. The fresh-file
-calibration is the positive control; warm-cache rates cannot satisfy the SSD
-read-cost result. Cancellation now retains captured evidence. No automatic rerun
-of a spent attempt is permitted. The first ac-demo task remains Phase 1 only; later phases
+is complete for its one bounded attempt. [Evidence](docs/superpowers/research/2026-10-27-mellum-storage-service-evidence.md)
+records qualifying calibration plus all three repetitions, exact byte checks,
+closing verification, passing CPU gates and independent review/audit. On this
+128 GiB M5 Max, native logical read throughput was 9.875–9.954 GB/s for the
+three repetitions; this is not inference stall cost or 8 GB feasibility.
+Keep the completed attempt and its reservation; no automatic rerun follows.
+The first ac-demo task remains Phase 1 only; later phases
 require their own requests and prior-phase checkpoints.
 
 Prepare the representative workload while GPU time is unavailable, then collect

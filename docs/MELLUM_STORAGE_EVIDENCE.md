@@ -225,3 +225,11 @@ volume traffic cannot attribute individual expert service to SSD or NAND;
 `physical_io_verified=false` always. No inference throughput or 8 GB feasibility
 conclusion follows. Original-range costs, concurrency and representative locality
 remain separate S3 work; the all-hit GPU cache path remains S4 work.
+
+Completed study: [2026-10-27 results](superpowers/research/2026-10-27-mellum-storage-service-evidence.md)
+retain qualifying calibration plus three repetitions on the 128 GiB M5 Max.
+Service p50 was 0.655–0.658 ms per 6,580,224-byte expert in the repetitions,
+with native logical throughput 9.875–9.954 GB/s. These are storage-observed
+batch measurements, not individual proven SSD misses or inference stall costs.
+The completed reservation stays spent; the commands above document the method
+and do not authorize another execution.
