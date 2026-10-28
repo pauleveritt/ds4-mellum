@@ -89007,4 +89007,42 @@ bool ds4_test_session_graph_pos(ds4_session *s, uint32_t *pos) {
     *pos = s->qwen4_graph.pos;
     return true;
 }
+
+/* For tests/ds4_test.c --mellum-b0 (phase 8b, D2), at a Mellum session's position, which must be where its last
+ * sync ended (the rewind frontier): verify false runs two one-row forwards (two decode steps), verify true one
+ * two-row forward and then the LM head on its first row, in its own command buffer (what a two-row verify
+ * computes).  logits0 and logits1 get the two rows' logits; ms is the wall time from the first encode to the last
+ * logits read, head_ms the first row's head alone (verify only).  Then the frontier is restored, outside the
+ * timing: the second row's ring write evicted a row the first position reads. */
+bool ds4_test_mellum_b0_arm(ds4_session *s, const int tokens[2], bool verify, float *logits0, float *logits1,
+                            double *ms, double *head_ms) {
+#if defined(__APPLE__)
+    if (!s || !tokens || !logits0 || !logits1 || !ms || !head_ms || !ds4_session_is_qwen4(s) ||
+        !ds4_model_is_mellum() || !s->qwen4_graph_ready) {
+        return false;
+    }
+    ds4_qwen4_gpu_graph *g = &s->qwen4_graph;
+    const ds4_engine *e = s->engine;
+    if (!g->mellum_frontier_valid || g->mellum_frontier_pos != g->pos || g->pos + 2u > g->ctx_cap) return false;
+    *head_ms = 0.0;
+    const double t0 = now_sec();
+    bool ok;
+    if (!verify) {
+        ok = mellum_graph_forward_tokens(g, &e->model, &e->weights, &tokens[0], 1, logits0, false) &&
+             mellum_graph_forward_tokens(g, &e->model, &e->weights, &tokens[1], 1, logits1, false);
+    } else {
+        ok = mellum_graph_forward_tokens(g, &e->model, &e->weights, tokens, 2, logits1, false);
+        const double t1 = now_sec();
+        ok = ok && glm_graph_begin_commands_if_needed() && mellum_graph_head(g, &e->model, &e->weights, 0) &&
+             ds4_gpu_end_commands() != 0 &&
+             ds4_gpu_tensor_read(g->logits, 0, logits0, (uint64_t)DS4_N_VOCAB * sizeof(float)) != 0;
+        *head_ms = (now_sec() - t1) * 1e3;
+    }
+    *ms = (now_sec() - t0) * 1e3;
+    return mellum_graph_frontier_copy(g, false) && ok;
+#else
+    (void)s; (void)tokens; (void)verify; (void)logits0; (void)logits1; (void)ms; (void)head_ms;
+    return false;
+#endif
+}
 #endif
