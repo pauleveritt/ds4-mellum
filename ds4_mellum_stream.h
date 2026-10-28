@@ -36,4 +36,8 @@ enum { DS4_MELLUM_STREAM_OK = 0, DS4_MELLUM_STREAM_LOAD = -1,
  * token takes at most n_layer * 8 stops. */
 int ds4_mellum_stream_decode(const ds4_mellum_stream_ops *ops, uint32_t n_layer, uint32_t *stops);
 
+/* Streamed prefill: the distinct experts `rows` rows of top_k ids chose, sorted into out (at most 64).  Returns
+ * the count, or UINT32_MAX for an id outside 0..63. */
+uint32_t ds4_mellum_stream_unique(const int32_t *selected, uint32_t rows, uint32_t top_k, int32_t out[64]);
+
 #endif

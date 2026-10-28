@@ -60,3 +60,15 @@ int ds4_mellum_stream_decode(const ds4_mellum_stream_ops *ops, uint32_t n_layer,
         resume = true;
     }
 }
+
+uint32_t ds4_mellum_stream_unique(const int32_t *selected, uint32_t rows, uint32_t top_k, int32_t out[64]) {
+    if (!selected || !out) return UINT32_MAX;
+    uint64_t seen = 0;
+    for (uint64_t i = 0; i < (uint64_t)rows * top_k; i++) {
+        if (selected[i] < 0 || selected[i] >= 64) return UINT32_MAX;
+        seen |= 1ull << selected[i];
+    }
+    uint32_t n = 0;
+    for (int32_t e = 0; e < 64; e++) if (seen & (1ull << e)) out[n++] = e;
+    return n;
+}
