@@ -6,7 +6,8 @@
  *                           [--stream-experts N | --stream-bytes B]
  *
  * ttft_ns covers the prompt's sync up to its logits; each token's ns covers its eval; stops and loads are
- * the session's cumulative counts after that token (0 resident). */
+ * the session's cumulative counts after that token (0 resident); memory is the process's peak phys_footprint
+ * and resident size, and the largest Metal allocation sampled after the prompt and after each token. */
 #include <errno.h>
 #include <mach/mach.h>
 #include <stdbool.h>
@@ -17,6 +18,7 @@
 #include <time.h>
 
 #include "ds4.h"
+#include "ds4_gpu.h"
 
 bool ds4_test_mellum_stream_stops(ds4_session *s, uint64_t *stops);   /* ds4.c hooks */
 bool ds4_test_mellum_stream_loads(ds4_session *s, uint64_t *loads);
@@ -27,11 +29,14 @@ static uint64_t now_ns(void) {
     return clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
 }
 
-static uint64_t footprint_peak(void) {
+/* the process's peak physical footprint and peak resident size */
+static bool memory_peaks(uint64_t *footprint, uint64_t *rss) {
     task_vm_info_data_t info;
     mach_msg_type_number_t count = TASK_VM_INFO_COUNT;
-    if (task_info(mach_task_self(), TASK_VM_INFO, (task_info_t)&info, &count) != KERN_SUCCESS) return 0;
-    return info.ledger_phys_footprint_peak;
+    if (task_info(mach_task_self(), TASK_VM_INFO, (task_info_t)&info, &count) != KERN_SUCCESS) return false;
+    *footprint = info.ledger_phys_footprint_peak;
+    *rss = info.resident_size_peak;
+    return true;
 }
 
 static char *read_text(const char *path) {
@@ -108,6 +113,7 @@ int main(int argc, char **argv) {
         return 1;
     }
     const uint64_t ttft = now_ns() - t0;
+    uint64_t metal_peak = ds4_gpu_current_allocated_size();
     for (long i = 0; i < gen; i++) {
         ids[i] = argmax(logits);
         const uint64_t t = now_ns();
@@ -116,15 +122,22 @@ int main(int argc, char **argv) {
             return 1;
         }
         ns[i] = now_ns() - t;
+        const uint64_t metal = ds4_gpu_current_allocated_size();
+        if (metal > metal_peak) metal_peak = metal;
         if (streaming && (!ds4_test_mellum_stream_stops(s, &stops[i]) || !ds4_test_mellum_stream_loads(s, &loads[i]))) return 1;
     }
-    const uint64_t peak = footprint_peak();
+    uint64_t peak = 0, rss_peak = 0;
+    if (!memory_peaks(&peak, &rss_peak)) return 1;
+    /* the engine's effective slots (a byte budget is floored to whole experts) */
+    const unsigned long long slots = streaming ? ds4_gpu_stream_expert_cache_configured_count() : 0u;
     FILE *out = fopen(out_path, "wx");
     if (!out) { fprintf(stderr, "mellum_s4_measure: cannot create %s: %s\n", out_path, strerror(errno)); return 1; }
     fprintf(out, "{\"streaming\":%s,\"slots\":%llu,\"stream_bytes\":%llu,\"context\":%ld,\"prompt_tokens\":%d,\"ttft_ns\":%llu,"
-                 "\"stops\":%llu,\"loads\":%llu,\"phys_footprint_peak\":%llu,\"tokens\":[",
-            streaming ? "true" : "false", experts, bytes, context, prompt.len, (unsigned long long)ttft,
-            (unsigned long long)stops[gen - 1], (unsigned long long)loads[gen - 1], (unsigned long long)peak);
+                 "\"stops\":%llu,\"loads\":%llu,\"phys_footprint_peak\":%llu,\"rss_peak\":%llu,"
+                 "\"metal_allocated_peak\":%llu,\"tokens\":[",
+            streaming ? "true" : "false", slots, bytes, context, prompt.len, (unsigned long long)ttft,
+            (unsigned long long)stops[gen - 1], (unsigned long long)loads[gen - 1], (unsigned long long)peak,
+            (unsigned long long)rss_peak, (unsigned long long)metal_peak);
     for (long i = 0; i < gen; i++) {
         fprintf(out, "%s{\"id\":%d,\"ns\":%llu,\"stops\":%llu,\"loads\":%llu}", i ? "," : "", ids[i],
                 (unsigned long long)ns[i], (unsigned long long)stops[i], (unsigned long long)loads[i]);

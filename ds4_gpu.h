@@ -3825,6 +3825,8 @@ int ds4_gpu_stream_gate_read(const ds4_gpu_tensor *gate, uint32_t *layer, bool *
  * file and publish their addresses, protecting them from that call's own pruning.  check: save a layer's
  * resume state into its slot of `save` (2 * n_embd + 16 floats per layer) and stop the gate when a
  * selected expert has no address.  restore: put that state back before resuming at the layer's experts. */
+/* Bytes the Metal device has allocated now (MTLDevice.currentAllocatedSize), 0 without a device. */
+uint64_t ds4_gpu_current_allocated_size(void);
 void ds4_gpu_mellum_stream_set_readahead(bool enabled);
 int ds4_gpu_mellum_stream_layer_tables(uint32_t layer, ds4_gpu_tensor **gate, ds4_gpu_tensor **up, ds4_gpu_tensor **down);
 /* load takes up to 64 ids (a prefill chunk's layer) and fails if the cache cannot hold them all at once. */

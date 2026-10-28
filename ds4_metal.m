@@ -51254,6 +51254,10 @@ int ds4_gpu_mellum_moe_tensor(
  * S4 Mellum streamed decode: per-layer address tables, layer loads, the check/restore pair (ds4_gpu.h)
  * ====================================================================== */
 
+uint64_t ds4_gpu_current_allocated_size(void) {
+    return g_device ? (uint64_t)[g_device currentAllocatedSize] : 0u;
+}
+
 void ds4_gpu_mellum_stream_set_readahead(bool enabled) {
     g_mellum_stream_no_readahead = !enabled;
 }
