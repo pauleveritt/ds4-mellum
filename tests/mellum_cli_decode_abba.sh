@@ -4,7 +4,8 @@
 #   e.g. tests/mellum_measurements/d1_decode_profile)
 # Run from the tree whose metal/ the ds4 binary should load (DS4, default ./ds4; A_DS4 and B_DS4 override it per
 # arm, for an arm built at another commit).  A_ENV and B_ENV are space-separated assignments.  Blocks A B B A of PER processes, COOL s before a block, GAP s between
-# processes, the first process of each block dropped; each process `ds4 --temp 0 -n GEN`, the CLI's
+# processes, the first process of each block dropped (ARMS sets the block order, letters A and B, default ABBA;
+# ARMS=AA measures one build, arm A only, with no ratio); each process `ds4 --temp 0 -n GEN`, the CLI's
 # generation line is the result.  Context: prompt tokens + GEN + 64, rounded up to 1,024.  Every process's
 # stdout (the generated text) and stderr are kept, runs.txt has every process's rate, and power and thermal
 # state before and after each block go to events.txt.
@@ -15,6 +16,8 @@ A_DS4=${A_DS4:-$DS4}; B_DS4=${B_DS4:-$DS4}
 PER=${PER:-4}; COOL=${COOL:-30}; GAP=${GAP:-10}; GEN=${GEN:-256}
 read -r -a A_ARM <<< "${A_ENV-}"
 read -r -a B_ARM <<< "${B_ENV-}"
+ARMS=${ARMS:-ABBA}
+[[ $ARMS =~ ^[AB]+$ ]] || { echo "ARMS must be letters A and B only, got '$ARMS'" >&2; exit 2; }
 mkdir -p "$OUT"
 state() {
     echo "$(date +%H:%M:%S) $(pmset -g batt | head -1 | sed 's/Now drawing from //')" \
@@ -23,7 +26,7 @@ state() {
 }
 { echo "machine: $(sysctl -n machdep.cpu.brand_string) $(sysctl -n hw.memsize) bytes"
   echo "tree: $(pwd) head $(git rev-parse --short HEAD), $(git status --porcelain --untracked-files=no | wc -l | tr -d " ") changed tracked files"
-  echo "PER=$PER COOL=$COOL GAP=$GAP GEN=$GEN"
+  echo "PER=$PER COOL=$COOL GAP=$GAP GEN=$GEN ARMS=$ARMS"
   echo "A: ${A_ARM[*]:-(no variables)}, $A_DS4 ($(stat -f %Sm "$A_DS4"))"
   echo "B: ${B_ARM[*]:-(no variables)}, $B_DS4 ($(stat -f %Sm "$B_DS4"))"; } > "$OUT/setup.txt"
 for target in "$@"; do
@@ -33,7 +36,7 @@ for target in "$@"; do
     ctx=$((((ntok + GEN + 64 + 1023) / 1024) * 1024))
     echo "length $target: $ntok tokens, ctx $ctx" >> "$OUT/setup.txt"
     b=0
-    for arm in A B B A; do
+    for arm in $(fold -w1 <<< "$ARMS"); do
         b=$((b + 1))
         if [ $arm = A ]; then envs=(${A_ARM[@]+"${A_ARM[@]}"}); bin=$A_DS4; else envs=(${B_ARM[@]+"${B_ARM[@]}"}); bin=$B_DS4; fi
         sleep "$COOL"
@@ -57,8 +60,11 @@ for t in dict.fromkeys(r[0] for r in rows):
     med = {}
     for arm in 'AB':
         v = [float(r[5]) for r in kept if r[2] == arm]
+        if not v:
+            continue
         med[arm] = statistics.median(v)
         print('%s (%s tokens) %s: n %d, generation median %.2f t/s, range %.2f-%.2f' %
               (t, kept[0][1], arm, len(v), med[arm], min(v), max(v)))
-    print('%s: B / A %.3f' % (t, med['B'] / med['A']))
+    if len(med) == 2:
+        print('%s: B / A %.3f' % (t, med['B'] / med['A']))
 PY

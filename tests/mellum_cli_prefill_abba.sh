@@ -5,7 +5,8 @@
 # templated token count (--dump-tokens) is the smallest at or above each target.  The context is that count plus
 # 64, rounded up to 1,024.  At each length the arms run in blocks A, B, B, A (A = DS4_MELLUM_MOE_NAX=0, B = the
 # default; A_ENV and B_ENV, space-separated assignments, replace them, A_NAME and B_NAME their labels), COOL
-# seconds without GPU work before a block and GAP seconds between its PER processes.  ds4 runs one
+# seconds without GPU work before a block and GAP seconds between its PER processes.  ARMS sets the block order
+# (letters A and B; default ABBA); ARMS=AA measures one build, arm A only, with no ratio.  ds4 runs one
 # prefill per process (after its own GPU warmup), so a block's first process is dropped, not a process's first run.
 # Every process's stderr is kept; power and thermal state go to events.txt before and after each block.
 set -u
@@ -18,6 +19,8 @@ read -r -a A_ARM <<< "${A_ENV-DS4_MELLUM_MOE_NAX=0}"
 read -r -a B_ARM <<< "${B_ENV-}"
 export A_NAME=${A_NAME:-DS4_MELLUM_MOE_NAX=0} B_NAME=${B_NAME:-E1 on (default)}
 ASK=$'\n\nSummarize the text above in three sentences.'
+ARMS=${ARMS:-ABBA}
+[[ $ARMS =~ ^[AB]+$ ]] || { echo "ARMS must be letters A and B only, got '$ARMS'" >&2; exit 2; }
 mkdir -p "$OUT"
 
 state() {
@@ -47,7 +50,7 @@ PY
 
 { echo "machine: $(sysctl -n machdep.cpu.brand_string) $(sysctl -n hw.memsize) bytes"
   echo "head: $(git -C "$ROOT" rev-parse --short HEAD)  ds4: $(stat -f %Sm "$DS4")"
-  echo "PER=$PER COOL=$COOL GAP=$GAP"
+  echo "PER=$PER COOL=$COOL GAP=$GAP ARMS=$ARMS"
   echo "A ($A_NAME): ${A_ARM[*]:-(no variables)}"; echo "B ($B_NAME): ${B_ARM[*]:-(no variables)}"; } > "$OUT/setup.txt"
 
 for target in "$@"; do
@@ -62,7 +65,7 @@ for target in "$@"; do
     ctx=$((((ntok + 64 + 1023) / 1024) * 1024))
     echo "length $target: $ntok tokens, $(wc -c < "$prompt" | tr -d ' ') bytes, ctx $ctx" | tee -a "$OUT/setup.txt"
     b=0
-    for arm in A B B A; do
+    for arm in $(fold -w1 <<< "$ARMS"); do
         b=$((b + 1))
         if [ $arm = A ]; then envs=(${A_ARM[@]+"${A_ARM[@]}"}); else envs=(${B_ARM[@]+"${B_ARM[@]}"}); fi
         sleep "$COOL"
@@ -88,8 +91,11 @@ for target in dict.fromkeys(r[0] for r in rows):
     med = {}
     for arm, name in (('A', os.environ['A_NAME']), ('B', os.environ['B_NAME'])):
         v = [float(r[5]) for r in kept if r[2] == arm]
+        if not v:
+            continue
         med[arm] = statistics.median(v)
         print('%s (%s tokens) %s: n %d, median %.0f t/s, range %.0f-%.0f' %
               (target, kept[0][1], name, len(v), med[arm], min(v), max(v)))
-    print('%s: B / A median %.3f' % (target, med['B'] / med['A']))
+    if len(med) == 2:
+        print('%s: B / A median %.3f' % (target, med['B'] / med['A']))
 PY
