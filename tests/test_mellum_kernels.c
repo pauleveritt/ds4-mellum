@@ -2207,6 +2207,83 @@ static void test_prefill_equals_decode(void) {
 }
 
 
+/* S4 streamed decode: one command buffer per token that stops at its first missed layer.  A chain of
+ * 28 adds stands in for the layers; a trip after add l leaves l + 1 adds applied. */
+#define GATE_N 1024u
+#define GATE_LAYERS 28u
+
+static ds4_gpu_tensor *gate_filled(float v) {
+    float *h = malloc(GATE_N * sizeof(float));
+    for (uint32_t i = 0; i < GATE_N; i++) h[i] = v;
+    ds4_gpu_tensor *t = upload(h, GATE_N);
+    free(h);
+    return t;
+}
+
+static bool gate_all(const ds4_gpu_tensor *t, float v) {
+    float *h = download(t, GATE_N);
+    bool ok = true;
+    for (uint32_t i = 0; i < GATE_N; i++) ok = ok && h[i] == v;
+    free(h);
+    return ok;
+}
+
+static void gate_chain(ds4_gpu_tensor *acc, const ds4_gpu_tensor *one, ds4_gpu_tensor *gate,
+                       const ds4_gpu_tensor *probe, int trip_layer) {
+    require_ok(ds4_gpu_begin_commands(), "gate chain begin");
+    for (uint32_t l = 0; l < GATE_LAYERS; l++) {
+        require_ok(ds4_gpu_add_tensor(acc, acc, one, GATE_N), "gate chain add");
+        if ((int)l == trip_layer) require_ok(ds4_gpu_stream_gate_trip_if_zero_tensor(gate, probe, l), "gate trip");
+    }
+    require_ok(ds4_gpu_end_commands(), "gate chain end");
+}
+
+static void check_gate_suppresses_after_trip(void) {
+    ds4_gpu_tensor *acc = gate_filled(0.0f), *one = gate_filled(1.0f), *zero = gate_filled(0.0f);
+    ds4_gpu_tensor *gate = ds4_gpu_stream_gate_create();
+    require_ok(gate != NULL && ds4_gpu_stream_gate_reset(gate), "gate create");
+    require_ok(ds4_gpu_stream_gate_bind(gate), "gate bind");
+    gate_chain(acc, one, gate, zero, 9);
+    require_ok(ds4_gpu_stream_gate_bind(NULL), "gate unbind");
+    uint32_t layer = 0;
+    bool stopped = false;
+    require_ok(ds4_gpu_stream_gate_read(gate, &layer, &stopped), "gate read");
+    CHECK(stopped && layer == 9, "gate: a zero probe at layer 9 must stop at layer 9 (stopped %d, layer %u)", stopped, layer);
+    CHECK(gate_all(acc, 10.0f), "gate: layers after the trip must not run (want 10 adds everywhere)");
+    /* reset clears the stop: the same gate then runs the whole chain */
+    require_ok(ds4_gpu_stream_gate_reset(gate) && ds4_gpu_stream_gate_bind(gate), "gate reset");
+    gate_chain(acc, one, gate, zero, -1);
+    require_ok(ds4_gpu_stream_gate_bind(NULL), "gate unbind");
+    CHECK(gate_all(acc, 38.0f), "gate: a reset gate must run all 28 layers (want 10 + 28)");
+    ds4_gpu_tensor_free(gate); ds4_gpu_tensor_free(acc); ds4_gpu_tensor_free(one); ds4_gpu_tensor_free(zero);
+}
+
+static void check_gate_all_hit_one_wait(void) {
+    ds4_gpu_tensor *acc = gate_filled(0.0f), *one = gate_filled(1.0f);
+    ds4_gpu_tensor *gate = ds4_gpu_stream_gate_create();
+    require_ok(gate != NULL && ds4_gpu_stream_gate_reset(gate) && ds4_gpu_stream_gate_bind(gate), "gate create");
+    const uint64_t w0 = ds4_gpu_wait_count();
+    gate_chain(acc, one, gate, one, 9);  /* a nonzero probe never trips */
+    const uint64_t waits = ds4_gpu_wait_count() - w0;
+    require_ok(ds4_gpu_stream_gate_bind(NULL), "gate unbind");
+    uint32_t layer = 0;
+    bool stopped = true;
+    require_ok(ds4_gpu_stream_gate_read(gate, &layer, &stopped), "gate read");
+    CHECK(!stopped, "gate: a nonzero probe must not stop");
+    CHECK(gate_all(acc, 28.0f), "gate: an all-hit chain must run all 28 layers");
+    CHECK(waits == 1, "gate: an all-hit chain must wait once on the host (waited %llu)", (unsigned long long)waits);
+    ds4_gpu_tensor_free(gate); ds4_gpu_tensor_free(acc); ds4_gpu_tensor_free(one);
+}
+
+static void check_unbound_gate_inert(void) {
+    ds4_gpu_tensor *acc = gate_filled(0.0f), *one = gate_filled(1.0f), *zero = gate_filled(0.0f);
+    ds4_gpu_tensor *gate = ds4_gpu_stream_gate_create();
+    require_ok(gate != NULL && ds4_gpu_stream_gate_reset(gate) && ds4_gpu_stream_gate_bind(NULL), "gate create");
+    gate_chain(acc, one, gate, zero, 9);
+    CHECK(gate_all(acc, 28.0f), "gate: an unbound gate must not suppress anything, even when tripped");
+    ds4_gpu_tensor_free(gate); ds4_gpu_tensor_free(acc); ds4_gpu_tensor_free(one); ds4_gpu_tensor_free(zero);
+}
+
 int main(void) {
     fixture_t f;
     memset(&f, 0, sizeof(f));
@@ -2257,6 +2334,11 @@ int main(void) {
      * (QWEN4_ATTN_MAX_SPLITS), so a key count past 2,048 runs more keys per split than any count below it */
     static const uint32_t long_full_counts[] = { 2100, 4100 };
     for (size_t i = 0; i < sizeof(long_full_counts) / sizeof(long_full_counts[0]); i++) test_full_session(long_full_counts[i]);
+
+    printf("S4 streamed-decode gate (28-layer add chain)\n");
+    check_gate_suppresses_after_trip();
+    check_gate_all_hit_one_wait();
+    check_unbound_gate_inert();
 
     printf("%d checks, %d failures\n", g_checks, g_failures);
     return g_failures ? 1 : 0;
