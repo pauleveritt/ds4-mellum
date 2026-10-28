@@ -1,5 +1,6 @@
 """Generated schedule and one-shot retention checks, fabricated native outputs."""
 import importlib.util
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -187,5 +188,14 @@ def test_success_publishes_nested_native_recreation_without_losing_raw():
             assert all(actual[k]==v for k,v in value.items())
 
 
-def load_tests(loader,tests,pattern):return unittest.TestSuite(unittest.FunctionTestCase(v) for k,v in globals().items() if k.startswith('test_'))
+def isolated(function):
+    def run():
+        # Make/app inject control variables; fake-boundary tests start clean.
+        env={k:v for k,v in os.environ.items() if not k.startswith(('GIT_','DS4_','MELLUM_TRACE_')) and k not in ('MAKEFLAGS','MFLAGS','MAKEFILES','MAKEOVERRIDES')}
+        with patch.dict(os.environ,env,clear=True):function()
+    run.__name__=function.__name__
+    return run
+
+
+def load_tests(loader,tests,pattern):return unittest.TestSuite(unittest.FunctionTestCase(isolated(v),description=k) for k,v in globals().items() if k.startswith('test_'))
 if __name__=='__main__':unittest.main()
