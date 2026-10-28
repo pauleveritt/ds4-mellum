@@ -19468,10 +19468,9 @@ static int ds4_gpu_matmul_q8_0_legacy_tensor(
                     [enc setBuffer:xbuf offset:ds4_gpu_tensor_offset(x) atIndex:2];
                     [enc setBuffer:outbuf offset:ds4_gpu_tensor_offset(out) atIndex:3];
                     [enc setThreadgroupMemoryLength:2u * 64u * 32u * sizeof(uint16_t) atIndex:0];
-                    [enc dispatchThreadgroups:MTLSizeMake(1u,
+                    (void)ds4_gpu_dispatch_gated(enc, MTLSizeMake(1u,
                                                           ((NSUInteger)out_dim + 63u) / 64u,
-                                                          1u)
-                         threadsPerThreadgroup:MTLSizeMake(128, 1, 1)];
+                                                          1u), MTLSizeMake(128, 1, 1));
                     ds4_gpu_end_compute_encoder(cb, enc);
                     (void)mellum_observer_encode(nax_fn,2,(const uint32_t[]){0,0});
 
@@ -19498,10 +19497,9 @@ static int ds4_gpu_matmul_q8_0_legacy_tensor(
             [enc setBuffer:xbuf offset:ds4_gpu_tensor_offset(x) atIndex:2];
             [enc setBuffer:outbuf offset:ds4_gpu_tensor_offset(out) atIndex:3];
             [enc setThreadgroupMemoryLength:mv_dispatch.smem atIndex:0];
-            [enc dispatchThreadgroups:MTLSizeMake(((NSUInteger)out_dim + (NSUInteger)mv_dispatch.nr0 - 1u) / (NSUInteger)mv_dispatch.nr0,
+            (void)ds4_gpu_dispatch_gated(enc, MTLSizeMake(((NSUInteger)out_dim + (NSUInteger)mv_dispatch.nr0 - 1u) / (NSUInteger)mv_dispatch.nr0,
                                                   1,
-                                                  1)
-                 threadsPerThreadgroup:MTLSizeMake(32, (NSUInteger)mv_dispatch.nsg, 1)];
+                                                  1), MTLSizeMake(32, (NSUInteger)mv_dispatch.nsg, 1));
             ds4_gpu_end_compute_encoder(cb, enc);
             (void)mellum_observer_encode(mv_dispatch.function_name,1,(const uint32_t[]){(uint32_t)mv_dispatch.nsg});
 
@@ -19533,10 +19531,9 @@ static int ds4_gpu_matmul_q8_0_legacy_tensor(
             [enc setBuffer:wbuf offset:(NSUInteger)inner_offset atIndex:1];
             [enc setBuffer:xbuf offset:ds4_gpu_tensor_offset(x) atIndex:2];
             [enc setBuffer:outbuf offset:ds4_gpu_tensor_offset(out) atIndex:3];
-            [enc dispatchThreadgroups:MTLSizeMake(((NSUInteger)out_dim + (NSUInteger)r0ptg - 1u) / (NSUInteger)r0ptg,
+            (void)ds4_gpu_dispatch_gated(enc, MTLSizeMake(((NSUInteger)out_dim + (NSUInteger)r0ptg - 1u) / (NSUInteger)r0ptg,
                                                   ((NSUInteger)n_tok + (NSUInteger)r1ptg - 1u) / (NSUInteger)r1ptg,
-                                                  1)
-                 threadsPerThreadgroup:MTLSizeMake(32, (NSUInteger)nsg, 1)];
+                                                  1), MTLSizeMake(32, (NSUInteger)nsg, 1));
             ds4_gpu_end_compute_encoder(cb, enc);
             (void)mellum_observer_encode(fn_name,2,(const uint32_t[]){(uint32_t)nsg,(uint32_t)nxpsg});
 
@@ -19596,10 +19593,9 @@ static int ds4_gpu_matmul_q8_0_legacy_tensor(
                 [enc setBuffer:xbuf offset:ds4_gpu_tensor_offset(x) atIndex:2];
                 [enc setBuffer:outbuf offset:ds4_gpu_tensor_offset(out) atIndex:3];
                 [enc setThreadgroupMemoryLength:2u * 64u * 32u * sizeof(uint16_t) atIndex:0];
-                [enc dispatchThreadgroups:MTLSizeMake((NSUInteger)(nax_rows / nax_tile_n),
+                (void)ds4_gpu_dispatch_gated(enc, MTLSizeMake((NSUInteger)(nax_rows / nax_tile_n),
                                                       (NSUInteger)out_dim / 64u,
-                                                      1)
-                     threadsPerThreadgroup:MTLSizeMake(128, 1, 1)];
+                                                      1), MTLSizeMake(128, 1, 1));
                 ds4_gpu_end_compute_encoder(cb, enc);
                 (void)mellum_observer_encode(nax_fn,2,(const uint32_t[]){0,0});
 
@@ -19669,10 +19665,9 @@ static int ds4_gpu_matmul_q8_0_legacy_tensor(
                        (NSUInteger)(generic_row0 * out_dim * sizeof(float))
                atIndex:3];
         [enc setThreadgroupMemoryLength:(bc_out ? 8192u : 6144u) atIndex:0];
-        [enc dispatchThreadgroups:MTLSizeMake(((NSUInteger)generic_rows + 31u) / 32u,
+        (void)ds4_gpu_dispatch_gated(enc, MTLSizeMake(((NSUInteger)generic_rows + 31u) / 32u,
                                               ((NSUInteger)out_dim + 63u) / 64u,
-                                              1)
-             threadsPerThreadgroup:MTLSizeMake(128, 1, 1)];
+                                              1), MTLSizeMake(128, 1, 1));
         ds4_gpu_end_compute_encoder(cb, enc);
         (void)mellum_observer_encode(fn,2,(const uint32_t[]){bc_inp,bc_out});
 
@@ -27368,8 +27363,7 @@ static int ds4_gpu_encode_cpy_f32_f16_1d(
     }
     [enc setBuffer:src offset:src_off atIndex:1];
     [enc setBuffer:dst offset:dst_off atIndex:2];
-    [enc dispatchThreadgroups:MTLSizeMake(groups, 1, 1)
-         threadsPerThreadgroup:MTLSizeMake(nth, 1, 1)];
+    (void)ds4_gpu_dispatch_gated(enc, MTLSizeMake(groups, 1, 1), MTLSizeMake(nth, 1, 1));
     ds4_gpu_end_compute_encoder(cb, enc);
     (void)mellum_observer_encode(use_contiguous ? "kernel_cpy_contig_f32_f16_4":"kernel_cpy_f32_f16",0,NULL);
 
