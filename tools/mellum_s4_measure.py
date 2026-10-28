@@ -25,8 +25,9 @@ class Busy(RuntimeError):
 
 
 def build_prompt(root: Path, budget_bytes: int) -> dict:
-    """Sorted tracked *.c and *.md files, whole, as path-delimited blocks, until the next would pass the
-    budget.  Research notes and anything under ac-demo stay out (held-out evaluation data)."""
+    """Sorted tracked *.c and *.md files, whole, as path-delimited blocks; a file that would pass the budget is
+    skipped and later, smaller files may still fit.  Research notes and anything under ac-demo stay out
+    (held-out evaluation data)."""
     listed = subprocess.run(['git', '-C', str(root), 'ls-files', '-z'], check=True, capture_output=True).stdout
     names = sorted(n for n in listed.decode().split('\0') if n.endswith(('.c', '.md')) and
                    not n.startswith('docs/superpowers/research/') and 'ac-demo' not in n.split('/'))
@@ -96,7 +97,8 @@ def parse_cli_rates(stderr: str) -> tuple[float, float]:
 
 
 def regression_verdict(runs: list[dict]) -> dict:
-    """Goal 2: B's median prefill and generation t/s each within 2% of A's."""
+    """Goal 2: B's median prefill and generation t/s each at least 0.98 of A's.  One-sided: it detects a
+    slowdown, not a speed-up."""
     med = {arm: {k: statistics.median(r[k] for r in runs if r['arm'] == arm) for k in ('prefill', 'gen')} for arm in 'AB'}
     ratio = {k: med['B'][k] / med['A'][k] for k in ('prefill', 'gen')}
     return {'medians': med, 'ratio': ratio, 'pass': all(r >= 0.98 for r in ratio.values())}
