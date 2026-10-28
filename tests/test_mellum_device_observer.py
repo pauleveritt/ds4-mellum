@@ -120,7 +120,7 @@ def test_interrupted_metadata_command_is_killed_and_reaped():
 
 def test_parser_caps_valid_xml_before_materializing_large_structure():
     api=module()
-    for raw in (plistlib.dumps(['x']*20000),plistlib.dumps('x'*2**20)):
+    for raw in (plistlib.dumps([True]*70000),plistlib.dumps('x'*2**20)):
         try:api.decoded(dict(stdout=raw,stderr=b'',returncode=0))
         except api.CommandFailure:pass
         else:raise AssertionError('oversized decoded structure accepted')

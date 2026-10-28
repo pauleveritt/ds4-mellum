@@ -129,7 +129,7 @@ def bounded_xml(raw: bytes) -> None:
     def start(name,attrs):
         nonlocal depth,nodes
         depth+=1;nodes+=1
-        if depth>64 or nodes>16384:raise ValueError('metadata XML structure exceeds bounds')
+        if depth>64 or nodes>65536:raise ValueError('metadata XML structure exceeds bounds')
     def end(name):
         nonlocal depth
         depth-=1
