@@ -40,7 +40,11 @@ int main(int argc,char **argv) {
     ds4_engine_options options={0};options.model_path=argv[2];options.context_size=8192;
     options.prefill_chunk=1024;options.backend=preparing ? DS4_BACKEND_CPU:DS4_BACKEND_METAL;options.inspect_only=preparing;
     ds4_engine *engine=NULL;
+#ifdef DS4_NO_GPU
+    if(mellum_generated_inspect_open(&engine,&options)) return 1;
+#else
     if(ds4_engine_open(&engine,&options)) return 1;
+#endif
     int rc=-1;
     if(ds4_engine_vocab_size(engine)==98304 && ds4_engine_layer_count(engine)==28) {
         if(preparing) rc=mellum_generated_prepare(engine,argv[3],argv[4]);

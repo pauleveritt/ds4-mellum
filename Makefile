@@ -1744,8 +1744,10 @@ clean-mellum-generated-inputs:
 clean: clean-mellum-generated-inputs
 
 MELLUM_GENERATE_SOURCES = tools/mellum_generate.c tools/mellum_generate_driver.c tools/mellum_generate_loop.c tools/mellum_generate_io.c
-tools/mellum_generate_cpu: tools/mellum_generate.c tools/mellum_generate_io.c $(CPU_CORE_OBJS)
-	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -DDS4_NO_GPU -I. tools/mellum_generate.c tools/mellum_generate_io.c $(CPU_CORE_OBJS) $(LDLIBS) -o $@
+tools/mellum_generate_inspect.o: tools/mellum_generate_inspect.c ds4.c ds4.h tools/mellum_generate_driver.h
+	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -DDS4_NO_GPU -I. -c $< -o $@
+tools/mellum_generate_cpu: tools/mellum_generate.c tools/mellum_generate_io.c tools/mellum_generate_inspect.o $(filter-out ds4_cpu.o,$(CPU_CORE_OBJS))
+	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -DDS4_NO_GPU -I. tools/mellum_generate.c tools/mellum_generate_io.c tools/mellum_generate_inspect.o $(filter-out ds4_cpu.o,$(CPU_CORE_OBJS)) $(LDLIBS) -o $@
 tools/mellum_generate: $(MELLUM_GENERATE_SOURCES) $(CORE_OBJS)
 	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -I. $(MELLUM_GENERATE_SOURCES) $(CORE_OBJS) $(METAL_LDLIBS) -o $@
 tests/test_mellum_generate_loop: tests/test_mellum_generate_loop.c tools/mellum_generate_loop.c tools/mellum_generate_loop.h
@@ -1775,3 +1777,16 @@ test-mellum: test-mellum-generated-driver
 clean-mellum-generated-driver:
 	rm -f tests/test_mellum_generate_driver tests/mellum_generate_driver_fault.o
 clean: clean-mellum-generated-driver
+
+
+tests/test_mellum_generate_prepare.o: tests/test_mellum_generate_prepare.c tools/mellum_generate_inspect.c tools/mellum_generate.c tools/mellum_generate_driver.h tools/mellum_generate_io.h tests/mellum_fixture.h ds4.c ds4.h
+	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -DDS4_NO_GPU -I. -c $< -o $@
+tests/test_mellum_generate_prepare: tests/test_mellum_generate_prepare.o tools/mellum_generate_io.c $(filter-out ds4_cpu.o,$(CPU_CORE_OBJS))
+	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -I. $^ $(LDLIBS) -o $@
+.PHONY: test-mellum-generated-prepare clean-mellum-generated-prepare
+test-mellum-generated-prepare: tests/test_mellum_generate_prepare
+	./tests/test_mellum_generate_prepare
+test-mellum: test-mellum-generated-prepare
+clean-mellum-generated-prepare:
+	rm -f tests/test_mellum_generate_prepare tests/test_mellum_generate_prepare.o tools/mellum_generate_inspect.o
+clean: clean-mellum-generated-prepare
