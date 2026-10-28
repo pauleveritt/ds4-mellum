@@ -50812,6 +50812,18 @@ int ds4_gpu_mellum_attn_swa_tensor(
                            MTLSizeMake(n_head, n_tok, 1), MTLSizeMake(32 * 8, 1, 1));
 }
 
+/* Mellum's tiled prefill attention (ds4_gpu.h has the contract): not yet implemented, refuses every call. */
+int ds4_gpu_mellum_attn_tiled_tensor(
+        ds4_gpu_tensor *out, const ds4_gpu_tensor *q,
+        const ds4_gpu_tensor *ring_k, const ds4_gpu_tensor *ring_v, const ds4_gpu_tensor *ring_tags,
+        const ds4_gpu_tensor *k16, const ds4_gpu_tensor *v16,
+        uint32_t n_tok, uint32_t pos0, uint32_t window,
+        uint32_t n_head, uint32_t n_head_kv, uint32_t head_dim, float scale) {
+    (void)out; (void)q; (void)ring_k; (void)ring_v; (void)ring_tags; (void)k16; (void)v16;
+    (void)n_tok; (void)pos0; (void)window; (void)n_head; (void)n_head_kv; (void)head_dim; (void)scale;
+    return 0;
+}
+
 /* a * b * c * d without overflow */
 static bool mellum_moe_bytes(uint64_t *r, uint64_t a, uint64_t b, uint64_t c, uint64_t d) {
     uint64_t t;

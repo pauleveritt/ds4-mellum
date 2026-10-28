@@ -3742,6 +3742,19 @@ int ds4_gpu_mellum_attn_swa_tensor(
         const ds4_gpu_tensor *k16, const ds4_gpu_tensor *v16,
         uint32_t n_tok, uint32_t pos0, uint32_t window,
         uint32_t n_head, uint32_t n_head_kv, uint32_t head_dim, float scale);
+/* Mellum's prefill attention in tiles (metal/mellum.metal, kernel_mellum_attn_tiled), for chunks of 32 rows or
+ * more on the release path: 8 tokens and one KV head per threadgroup, so the tokens share each tile of keys.  The
+ * operands are f32 (K and V widened from f16 exactly), so only the summation order differs from the decode kernels.
+ *   window > 0: a sliding layer, the arguments as for ds4_gpu_mellum_attn_swa_tensor (positions below pos0 from
+ *     the ring, tag-checked: a wrong tag makes the rows that need it NaN; the rest from k16/v16).
+ *   window 0: a full layer; k16/v16 are the cache, positions 0 .. pos0 + n_tok - 1, and the ring is not read.
+ * Head dim 128 with 32 query and 4 KV heads only. */
+int ds4_gpu_mellum_attn_tiled_tensor(
+        ds4_gpu_tensor *out, const ds4_gpu_tensor *q,
+        const ds4_gpu_tensor *ring_k, const ds4_gpu_tensor *ring_v, const ds4_gpu_tensor *ring_tags,
+        const ds4_gpu_tensor *k16, const ds4_gpu_tensor *v16,
+        uint32_t n_tok, uint32_t pos0, uint32_t window,
+        uint32_t n_head, uint32_t n_head_kv, uint32_t head_dim, float scale);
 int ds4_gpu_mellum_ring_commit_tensor(
         ds4_gpu_tensor *ring_k, ds4_gpu_tensor *ring_v, ds4_gpu_tensor *ring_pos,
         const ds4_gpu_tensor *k, const ds4_gpu_tensor *v,
