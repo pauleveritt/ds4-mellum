@@ -37,7 +37,9 @@ t/s; a 3,235-token prompt prefills at 1,842-1,871 t/s and then generates at
 116.2-117.8 t/s. The trace driver's 2,200-token prefill: about 2,000 t/s. Since E1 (routed Q8_0
 experts on the Metal 4 tensor tiles), about 2,880 t/s at 2,200 tokens and 2,060 at 6,000. Through the CLI
 since phase 8a (the attention tiles), medians of 6: 4,055 t/s at 2,056 tokens, 3,528 at 8,195 and 1,908 at
-32,778, against 2,968, 2,132 and 939 with `DS4_MELLUM_ATTN_TILED=0`. The M4
+32,778, against 2,968, 2,132 and 939 with `DS4_MELLUM_ATTN_TILED=0`. Decode (phase 8b, D1): 133.2 t/s
+after 100 prompt tokens, 119.1 after 2,056, 116.7 after 8,195, 98.2 after 32,778; GPU-bound, at 53-60% of the
+measured 575 GB/s read ("D: decode research"). The M4
 Max was not measured. Session save/load refuses by name. Since step 34,
 ds4-agent runs Mellum with the Hermes syntax and Pi's four tools. Since phase
 6 (steps 41-43), ds4-server serves Mellum as `mellum-2.1`, with the Hermes
@@ -410,6 +412,16 @@ continue through all of it until done"; both proposed variants then landed, the 
   the corrected staged reference; `339dded` (red), `81b5f61` the default, `DS4_MELLUM_ATTN_TILED=1`
   keeps the f32 tiles.
 - `905b15e` the runner's empty arm, `1860c51` T2's raw logs.
+
+Phase 8b, decode research (D1-D3, 2026-10-28; Paul: "Proceed with next step, I believe it is decode
+research"). Measurement tooling only; nothing in the product changed:
+
+- D1: `98217a8` bytes per step from the GGUF, `f7694b7` as functions; `ea9d418` the bandwidth tool, `a23ad07`
+  its output; `1019023` the decode runner, `421bc35` its summary, `f0e270b` raw logs; `eee2c6f` the bytes and
+  prompt-lookup outputs.
+- D2, B0: `6b64bae` (red), `bc716e4` the test hook; `ea0f37b` the runner, `ec8860f` raw logs.
+- D3: `f4a0432` prompt-lookup acceptance from token files; screen S1 in `misc/d-decode/` (not committed).
+- `d8cb20f`, `4a50270`, `dc5943e` the record.
 
 Review fixes and experiment E1 (after step 33, before step 34; the outside
 review of `5aa742c`):
