@@ -26,9 +26,9 @@ preregistered and not retried. Never `--raw-prompt`. Nothing discarded: failed r
 
 ## 1. Machine facts (no GPU)
 
-- [ ] Record, as `machine.txt`: `sysctl hw.model hw.memsize machdep.cpu.brand_string`,
-  `sw_vers`, `system_profiler SPDisplaysDataType SPNVMeDataType`, free disk space, and
-  `sysctl vm.user_wire_limit`.
+- [ ] Record `machine.txt` with `tools/mellum_machine_facts.sh machine.txt`: model, memory, chip,
+  `vm.user_wire_limit`, macOS, Xcode and Metal toolchain, GPU, SSD, free disk, memory pressure, swap and
+  power state. It is read-only.
 - [ ] Check the macOS version against the engine's Metal 4 shader path (macOS 26 or later). If it is
   older, stop and record that; an OS update is the owner's call.
 
