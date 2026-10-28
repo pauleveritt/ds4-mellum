@@ -1,6 +1,6 @@
 # Mellum roadmap
 
-Updated 2026-10-27. [MELLUM.md](MELLUM.md) records the port, measurements and
+Updated 2026-10-28. [MELLUM.md](MELLUM.md) records the port, measurements and
 numbered checkpoints. This roadmap tracks the separate SSD investigation.
 
 ## Current baseline
@@ -137,17 +137,17 @@ The first ac-demo task remains Phase 1 only; later phases
 require their own requests and prior-phase checkpoints.
 
 The [first generated Phase 1 plan](docs/superpowers/plans/2026-10-28-mellum-generated-cohort.md)
-has passed its model-free implementation gate and fresh review/fix pass. Its
-one CPU preparation failed before tokenization because inspect mode leaves the
-tokenizer unloaded; a research-only CPU adapter now passes a sparse-native
-integration test and the full gate. [Retained evidence](docs/superpowers/research/2026-10-28-mellum-generated-phase1-evidence.md)
-records no GPU launch/reservation or locality result. A fresh bounded preparation
-requires an owner decision under the frozen no-retry rule. The intended result
-remains one coding conversation plus scripted review, exact-token resident
-parity and frozen 3 GiB LRU; it executes no model output and does not close
-tool-result or medium/8K coverage. Preserve held-out
-evaluation; existing diagnostic traces do not substitute for representative
-locality. S4 remains separate until this result is reviewed.
+has its first locality result, [attempt -02](docs/superpowers/research/2026-10-28-mellum-generated-phase1-02-evidence.md)
+(the [first attempt](docs/superpowers/research/2026-10-28-mellum-generated-phase1-evidence.md)
+failed CPU preparation and is retained). One generated two-turn conversation
+(n=1) passed byte-exact resident parity on all 5122 operations. Both turns hit
+their 4096/1024 caps inside thinking. Cold global grouped LRU at 3 GiB: warm
+decode about 352–365 MiB/token of miss demand, p95 about 640 MiB, worst
+1.14 GiB. Row misses are about 25%. The post-append and tail windows do not
+reset. The analysis is an artifact-only validation after a publisher
+serializer fix, with an independent audit. Tool-result, answer-phase and
+medium/8K coverage remain open. Demand is not stall time. S4 remains separate
+until this result is reviewed.
 
 Exit: measured miss curves and storage-read performance, followed by an explicit
 assessment of what they permit or rule out under stated scheduling assumptions.
