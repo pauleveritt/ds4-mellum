@@ -89,7 +89,7 @@ Exit met on M5 Max / 128 GiB: matching-path parity, no added per-layer host
 wait, bounded recorder storage and append-capable qualified collection. This
 establishes neither physical 8 GB peak memory nor SSD inference performance.
 
-### S3 — First storage-observed candidate result; locality and remaining read costs open
+### S3 — Locality and read service assessed; miss curve, cold reads and resident timing open
 
 The user selected `../ac-demo` and its roadmap as the workload source. The
 [S3a proposal](docs/superpowers/specs/2026-10-27-mellum-storage-evidence-design.md)
@@ -148,6 +148,17 @@ reset. The analysis is an artifact-only validation after a publisher
 serializer fix, with an independent audit. Tool-result, answer-phase and
 medium/8K coverage remain open. Demand is not stall time. S4 remains separate
 until this result is reviewed.
+
+The [S3 scheduling assessment](docs/superpowers/research/2026-10-28-mellum-s3-scheduling-assessment.md)
+combines the two results under stated assumptions. Those are atomic group
+residency, on-demand reads, one serial worker at 0.655 ms per expert, and
+reads added to compute. Mean serial reads are 37.0 ms/token, p95 66.8 and
+worst 119.2. No token was all-hit, which rules out an all-hit warm regime
+for this trace. Every token under 100 ms is ruled out by reads alone. A
+10 tok/s mean remains possible if resident decode compute is at most about
+63 ms/token, which is not yet measured. Still open: a miss curve beyond
+3 GiB, physical cold reads, concurrency and answer-phase locality. S4 should
+treat miss recovery as the common path.
 
 Exit: measured miss curves and storage-read performance, followed by an explicit
 assessment of what they permit or rule out under stated scheduling assumptions.
