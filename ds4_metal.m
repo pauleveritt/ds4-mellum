@@ -50806,6 +50806,22 @@ int ds4_gpu_mellum_copy2_f32_to_f16(ds4_gpu_tensor *dst_a, uint64_t a_off, const
                            MTLSizeMake(((count + 3u) / 4u + 255u) / 256u, 1, 1), MTLSizeMake(256, 1, 1));
 }
 
+/* Mellum's MoE reduce and residual add in one dispatch (ds4_gpu.h). */
+int ds4_gpu_mellum_moe_reduce_add_tensor(ds4_gpu_tensor *out, const ds4_gpu_tensor *part, const ds4_gpu_tensor *weights,
+                                         const ds4_gpu_tensor *res, uint32_t n_tokens, uint32_t n_slots, uint32_t dim) {
+    struct { uint32_t n_tokens, n_slots, dim, pad0; } args = { n_tokens, n_slots, dim, 0 };
+    qwen4_bind b[4];
+    if (n_tokens == 0 || n_slots == 0 || dim == 0 ||
+        !qwen4_bind_tensor(&b[0], part, (uint64_t)n_tokens * n_slots * dim * sizeof(float), "mellum reduce-add partial") ||
+        !qwen4_bind_tensor(&b[1], weights, (uint64_t)n_tokens * n_slots * sizeof(float), "mellum reduce-add weights") ||
+        !qwen4_bind_tensor(&b[2], res, (uint64_t)n_tokens * dim * sizeof(float), "mellum reduce-add residual") ||
+        !qwen4_bind_tensor(&b[3], out, (uint64_t)n_tokens * dim * sizeof(float), "mellum reduce-add output")) {
+        return 0;
+    }
+    return mellum_dispatch("kernel_mellum_moe_reduce_add", &args, sizeof(args), b, 4,
+                           MTLSizeMake((dim + 255u) / 256u, n_tokens, 1), MTLSizeMake(256, 1, 1));
+}
+
 /* Commit n_rows rows of a sliding layer's f32 K and V to its f16 ring, row r
  * at slot (pos0 + r) % ring_slots with that slot's tag set to pos0 + r. */
 int ds4_gpu_mellum_ring_commit_tensor(

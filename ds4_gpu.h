@@ -3748,6 +3748,11 @@ int ds4_gpu_mellum_qk_norm_rope_fused_tensor(
 int ds4_gpu_mellum_copy2_f32_to_f16(ds4_gpu_tensor *dst_a, uint64_t a_off, const ds4_gpu_tensor *src_a,
                                      ds4_gpu_tensor *dst_b, uint64_t b_off, const ds4_gpu_tensor *src_b,
                                      uint32_t count);
+/* out = res + the MoE reduce's weighted sum over n_slots partial rows ([T][n_slots][dim], weights [T][n_slots]), in
+ * one dispatch; the words of ds4_gpu_qwen4_moe_reduce_tensor (no shared expert, no hyper-connections) followed by
+ * ds4_gpu_add_tensor(out, res, sum). */
+int ds4_gpu_mellum_moe_reduce_add_tensor(ds4_gpu_tensor *out, const ds4_gpu_tensor *part, const ds4_gpu_tensor *weights,
+                                         const ds4_gpu_tensor *res, uint32_t n_tokens, uint32_t n_slots, uint32_t dim);
 int ds4_gpu_mellum_attn_swa_tensor(
         ds4_gpu_tensor *out, const ds4_gpu_tensor *q,
         const ds4_gpu_tensor *ring_k, const ds4_gpu_tensor *ring_v, const ds4_gpu_tensor *ring_tags,

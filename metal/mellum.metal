@@ -109,6 +109,36 @@ kernel void kernel_mellum_cpy2_f32_f16(
     }
 }
 
+/* Mellum's MoE reduce and the residual add after it, in one dispatch (ds4_gpu_mellum_moe_reduce_add_tensor):
+ * kernel_qwen4_moe_reduce's weighted sum over the slots (no shared expert, no hyper-connections), in its order,
+ * then out = res + sum, as kernel_add2_f32 adds the two. */
+struct ds4_metal_args_mellum_moe_reduce_add {
+    uint32_t n_tokens;
+    uint32_t n_slots;
+    uint32_t dim;
+    uint32_t pad0;
+};
+
+kernel void kernel_mellum_moe_reduce_add(
+        constant ds4_metal_args_mellum_moe_reduce_add & args,
+        device const float *part,        /* [T][n_slots][dim] */
+        device const float *weights,     /* [T][n_slots] */
+        device const float *res,         /* [T][dim] */
+        device float       *out,         /* [T][dim] */
+        uint3 tgpig [[threadgroup_position_in_grid]],
+        ushort tid [[thread_index_in_threadgroup]],
+        ushort3 ntg [[threads_per_threadgroup]]) {
+    const uint d = tgpig.x * ntg.x + tid;
+    const uint tok = tgpig.y;
+    if (tok >= args.n_tokens || d >= args.dim) return;
+    float acc = 0.0f;
+    for (uint s = 0; s < args.n_slots; s++) {
+        acc += weights[(uint64_t)tok * args.n_slots + s] *
+               part[((uint64_t)tok * args.n_slots + s) * args.dim + d];
+    }
+    out[(uint64_t)tok * args.dim + d] = res[(uint64_t)tok * args.dim + d] + acc;
+}
+
 /* --- the sliding layers' K/V ring ------------------------------------------ */
 
 struct ds4_metal_args_mellum_ring_commit {
