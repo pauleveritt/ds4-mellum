@@ -76557,9 +76557,11 @@ void ds4_session_set_cancel(ds4_session *s, ds4_session_cancel_fn fn, void *ud) 
     if (!s) return;
     s->cancel = fn;
     s->cancel_ud = ud;
+#ifdef DS4_HAS_QWEN4_GPU
     /* S4: a streamed Mellum decode polls it between stops */
     s->qwen4_graph.mellum_stream_cancel = fn;
     s->qwen4_graph.mellum_stream_cancel_ud = ud;
+#endif
 }
 
 static bool ds4_session_cancelled(ds4_session *s) {
