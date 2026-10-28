@@ -935,8 +935,9 @@ per head, which changes the merge.
 ### README checks (phase 9, 2026-10-28; nothing pushed)
 
 `README.md` is now the Mellum guide, with upstream's text below a divider (`c692779`, `ebc93df`, `942c6e9`,
-`5c84246`). Each of its command and config blocks was run as written on the M5 Max at `ba83406`. Raw logs are
-in `tests/mellum_measurements/readme_checks/`.
+`5c84246`). Each of its command and config blocks was run as written on the M5 Max, at `49bf9eb`; the prefill
+runner was rerun at `ba83406`, which changes only that runner. Raw logs are in
+`tests/mellum_measurements/readme_checks/`.
 
 The checks ran under a scratch home: `HOME` and `PI_CODING_AGENT_DIR` were scratch directories and `HF_HOME`
 was the real cache. So `~/models` and `~/.pi/agent` were scratch paths, and Paul's were never touched. His
