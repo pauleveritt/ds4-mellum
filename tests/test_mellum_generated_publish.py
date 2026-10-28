@@ -141,5 +141,32 @@ def test_gpu_binary_and_forced_build_receipt_are_bound_before_launch():
             else:raise AssertionError('binary changed')
 
 
+def test_closing_identity_gate_runs_after_validation_and_prevents_publication():
+    api=module();validation=api.identity.sibling('mellum_generated_validation')
+    with tempfile.TemporaryDirectory() as d:
+        root=Path(d);binary=root/'binary';model=root/'model'
+        def native(argv,**kwargs):return dict(pid=1,returncode=0,stdout=b'',stderr=b'')
+        with patch.object(api,'preflight',return_value={}),patch.object(api,'verify_inputs',side_effect=[{'frozen':1},ValueError('changed after validation')]) as verify,patch.object(api.observer,'command',side_effect=native),patch.object(validation,'validate',return_value=dict(complete=True)) as validate:
+            try:api.run(root/'inputs',model,binary,root/'run')
+            except ValueError as exc:assert 'after validation' in str(exc)
+            else:raise AssertionError('closing mutation published')
+            assert validate.call_count==1 and verify.call_count==2
+            assert (root/'run/failure.json').exists() and not (root/'run/result').exists()
+
+
+def test_report_digests_remain_valid_after_publication_links_change_ctime():
+    api=module();validation=api.identity.sibling('mellum_generated_validation')
+    with tempfile.TemporaryDirectory() as d:
+        root=Path(d);prepared,native,frozen,host=validation_fixture(api,root)
+        report=validation.validate(prepared,native,frozen,host)
+        import os
+        for name,value in report['files'].items():
+            assert set(value)=={'size','sha256'}, 'report binds mutable inode link metadata'
+            before=api.common.file_identity(native/name)
+            os.link(native/name,root/('linked-'+name.replace('/','-')))
+            after=api.common.file_identity(native/name)
+            assert value['sha256']==after['sha256'] and value['size']==after['size']
+
+
 def load_tests(loader,tests,pattern):return unittest.TestSuite(unittest.FunctionTestCase(v) for k,v in globals().items() if k.startswith('test_'))
 if __name__=='__main__':unittest.main()
