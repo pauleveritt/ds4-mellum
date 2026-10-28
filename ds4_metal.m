@@ -48328,6 +48328,14 @@ enum {
     QWEN4_K_VIS_BIAS_ACT,
     QWEN4_K_MOE_MID_ADDR,
     QWEN4_K_MOE_DOWN_ADDR,
+    QWEN4_K_MOE_MM_MID_NT1_ADDR,
+    QWEN4_K_MOE_MM_MID_NT2_ADDR,
+    QWEN4_K_MOE_MM_MID_ADDR,
+    QWEN4_K_MOE_MM_MID_NT8_ADDR,
+    QWEN4_K_MOE_MM_DOWN_NT1_ADDR,
+    QWEN4_K_MOE_MM_DOWN_NT2_ADDR,
+    QWEN4_K_MOE_MM_DOWN_ADDR,
+    QWEN4_K_MOE_MM_DOWN_NT8_ADDR,
     QWEN4_K_COUNT,
 };
 
@@ -48435,6 +48443,14 @@ static const char *const qwen4_kernel_names[QWEN4_K_COUNT] = {
     "kernel_qwen4_vis_bias_act",
     "kernel_qwen4_moe_mid_addr",
     "kernel_qwen4_moe_down_addr",
+    "kernel_qwen4_moe_mm_mid_nt1_addr",
+    "kernel_qwen4_moe_mm_mid_nt2_addr",
+    "kernel_qwen4_moe_mm_mid_addr",
+    "kernel_qwen4_moe_mm_mid_nt8_addr",
+    "kernel_qwen4_moe_mm_down_nt1_addr",
+    "kernel_qwen4_moe_mm_down_nt2_addr",
+    "kernel_qwen4_moe_mm_down_addr",
+    "kernel_qwen4_moe_mm_down_nt8_addr",
 };
 
 typedef struct {
@@ -48529,7 +48545,8 @@ static int qwen4_dispatch_resident(int kernel, const void *args, size_t args_len
                 }
                 [g_pipeline_cache setObject:pipeline forKey:key];
             }
-        } else if (kernel >= QWEN4_K_MOE_MM_MID && kernel <= QWEN4_K_MOE_MM_DOWN_NAXC64) {
+        } else if ((kernel >= QWEN4_K_MOE_MM_MID && kernel <= QWEN4_K_MOE_MM_DOWN_NAXC64) ||
+                   (kernel >= QWEN4_K_MOE_MM_MID_NT1_ADDR && kernel <= QWEN4_K_MOE_MM_DOWN_NT8_ADDR)) {
             /* Keep each quantization's dequantizer constant through the K
              * loop. M3 Ultra and M5 have balanced full-model measurements;
              * other devices can opt in, and zero restores the generic kernel. */
@@ -50177,6 +50194,51 @@ static bool qwen4_moe_mm_tails(uint32_t type, uint32_t nt) {
         ((type == 12u || type == 39u) && ds4_gpu_device_is_m5_apple_silicon()));
 }
 
+/* S4 address mode for the tiled encoders: while on, their expert-weight bindings are the uint64 address
+ * tables and each tiled dispatch runs the kernel's ADDR instantiation, with the slot buffers resident; every
+ * other choice (tiles, NT, tails, scratch) is the resident encoder's own.  Off, nothing changes. */
+typedef struct {
+    bool on;
+    const ds4_gpu_tensor *tables[2];
+    ds4_gpu_tensor *const *resident;
+    uint32_t n_resident;
+} qwen4_mm_addr_mode;
+static qwen4_mm_addr_mode g_qwen4_mm_addr;
+
+static int qwen4_mm_addr_kernel(int kernel) {
+    switch (kernel) {
+    case QWEN4_K_MOE_MM_MID_NT1: return QWEN4_K_MOE_MM_MID_NT1_ADDR;
+    case QWEN4_K_MOE_MM_MID_NT2: return QWEN4_K_MOE_MM_MID_NT2_ADDR;
+    case QWEN4_K_MOE_MM_MID: return QWEN4_K_MOE_MM_MID_ADDR;
+    case QWEN4_K_MOE_MM_MID_NT8: return QWEN4_K_MOE_MM_MID_NT8_ADDR;
+    case QWEN4_K_MOE_MM_DOWN_NT1: return QWEN4_K_MOE_MM_DOWN_NT1_ADDR;
+    case QWEN4_K_MOE_MM_DOWN_NT2: return QWEN4_K_MOE_MM_DOWN_NT2_ADDR;
+    case QWEN4_K_MOE_MM_DOWN: return QWEN4_K_MOE_MM_DOWN_ADDR;
+    case QWEN4_K_MOE_MM_DOWN_NT8: return QWEN4_K_MOE_MM_DOWN_NT8_ADDR;
+    default: return -1;
+    }
+}
+
+static bool qwen4_mm_bind_experts(qwen4_bind *b, int which, const void *model_map, uint64_t model_size,
+                                  uint64_t offset, uint64_t bytes, uint32_t n_expert, const char *what) {
+    if (!g_qwen4_mm_addr.on) return qwen4_bind_weight(b, model_map, model_size, offset, bytes, what);
+    return qwen4_bind_tensor(b, g_qwen4_mm_addr.tables[which], (uint64_t)n_expert * sizeof(uint64_t), what);
+}
+
+static int qwen4_mm_dispatch(int kernel, const void *args, size_t args_len, const qwen4_bind *binds, int n_binds,
+                             MTLSize grid, MTLSize tg, NSUInteger tg_mem) {
+    if (!g_qwen4_mm_addr.on) return qwen4_dispatch(kernel, args, args_len, binds, n_binds, grid, tg, tg_mem);
+    const int addr_kernel = qwen4_mm_addr_kernel(kernel);
+    if (addr_kernel < 0) {
+        fprintf(stderr, "ds4: %s has no address-table variant\n", qwen4_kernel_names[kernel]);
+        return 0;
+    }
+    qwen4_bind res[QWEN4_ATTN_ROWS_MAX * 5u];
+    if (!qwen4_moe_addr_resident(res, g_qwen4_mm_addr.resident, g_qwen4_mm_addr.n_resident)) return 0;
+    return qwen4_dispatch_resident(addr_kernel, args, args_len, binds, n_binds, grid, tg, tg_mem,
+                                   res, g_qwen4_mm_addr.n_resident);
+}
+
 int ds4_gpu_qwen4_moe_mm_mid_tensor(
         ds4_gpu_tensor *mid, const ds4_gpu_tensor *x, const ds4_gpu_tensor *lists, const ds4_gpu_tensor *counts,
         const void *model_map, uint64_t model_size, uint64_t gate_offset, uint64_t up_offset,
@@ -50197,8 +50259,8 @@ int ds4_gpu_qwen4_moe_mm_mid_tensor(
     if (n_tokens == 0 || n_slots == 0 || n_out < n_slots || row_bytes == 0 ||
         (weight_type != 8u && weight_type != 39u && weight_type != 12u && weight_type != 10u && weight_type != 16u && weight_type != 2u) ||
         (in_dim % 64) != 0 || ff_dim == 0 || n_expert == 0 || n_expert > 512 ||
-        !qwen4_bind_weight(&b[0], model_map, model_size, gate_offset, expert_bytes * n_expert, "moe gate experts") ||
-        !qwen4_bind_weight(&b[1], model_map, model_size, up_offset, expert_bytes * n_expert, "moe up experts") ||
+        !qwen4_mm_bind_experts(&b[0], 0, model_map, model_size, gate_offset, expert_bytes * n_expert, n_expert, "moe gate experts") ||
+        !qwen4_mm_bind_experts(&b[1], 1, model_map, model_size, up_offset, expert_bytes * n_expert, n_expert, "moe up experts") ||
         !qwen4_bind_tensor(&b[2], lists, (uint64_t)n_expert * list_cap * sizeof(int32_t), "moe lists") ||
         !qwen4_bind_tensor(&b[3], counts, (uint64_t)n_expert * sizeof(int32_t), "moe counts") ||
         !qwen4_bind_tensor(&b[4], x, (uint64_t)n_tokens * in_dim * sizeof(float), "moe input") ||
@@ -50238,23 +50300,23 @@ int ds4_gpu_qwen4_moe_mm_mid_tensor(
                           : nax_fx ? (nax == 64u ? QWEN4_K_MOE_MM_MID_NAXF64 : QWEN4_K_MOE_MM_MID_NAXF)
                           : (nax == 64u ? QWEN4_K_MOE_MM_MID_NAX64 : QWEN4_K_MOE_MM_MID_NAX);
         const int nax_mid_tail = nax_comp ? QWEN4_K_MOE_MM_MID_NAXC : nax_fx ? QWEN4_K_MOE_MM_MID_NAXF : QWEN4_K_MOE_MM_MID_NAX;
-        if (!qwen4_dispatch(nax_mid, &args, sizeof(args), b, nax_comp ? 8 : 7,
+        if (!qwen4_mm_dispatch(nax_mid, &args, sizeof(args), b, nax_comp ? 8 : 7,
                             qwen4_moe_mm_grid((ff_dim + 63u) / 64u, n_expert, tiles, args.expert_major),
                             MTLSizeMake(128, 1, 1), nax == 64u ? 16384u : nax_fx || nax_comp ? 12288u : 10240u)) return 0;
         if (!nax_tails) return 1;
         args.tiles_per_launch = 1;
-        return qwen4_dispatch(nax_mid_tail, &args, sizeof(args), b, nax_comp ? 8 : 7,
+        return qwen4_mm_dispatch(nax_mid_tail, &args, sizeof(args), b, nax_comp ? 8 : 7,
                               qwen4_moe_mm_grid((ff_dim + 63u) / 64u, n_expert, 1, args.expert_major),
                               MTLSizeMake(128, 1, 1), nax_fx || nax_comp ? 12288u : 10240u);
     }
-    if (!qwen4_dispatch(kernel, &args, sizeof(args), b, 6,
+    if (!qwen4_mm_dispatch(kernel, &args, sizeof(args), b, 6,
                           qwen4_moe_mm_grid((ff_dim + 31u) / 32u, n_expert, tiles, args.expert_major),
                           MTLSizeMake(128, 1, 1), 0)) return 0;
     if (tails) {
         const MTLSize tail_grid = MTLSizeMake((ff_dim + 31u) / 32u, n_expert, 1);
-        if (!qwen4_dispatch(QWEN4_K_MOE_MM_MID_NT1, &args, sizeof(args), b, 6, tail_grid, MTLSizeMake(128, 1, 1), 0)) return 0;
-        if (nt > 2u && !qwen4_dispatch(QWEN4_K_MOE_MM_MID_NT2, &args, sizeof(args), b, 6, tail_grid, MTLSizeMake(128, 1, 1), 0)) return 0;
-        if (nt > 4u && !qwen4_dispatch(QWEN4_K_MOE_MM_MID, &args, sizeof(args), b, 6, tail_grid, MTLSizeMake(128, 1, 1), 0)) return 0;
+        if (!qwen4_mm_dispatch(QWEN4_K_MOE_MM_MID_NT1, &args, sizeof(args), b, 6, tail_grid, MTLSizeMake(128, 1, 1), 0)) return 0;
+        if (nt > 2u && !qwen4_mm_dispatch(QWEN4_K_MOE_MM_MID_NT2, &args, sizeof(args), b, 6, tail_grid, MTLSizeMake(128, 1, 1), 0)) return 0;
+        if (nt > 4u && !qwen4_mm_dispatch(QWEN4_K_MOE_MM_MID, &args, sizeof(args), b, 6, tail_grid, MTLSizeMake(128, 1, 1), 0)) return 0;
     }
     return 1;
 }
@@ -50280,7 +50342,7 @@ int ds4_gpu_qwen4_moe_mm_down_tensor(
     if (n_tokens == 0 || n_slots == 0 || n_out < n_slots || row_bytes == 0 ||
         (weight_type != 8u && weight_type != 39u && weight_type != 12u && weight_type != 10u && weight_type != 16u && weight_type != 2u) ||
         (ff_dim % 64) != 0 || out_dim == 0 || n_expert == 0 || n_expert > 512 ||
-        !qwen4_bind_weight(&b[0], model_map, model_size, down_offset, expert_bytes * n_expert, "moe down experts") ||
+        !qwen4_mm_bind_experts(&b[0], 0, model_map, model_size, down_offset, expert_bytes * n_expert, n_expert, "moe down experts") ||
         !qwen4_bind_tensor(&b[1], lists, (uint64_t)n_expert * list_cap * sizeof(int32_t), "moe lists") ||
         !qwen4_bind_tensor(&b[2], counts, (uint64_t)n_expert * sizeof(int32_t), "moe counts") ||
         !qwen4_bind_tensor(&b[3], mid, (uint64_t)n_tokens * n_out * ff_dim * sizeof(float), "moe mid") ||
@@ -50322,25 +50384,52 @@ int ds4_gpu_qwen4_moe_mm_down_tensor(
                            : nax_fx ? (nax == 64u ? QWEN4_K_MOE_MM_DOWN_NAXF64 : QWEN4_K_MOE_MM_DOWN_NAXF)
                            : (nax == 64u ? QWEN4_K_MOE_MM_DOWN_NAX64 : QWEN4_K_MOE_MM_DOWN_NAX);
         const int nax_down_tail = nax_comp ? QWEN4_K_MOE_MM_DOWN_NAXC : nax_fx ? QWEN4_K_MOE_MM_DOWN_NAXF : QWEN4_K_MOE_MM_DOWN_NAX;
-        if (!qwen4_dispatch(nax_down, &args, sizeof(args), b, nax_comp ? 6 : 5,
+        if (!qwen4_mm_dispatch(nax_down, &args, sizeof(args), b, nax_comp ? 6 : 5,
                             qwen4_moe_mm_grid((out_dim + 63u) / 64u, n_expert, tiles, args.expert_major),
                             MTLSizeMake(128, 1, 1), nax == 64u ? 16384u : 8192u)) return 0;
         if (!nax_tails) return 1;
         args.tiles_per_launch = 1;
-        return qwen4_dispatch(nax_down_tail, &args, sizeof(args), b, nax_comp ? 6 : 5,
+        return qwen4_mm_dispatch(nax_down_tail, &args, sizeof(args), b, nax_comp ? 6 : 5,
                               qwen4_moe_mm_grid((out_dim + 63u) / 64u, n_expert, 1, args.expert_major),
                               MTLSizeMake(128, 1, 1), 8192u);
     }
-    if (!qwen4_dispatch(kernel, &args, sizeof(args), b, 5,
+    if (!qwen4_mm_dispatch(kernel, &args, sizeof(args), b, 5,
                           qwen4_moe_mm_grid((out_dim + 31u) / 32u, n_expert, tiles, args.expert_major),
                           MTLSizeMake(128, 1, 1), 0)) return 0;
     if (tails) {
         const MTLSize tail_grid = MTLSizeMake((out_dim + 31u) / 32u, n_expert, 1);
-        if (!qwen4_dispatch(QWEN4_K_MOE_MM_DOWN_NT1, &args, sizeof(args), b, 5, tail_grid, MTLSizeMake(128, 1, 1), 0)) return 0;
-        if (nt > 2u && !qwen4_dispatch(QWEN4_K_MOE_MM_DOWN_NT2, &args, sizeof(args), b, 5, tail_grid, MTLSizeMake(128, 1, 1), 0)) return 0;
-        if (nt > 4u && !qwen4_dispatch(QWEN4_K_MOE_MM_DOWN, &args, sizeof(args), b, 5, tail_grid, MTLSizeMake(128, 1, 1), 0)) return 0;
+        if (!qwen4_mm_dispatch(QWEN4_K_MOE_MM_DOWN_NT1, &args, sizeof(args), b, 5, tail_grid, MTLSizeMake(128, 1, 1), 0)) return 0;
+        if (nt > 2u && !qwen4_mm_dispatch(QWEN4_K_MOE_MM_DOWN_NT2, &args, sizeof(args), b, 5, tail_grid, MTLSizeMake(128, 1, 1), 0)) return 0;
+        if (nt > 4u && !qwen4_mm_dispatch(QWEN4_K_MOE_MM_DOWN, &args, sizeof(args), b, 5, tail_grid, MTLSizeMake(128, 1, 1), 0)) return 0;
     }
     return 1;
+}
+
+int ds4_gpu_qwen4_moe_mm_mid_addr_tensor(
+        ds4_gpu_tensor *mid, const ds4_gpu_tensor *x, const ds4_gpu_tensor *lists, const ds4_gpu_tensor *counts,
+        const ds4_gpu_tensor *gate_addrs, const ds4_gpu_tensor *up_addrs,
+        ds4_gpu_tensor *const *resident, uint32_t n_resident,
+        uint32_t weight_type, uint32_t n_expert, uint32_t n_tokens, uint32_t n_slots, uint32_t n_out,
+        uint32_t in_dim, uint32_t ff_dim, uint32_t list_cap) {
+    if (weight_type != 8u || !gate_addrs || !up_addrs) return 0;
+    g_qwen4_mm_addr = (qwen4_mm_addr_mode){ true, { gate_addrs, up_addrs }, resident, n_resident };
+    const int ok = ds4_gpu_qwen4_moe_mm_mid_tensor(mid, x, lists, counts, NULL, 0u, 0u, 0u, weight_type, n_expert,
+                                                   n_tokens, n_slots, n_out, in_dim, ff_dim, list_cap);
+    g_qwen4_mm_addr = (qwen4_mm_addr_mode){ 0 };
+    return ok;
+}
+
+int ds4_gpu_qwen4_moe_mm_down_addr_tensor(
+        ds4_gpu_tensor *part, const ds4_gpu_tensor *mid, const ds4_gpu_tensor *lists, const ds4_gpu_tensor *counts,
+        const ds4_gpu_tensor *down_addrs, ds4_gpu_tensor *const *resident, uint32_t n_resident,
+        uint32_t weight_type, uint32_t n_expert, uint32_t n_tokens, uint32_t n_slots, uint32_t n_out,
+        uint32_t ff_dim, uint32_t out_dim, uint32_t list_cap) {
+    if (weight_type != 8u || !down_addrs) return 0;
+    g_qwen4_mm_addr = (qwen4_mm_addr_mode){ true, { down_addrs, NULL }, resident, n_resident };
+    const int ok = ds4_gpu_qwen4_moe_mm_down_tensor(part, mid, lists, counts, NULL, 0u, 0u, weight_type, n_expert,
+                                                    n_tokens, n_slots, n_out, ff_dim, out_dim, list_cap);
+    g_qwen4_mm_addr = (qwen4_mm_addr_mode){ 0 };
+    return ok;
 }
 
 int ds4_gpu_qwen4_matmul_q8_0_weights_tensor(ds4_gpu_tensor *out, const ds4_gpu_tensor *w,

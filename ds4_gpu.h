@@ -3835,6 +3835,19 @@ int ds4_gpu_qwen4_moe_down_addr_tensor(
         const ds4_gpu_tensor *down_addrs, ds4_gpu_tensor *const *resident, uint32_t n_resident,
         uint32_t weight_type, uint32_t n_total_expert, uint32_t n_tokens, uint32_t n_slots,
         uint32_t ff_dim, uint32_t out_dim);
+/* S4: tiled prefill MoE (any Q8 tile level the resident encoder picks) through address tables; bits equal
+ * ds4_gpu_qwen4_moe_mm_mid_tensor / _down_tensor for the same experts and lists. */
+int ds4_gpu_qwen4_moe_mm_mid_addr_tensor(
+        ds4_gpu_tensor *mid, const ds4_gpu_tensor *x, const ds4_gpu_tensor *lists, const ds4_gpu_tensor *counts,
+        const ds4_gpu_tensor *gate_addrs, const ds4_gpu_tensor *up_addrs,
+        ds4_gpu_tensor *const *resident, uint32_t n_resident,
+        uint32_t weight_type, uint32_t n_expert, uint32_t n_tokens, uint32_t n_slots, uint32_t n_out,
+        uint32_t in_dim, uint32_t ff_dim, uint32_t list_cap);
+int ds4_gpu_qwen4_moe_mm_down_addr_tensor(
+        ds4_gpu_tensor *part, const ds4_gpu_tensor *mid, const ds4_gpu_tensor *lists, const ds4_gpu_tensor *counts,
+        const ds4_gpu_tensor *down_addrs, ds4_gpu_tensor *const *resident, uint32_t n_resident,
+        uint32_t weight_type, uint32_t n_expert, uint32_t n_tokens, uint32_t n_slots, uint32_t n_out,
+        uint32_t ff_dim, uint32_t out_dim, uint32_t list_cap);
 /* Host waits taken by ds4_gpu_end_commands since process start. */
 uint64_t ds4_gpu_wait_count(void);
 

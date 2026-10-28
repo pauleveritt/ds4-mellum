@@ -3710,12 +3710,18 @@ static inline void qwen4_dequant_raw16(qwen4_raw16 r, uint b, uint q0, uint type
 
 #define QWEN4_MM_KS 64   /* K per staging step (two 32-blocks) */
 
+/* S4: with ADDR, a tiled kernel's expert-weight binding is a uint64 GPU-address table and expert e's base is
+ * its entry (0: not resident, the tile writes nothing); without it, base + e * expert_bytes as before. */
+inline device const char *qwen4_addr_expert(device const char *table, uint e) {
+    return reinterpret_cast<device const char *>(((device const ulong *)table)[e]);
+}
+
 /* mid[t][slot][r] = silu(gate . x) * (up . x) for every (token, slot) routed
  * to expert e, as 32-row x (8*NT)-token tiles: A (weights, half) and B
  * (activations, half) are staged in threadgroup memory per 64-wide K step
  * and multiplied with simdgroup matrices into float accumulators, so each
  * expert row is read once per token tile. */
-template <uint NT>
+template <uint NT, bool ADDR = false>
 kernel void kernel_qwen4_moe_mm_mid(
         constant ds4_metal_args_qwen4_moe_mm & args,
         device const char    *gate_base,
@@ -3748,8 +3754,9 @@ kernel void kernel_qwen4_moe_mm_mid(
     threadgroup half Au[QWEN4_MM_ROWS * QWEN4_MM_KS];
     threadgroup half Bs[QWEN4_MM_KS * TT];
     threadgroup float Cs[4][2][64];
-    device const char *gbase = gate_base + (uint64_t)e * args.expert_bytes;
-    device const char *ubase = up_base + (uint64_t)e * args.expert_bytes;
+    device const char *gbase = ADDR ? qwen4_addr_expert(gate_base, e) : gate_base + (uint64_t)e * args.expert_bytes;
+    device const char *ubase = ADDR ? qwen4_addr_expert(up_base, e) : up_base + (uint64_t)e * args.expert_bytes;
+    if (ADDR && (!gbase || !ubase)) return;
     device const int32_t *list = lists + (uint64_t)e * args.list_cap;
     const uint row0 = rb * QWEN4_MM_ROWS;
     const uint nk = args.in_dim / QWEN4_MM_KS;
@@ -3827,20 +3834,28 @@ kernel void kernel_qwen4_moe_mm_mid(
 
 template [[host_name("kernel_qwen4_moe_mm_mid_nt1")]]
 kernel void kernel_qwen4_moe_mm_mid<1>(constant ds4_metal_args_qwen4_moe_mm &, device const char *, device const char *, device const int32_t *, device const int32_t *, device const float *, device float *, uint3, ushort, ushort);
+template [[host_name("kernel_qwen4_moe_mm_mid_nt1_addr")]]
+kernel void kernel_qwen4_moe_mm_mid<1, true>(constant ds4_metal_args_qwen4_moe_mm &, device const char *, device const char *, device const int32_t *, device const int32_t *, device const float *, device float *, uint3, ushort, ushort);
 
 template [[host_name("kernel_qwen4_moe_mm_mid_nt2")]]
 kernel void kernel_qwen4_moe_mm_mid<2>(constant ds4_metal_args_qwen4_moe_mm &, device const char *, device const char *, device const int32_t *, device const int32_t *, device const float *, device float *, uint3, ushort, ushort);
+template [[host_name("kernel_qwen4_moe_mm_mid_nt2_addr")]]
+kernel void kernel_qwen4_moe_mm_mid<2, true>(constant ds4_metal_args_qwen4_moe_mm &, device const char *, device const char *, device const int32_t *, device const int32_t *, device const float *, device float *, uint3, ushort, ushort);
 
 template [[host_name("kernel_qwen4_moe_mm_mid")]]
 kernel void kernel_qwen4_moe_mm_mid<4>(constant ds4_metal_args_qwen4_moe_mm &, device const char *, device const char *, device const int32_t *, device const int32_t *, device const float *, device float *, uint3, ushort, ushort);
+template [[host_name("kernel_qwen4_moe_mm_mid_addr")]]
+kernel void kernel_qwen4_moe_mm_mid<4, true>(constant ds4_metal_args_qwen4_moe_mm &, device const char *, device const char *, device const int32_t *, device const int32_t *, device const float *, device float *, uint3, ushort, ushort);
 
 /* 64-token tiles: each decoded weight tile serves twice the tokens (8 KB of
  * activations staged per K step); remainders take the 8/16/32-token kernels. */
 template [[host_name("kernel_qwen4_moe_mm_mid_nt8")]]
 kernel void kernel_qwen4_moe_mm_mid<8>(constant ds4_metal_args_qwen4_moe_mm &, device const char *, device const char *, device const int32_t *, device const int32_t *, device const float *, device float *, uint3, ushort, ushort);
+template [[host_name("kernel_qwen4_moe_mm_mid_nt8_addr")]]
+kernel void kernel_qwen4_moe_mm_mid<8, true>(constant ds4_metal_args_qwen4_moe_mm &, device const char *, device const char *, device const int32_t *, device const int32_t *, device const float *, device float *, uint3, ushort, ushort);
 
 /* part[t][slot][r] = down . mid[t][slot], same tiling with mid as B */
-template <uint NT>
+template <uint NT, bool ADDR = false>
 kernel void kernel_qwen4_moe_mm_down(
         constant ds4_metal_args_qwen4_moe_mm & args,
         device const char    *down_base,
@@ -3871,7 +3886,8 @@ kernel void kernel_qwen4_moe_mm_down(
     threadgroup half As[QWEN4_MM_ROWS * QWEN4_MM_KS];
     threadgroup half Bs[QWEN4_MM_KS * TT];
     threadgroup float Cs[4][64];
-    device const char *dbase = down_base + (uint64_t)e * args.expert_bytes;
+    device const char *dbase = ADDR ? qwen4_addr_expert(down_base, e) : down_base + (uint64_t)e * args.expert_bytes;
+    if (ADDR && !dbase) return;
     device const int32_t *list = lists + (uint64_t)e * args.list_cap;
     const uint row0 = rb * QWEN4_MM_ROWS;
     const uint nk = args.in_dim / QWEN4_MM_KS;
@@ -3938,15 +3954,23 @@ kernel void kernel_qwen4_moe_mm_down(
 
 template [[host_name("kernel_qwen4_moe_mm_down_nt1")]]
 kernel void kernel_qwen4_moe_mm_down<1>(constant ds4_metal_args_qwen4_moe_mm &, device const char *, device const int32_t *, device const int32_t *, device const float *, device float *, uint3, ushort, ushort);
+template [[host_name("kernel_qwen4_moe_mm_down_nt1_addr")]]
+kernel void kernel_qwen4_moe_mm_down<1, true>(constant ds4_metal_args_qwen4_moe_mm &, device const char *, device const int32_t *, device const int32_t *, device const float *, device float *, uint3, ushort, ushort);
 
 template [[host_name("kernel_qwen4_moe_mm_down_nt2")]]
 kernel void kernel_qwen4_moe_mm_down<2>(constant ds4_metal_args_qwen4_moe_mm &, device const char *, device const int32_t *, device const int32_t *, device const float *, device float *, uint3, ushort, ushort);
+template [[host_name("kernel_qwen4_moe_mm_down_nt2_addr")]]
+kernel void kernel_qwen4_moe_mm_down<2, true>(constant ds4_metal_args_qwen4_moe_mm &, device const char *, device const int32_t *, device const int32_t *, device const float *, device float *, uint3, ushort, ushort);
 
 template [[host_name("kernel_qwen4_moe_mm_down")]]
 kernel void kernel_qwen4_moe_mm_down<4>(constant ds4_metal_args_qwen4_moe_mm &, device const char *, device const int32_t *, device const int32_t *, device const float *, device float *, uint3, ushort, ushort);
+template [[host_name("kernel_qwen4_moe_mm_down_addr")]]
+kernel void kernel_qwen4_moe_mm_down<4, true>(constant ds4_metal_args_qwen4_moe_mm &, device const char *, device const int32_t *, device const int32_t *, device const float *, device float *, uint3, ushort, ushort);
 
 template [[host_name("kernel_qwen4_moe_mm_down_nt8")]]
 kernel void kernel_qwen4_moe_mm_down<8>(constant ds4_metal_args_qwen4_moe_mm &, device const char *, device const int32_t *, device const int32_t *, device const float *, device float *, uint3, ushort, ushort);
+template [[host_name("kernel_qwen4_moe_mm_down_nt8_addr")]]
+kernel void kernel_qwen4_moe_mm_down<8, true>(constant ds4_metal_args_qwen4_moe_mm &, device const char *, device const int32_t *, device const int32_t *, device const float *, device float *, uint3, ushort, ushort);
 
 /* rows of floats -> halves (round to nearest even), four values per thread;
  * the tensor-op tiles read their activation operand from this copy. */
