@@ -2284,6 +2284,42 @@ static void test_reduce_add(void) {
     printf("  fused    MoE reduce and residual add in one dispatch vs two, T 1-3, widths 2,304 and 300: word for word\n");
 }
 
+/* Upstream's fused residual add and RMS norm (ds4_gpu_add_rms_norm_weight_tensor, decode's attention residual and
+ * FFN norm) against the two calls it replaces, ds4_gpu_add_tensor then ds4_gpu_rms_norm_weight_rows_tensor, word
+ * for word in both outputs (the sum and the normed row), at Mellum's width and two others. */
+static void test_add_norm_case(fixture_t *f, uint32_t n) {
+    double *shadow = NULL;
+    const uint64_t w_off = arena_f32(&f->arena, n, &shadow, 0.5f, 1.5f);
+    float *a = rand_vec(n, 20.0f), *b = rand_vec(n, 5.0f);
+    ds4_gpu_tensor *ta = upload(a, n), *tb = upload(b, n);
+    ds4_gpu_tensor *rs = zeroed((uint64_t)n * 4u), *rn = zeroed((uint64_t)n * 4u);
+    ds4_gpu_tensor *gs = zeroed((uint64_t)n * 4u), *gn = zeroed((uint64_t)n * 4u);
+    require_ok(ds4_gpu_add_tensor(rs, ta, tb, n) &&
+               ds4_gpu_rms_norm_weight_rows_tensor(rn, rs, f->arena.base, f->arena.size, w_off, n, 1, 1e-6f),
+               "add then rms norm");
+    const int ok = ds4_gpu_add_rms_norm_weight_tensor(gn, gs, ta, tb, f->arena.base, f->arena.size, w_off, n, 1e-6f);
+    CHECK(ok, "the fused add and rms norm refused width %u", n);
+    if (ok) {
+        float *x = download(rs, n), *y = download(gs, n), *xn = download(rn, n), *yn = download(gn, n);
+        const uint64_t ds = bit_diffs(x, y, n, NULL), dn = bit_diffs(xn, yn, n, NULL);
+        CHECK(ds == 0 && dn == 0, "fused add and rms norm vs add then norm, width %u: %llu sum and %llu normed words "
+              "differ", n, (unsigned long long)ds, (unsigned long long)dn);
+        free(x); free(y); free(xn); free(yn);
+    }
+    ds4_gpu_tensor_free(ta); ds4_gpu_tensor_free(tb);
+    ds4_gpu_tensor_free(rs); ds4_gpu_tensor_free(rn); ds4_gpu_tensor_free(gs); ds4_gpu_tensor_free(gn);
+    free(a); free(b); free(shadow);
+}
+
+static void test_add_norm(fixture_t *f) {
+    static const uint32_t widths[] = { 2304, 4096, 128 };
+    for (size_t i = 0; i < sizeof(widths) / sizeof(widths[0]); i++) {
+        for (int row = 0; row < 8; row++) test_add_norm_case(f, widths[i]);
+    }
+    printf("  fused    residual add and RMS norm (upstream's kernel) vs add then norm, 8 rows at each of widths 2,304, "
+           "4,096, 128: word for word\n");
+}
+
 static void test_rope_rows_all(fixture_t *f) {
     printf("Mellum prefill equals decode (rows against one-row calls, raw bits)\n");
     for (int batched = 0; batched <= 1; batched++) {
@@ -2620,6 +2656,7 @@ int main(void) {
     test_qk_fused(&f);
     test_copy2();
     test_reduce_add();
+    test_add_norm(&f);
 
     printf("Mellum attention (GQA 32/4, head 128, sliding window 1,024, f16 keys; max|d| / max|ref|)\n");
     static const uint32_t swa_counts[] = { 26, 1000, 1023, 1024, 1025, 1057, 2100 };
