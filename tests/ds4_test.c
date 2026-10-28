@@ -871,6 +871,109 @@ static void test_mellum_attn_tiled(void) {
     ds4_engine_close(engine);
 }
 
+/* B0 (phase 8b, D2): a two-row verify against two ordinary decode steps (DS4_TEST_MELLUM_MODEL).  At each context
+ * of DS4_TEST_MELLUM_B0_CTX (comma-separated; default 2048), the session holds that many ids of
+ * speed-bench/promessi_sposi.txt, tokenized plainly, and the two drafted ids are the text's next two.  Arm D is two
+ * one-row forwards; arm V one two-row forward and the LM head on its first row.  Each arm returns the session to
+ * where it was, so every run is at the same context.  Runs go D V V D for DS4_TEST_MELLUM_B0_N rounds (default 4),
+ * the first round dropped from the timing.  Every run's two logit rows must equal the first D run's bytes: below
+ * 32 rows a chunk computes what its decode steps do, so a verify can accept exactly what decode would. */
+bool ds4_test_mellum_b0_arm(ds4_session *s, const int tokens[2], bool verify, float *logits0, float *logits1,
+                            double *ms, double *head_ms);   /* ds4.c test hook */
+
+static int test_double_cmp(const void *a, const void *b) {
+    const double x = *(const double *)a, y = *(const double *)b;
+    return (x > y) - (x < y);
+}
+
+static double test_median(double *v, int n) {
+    qsort(v, (size_t)n, sizeof(double), test_double_cmp);
+    return n % 2 ? v[n / 2] : 0.5 * (v[n / 2 - 1] + v[n / 2]);
+}
+
+static void test_mellum_b0_at(ds4_engine *engine, const ds4_tokens *text, int ctx, int rounds) {
+    ds4_session *s = NULL;
+    TEST_ASSERT(ctx > 0 && ctx + 2 <= text->len);
+    TEST_ASSERT(ds4_session_create(&s, engine, (ctx + 66 + 1023) / 1024 * 1024) == 0 && s != NULL);
+    if (!s || ctx + 2 > text->len) return;
+    ds4_tokens prompt = {0};
+    char err[256] = {0};
+    for (int i = 0; i < ctx; i++) ds4_tokens_push(&prompt, text->v[i]);
+    TEST_ASSERT(ds4_session_sync(s, &prompt, err, sizeof(err)) == 0);
+    const int draft[2] = { text->v[ctx], text->v[ctx + 1] };
+    float *ref0 = malloc(98304u * sizeof(float)), *ref1 = malloc(98304u * sizeof(float));
+    float *l0 = malloc(98304u * sizeof(float)), *l1 = malloc(98304u * sizeof(float));
+    double *d_ms = calloc((size_t)rounds * 2, sizeof(double)), *v_ms = calloc((size_t)rounds * 2, sizeof(double));
+    double *h_ms = calloc((size_t)rounds * 2, sizeof(double));
+    TEST_ASSERT(ref0 && ref1 && l0 && l1 && d_ms && v_ms && h_ms);
+    int nd = 0, nv = 0;
+    uint64_t differ = 0;
+    bool have_ref = false, ok = ref0 && ref1 && l0 && l1 && d_ms && v_ms && h_ms;
+    for (int r = 0; r < rounds && ok; r++) {
+        static const bool order[4] = { false, true, true, false };
+        for (int k = 0; k < 4 && ok; k++) {
+            double ms = 0.0, head = 0.0;
+            ok = ds4_test_mellum_b0_arm(s, draft, order[k], have_ref ? l0 : ref0, have_ref ? l1 : ref1, &ms, &head);
+            if (!ok) break;
+            if (have_ref) {
+                for (uint32_t i = 0; i < 98304u; i++)
+                    differ += (memcmp(&l0[i], &ref0[i], sizeof(float)) != 0) + (memcmp(&l1[i], &ref1[i], sizeof(float)) != 0);
+            }
+            have_ref = true;
+            if (r == 0) continue;
+            if (order[k]) { v_ms[nv] = ms; h_ms[nv++] = head; }
+            else d_ms[nd++] = ms;
+        }
+    }
+    TEST_ASSERT(ok);
+    TEST_ASSERT(differ == 0);
+    if (ok && nd > 0 && nv > 0) {
+        const double d = test_median(d_ms, nd), v = test_median(v_ms, nv), h = test_median(h_ms, nv);
+        printf("mellum-b0: context %d: n %d per arm; two decode steps %.3f ms (%.3f-%.3f), verify %.3f ms (%.3f-%.3f) "
+               "of which the row-0 head %.3f ms; verify / one step %.3f; logit words that differ from decode %llu\n",
+               ctx, nd, d, d_ms[0], d_ms[nd - 1], v, v_ms[0], v_ms[nv - 1], h, 2.0 * v / d, (unsigned long long)differ);
+    }
+    free(ref0); free(ref1); free(l0); free(l1); free(d_ms); free(v_ms); free(h_ms);
+    ds4_tokens_free(&prompt);
+    ds4_session_free(s);
+}
+
+static void test_mellum_b0(void) {
+    const char *model = getenv("DS4_TEST_MELLUM_MODEL");
+    if (!model || !model[0]) {
+        puts("mellum-b0: DS4_TEST_MELLUM_MODEL unset, skipped");
+        return;
+    }
+    const char *ctx_env = getenv("DS4_TEST_MELLUM_B0_CTX"), *n_env = getenv("DS4_TEST_MELLUM_B0_N");
+    const char *ctxs = ctx_env && ctx_env[0] ? ctx_env : "2048";
+    const int rounds = n_env && atoi(n_env) > 1 ? atoi(n_env) : 4;
+    int max_ctx = 0;
+    for (const char *p = ctxs; *p; p += strcspn(p, ",") + (p[strcspn(p, ",")] == ',')) {
+        if (atoi(p) > max_ctx) max_ctx = atoi(p);
+    }
+    FILE *f = fopen("speed-bench/promessi_sposi.txt", "rb");
+    TEST_ASSERT(f != NULL);
+    if (!f) return;
+    char *buf = malloc(1u << 21);
+    const size_t n = buf ? fread(buf, 1, (1u << 21) - 1, f) : 0;
+    fclose(f);
+    if (!buf) return;
+    buf[n] = '\0';
+    ds4_engine *engine = NULL;
+    ds4_engine_options opt = { .model_path = model, .backend = DS4_BACKEND_METAL,
+                               .context_size = (max_ctx + 66 + 1023) / 1024 * 1024 };
+    TEST_ASSERT(ds4_engine_open(&engine, &opt) == 0 && engine != NULL);
+    if (engine) {
+        ds4_tokens text = {0};
+        ds4_tokenize_text(engine, buf, &text);
+        for (const char *p = ctxs; *p; p += strcspn(p, ",") + (p[strcspn(p, ",")] == ','))
+            test_mellum_b0_at(engine, &text, atoi(p), rounds);
+        ds4_tokens_free(&text);
+        ds4_engine_close(engine);
+    }
+    free(buf);
+}
+
 static void test_mellum_rewind(void) {
     const char *model = getenv("DS4_TEST_MELLUM_MODEL");
     if (!model || !model[0]) {
@@ -8510,6 +8613,7 @@ static const ds4_test_entry test_entries[] = {
     {"--qwen4-prefill-checkpoints", "qwen4-prefill-checkpoints", "Qwen chunk checkpoints restore matching logits and state", test_qwen_prefill_checkpoints},
     {"--mellum-session", "mellum-session", "Mellum session allocation equals its plan (DS4_TEST_MELLUM_MODEL)", test_mellum_session_allocation},
     {"--mellum-attn-tiled", "mellum-attn-tiled", "Mellum's prefill attention runs in half-operand tiles by default, within the oracle's rule; DS4_MELLUM_ATTN_TILED=1 keeps the f32 tiles, =0 the decode kernels (DS4_TEST_MELLUM_MODEL)", test_mellum_attn_tiled},
+    {"--mellum-b0", "mellum-b0", "Mellum B0: a two-row verify timed against two decode steps at DS4_TEST_MELLUM_B0_CTX, its logits equal to theirs (DS4_TEST_MELLUM_MODEL)", test_mellum_b0},
     {"--mellum-exact-prefill", "mellum-exact-prefill", "Mellum prefill equals decode byte for byte under DS4_MELLUM_EXACT_PREFILL=1 (DS4_TEST_MELLUM_MODEL)", test_mellum_exact_prefill},
     {"--mellum-rewind", "mellum-rewind", "Mellum session rewind: one token or to the last sync's end keeps the caches, elsewhere deeper replays; logits equal a straight decode (DS4_TEST_MELLUM_MODEL)", test_mellum_rewind},
     {"--mellum-server-ids", "mellum-server-ids", "Mellum server renders against the template's ids (DS4_TEST_MELLUM_MODEL)", test_mellum_server_ids},
