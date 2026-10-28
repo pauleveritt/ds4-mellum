@@ -60776,9 +60776,13 @@ static bool mellum_graph_layer(ds4_qwen4_gpu_graph *g, const ds4_model *m, const
     }
     return ok &&
            mellum_proj(g, s[MELLUM_S_ATTN_PROJ], m, l->attn_output, s[MELLUM_S_HEADS], T) &&
-           ds4_gpu_add_tensor(s[MELLUM_S_ATTN_RES], s[MELLUM_S_HIDDEN], s[MELLUM_S_ATTN_PROJ], T * E) != 0 &&
-           ds4_gpu_rms_norm_weight_rows_tensor(s[MELLUM_S_FFN_NORM], s[MELLUM_S_ATTN_RES], m->map, m->size,
-                                               l->ffn_norm->abs_offset, E, T, DS4_RMS_EPS) != 0 &&
+           /* decode: the attention residual and the FFN norm in one dispatch (upstream's fused kernel) */
+           (T == 1u ? ds4_gpu_add_rms_norm_weight_tensor(s[MELLUM_S_FFN_NORM], s[MELLUM_S_ATTN_RES],
+                                                         s[MELLUM_S_HIDDEN], s[MELLUM_S_ATTN_PROJ], m->map, m->size,
+                                                         l->ffn_norm->abs_offset, E, DS4_RMS_EPS) != 0
+                    : ds4_gpu_add_tensor(s[MELLUM_S_ATTN_RES], s[MELLUM_S_HIDDEN], s[MELLUM_S_ATTN_PROJ], T * E) != 0 &&
+                      ds4_gpu_rms_norm_weight_rows_tensor(s[MELLUM_S_FFN_NORM], s[MELLUM_S_ATTN_RES], m->map,
+                                                          m->size, l->ffn_norm->abs_offset, E, T, DS4_RMS_EPS) != 0) &&
            /* decode: the MoE writes HIDDEN = ATTN_RES + its sum itself, one dispatch fewer */
            (T == 1u ? mellum_graph_moe(g, m, l, T, true)
                     : mellum_graph_moe(g, m, l, T, false) &&
