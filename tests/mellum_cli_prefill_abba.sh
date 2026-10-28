@@ -4,7 +4,8 @@
 # The prompt is the start of speed-bench/promessi_sposi.txt (cut at a line end) and one request, sized so its
 # templated token count (--dump-tokens) is the smallest at or above each target.  The context is that count plus
 # 64, rounded up to 1,024.  At each length the arms run in blocks A, B, B, A (A = DS4_MELLUM_MOE_NAX=0, B = the
-# default; A_ENV and B_ENV, space-separated assignments, replace them, A_NAME and B_NAME their labels), COOL
+# default; A_ENV and B_ENV, space-separated assignments, replace them, A_NAME and B_NAME their labels; with no B in
+# ARMS, arm A defaults to no variables, the build as it is), COOL
 # seconds without GPU work before a block and GAP seconds between its PER processes.  ARMS sets the block order
 # (letters A and B; default ABBA); ARMS=AA measures one build, arm A only, with no ratio.  ds4 runs one
 # prefill per process (after its own GPU warmup), so a block's first process is dropped, not a process's first run.
@@ -15,12 +16,14 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 DS4=${DS4:-$ROOT/ds4}
 TEXT=$ROOT/speed-bench/promessi_sposi.txt
 PER=${PER:-4}; COOL=${COOL:-45}; GAP=${GAP:-10}
-read -r -a A_ARM <<< "${A_ENV-DS4_MELLUM_MOE_NAX=0}"
-read -r -a B_ARM <<< "${B_ENV-}"
-export A_NAME=${A_NAME:-DS4_MELLUM_MOE_NAX=0} B_NAME=${B_NAME:-E1 on (default)}
-ASK=$'\n\nSummarize the text above in three sentences.'
 ARMS=${ARMS:-ABBA}
 [[ $ARMS =~ ^[AB]+$ ]] || { echo "ARMS must be letters A and B only, got '$ARMS'" >&2; exit 2; }
+# T1's arm A (E1 off) is a comparison's default; a single-arm run (no B) measures the build as it is
+if [[ $ARMS == *B* ]]; then A_DEFAULT=DS4_MELLUM_MOE_NAX=0; else A_DEFAULT=; fi
+read -r -a A_ARM <<< "${A_ENV-$A_DEFAULT}"
+read -r -a B_ARM <<< "${B_ENV-}"
+export A_NAME=${A_NAME:-${A_DEFAULT:-this build}} B_NAME=${B_NAME:-E1 on (default)}
+ASK=$'\n\nSummarize the text above in three sentences.'
 mkdir -p "$OUT"
 
 state() {
