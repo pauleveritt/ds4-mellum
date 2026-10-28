@@ -29,7 +29,7 @@ int main(void) {
     fflush(ops);fflush(gold);rewind(ops);rewind(gold);
     f=(fake){.mode=2};assert(!mellum_generated_parity(&backend,&history,ops,gold,values,8));
     rewind(ops);rewind(gold);f=(fake){.mode=3};assert(mellum_generated_parity(&backend,&history,ops,gold,values,8));
-    rewind(ops);rewind(gold);f=(fake){.mode=2};fputc(0,gold);fflush(gold);rewind(gold);
+    rewind(ops);rewind(gold);f=(fake){.mode=2};fputc(1,gold);fflush(gold);rewind(gold);
     assert(mellum_generated_parity(&backend,&history,ops,gold,values,8));
     f=(fake){.mode=1};assert(mellum_generated_sync(&backend,&history,0,ops,gold,values,8));
     f=(fake){.fail=1,.position=3};assert(!logits(&f,values,8) || values[5]==1);
