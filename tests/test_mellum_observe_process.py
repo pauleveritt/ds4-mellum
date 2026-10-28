@@ -108,6 +108,32 @@ def test_idle_cancellation_keeps_ready_snapshot_and_reaps_child():
                 else:raise AssertionError('cancelled child not reaped')
             else:raise AssertionError('cancellation ignored')
 
+def test_snapshot_command_cancellation_preserves_underlying_identity():
+    api=module();count=0
+    with tempfile.TemporaryDirectory() as directory:
+        path=Path(directory)/'input';path.write_bytes(bytes(range(64)))
+        argv=[str(ROOT/'tools/mellum_read_bench'),'--input',str(path),'--plan',str(ROOT/'tests/mellum_read_plan_v1.bin'),'--workers','1','--mode','buffered']
+        def snapshot(topology):
+            nonlocal count
+            count+=1
+            if count==1:return sampler(api)(topology)
+            with patch.object(api.observer.selectors.DefaultSelector,'select',side_effect=KeyboardInterrupt):
+                return api.observer.command([sys.executable,'-c','import time;time.sleep(5)'])
+        with patch.object(api.observer,'snapshot',side_effect=snapshot),patch.object(api,'IDLE_SECONDS',.001):
+            try:api.observe(argv,{})
+            except api.ObservationFailure as exc:
+                value=exc.evidence
+                assert value['error_type']=='KeyboardInterrupt',value['error_type']
+                assert value['error'] and value['failed_command']['pid']!=value['pid']
+                assert [e['token'] for e in value['events']]==['R'] and len(value['snapshots'])==1
+                assert isinstance(exc.__cause__.__cause__,KeyboardInterrupt)
+                for pid in (value['pid'],value['failed_command']['pid']):
+                    try:os.kill(pid,0)
+                    except ProcessLookupError:pass
+                    else:raise AssertionError('cancelled child not reaped')
+            else:raise AssertionError('snapshot cancellation ignored')
+
+
 def load_tests(loader,tests,pattern):
     return unittest.TestSuite(unittest.FunctionTestCase(v) for k,v in globals().items() if k.startswith('test_'))
 if __name__=='__main__':unittest.main()

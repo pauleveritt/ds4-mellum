@@ -163,6 +163,48 @@ def test_geometry_and_cli_reject_unsupported_hosts():
     result=subprocess.run([sys.executable,'-I','-c',code],capture_output=True)
     assert result.returncode and b'macOS required' in result.stderr
 
+def test_final_topology_discovery_mutation_never_publishes_success():
+    api=module()
+    for kind in ('source','wire','scratch'):
+        with tiny_run(api) as (root,prepared):
+            count=0
+            def discover(files):
+                nonlocal count
+                count+=1
+                if count==6:
+                    path={'source':root/'packed/experts.bin','wire':prepared/'0-source.bin','scratch':root/'run/scratch/0.bin'}[kind]
+                    with path.open('r+b') as stream:stream.write(b'X')
+                return topology()
+            with patch.object(api.observer,'discover',side_effect=discover):report=fail(api,prepared,root)
+            assert count==6 and report['complete'] is False
+
+
+def test_interrupted_staging_child_retains_partial_file_pid_and_no_go():
+    api=module()
+    with tiny_run(api) as (root,prepared):
+        real=api.observer.command;select=api.observer.selectors.DefaultSelector.select
+        target=root/'run/scratch/0.bin'
+        def interrupted(selector,*args):
+            if target.exists():raise KeyboardInterrupt()
+            return select(selector,*args)
+        def stage(argv,**kwargs):
+            assert kwargs==dict(timeout=120,limit=2**20)
+            code="import pathlib,sys,time;pathlib.Path(sys.argv[1]).write_bytes(b'partial');print('staging',flush=True);time.sleep(5)"
+            with patch.object(api.observer.selectors.DefaultSelector,'select',interrupted):
+                return real([sys.executable,'-c',code,str(target)],**kwargs)
+        with patch.object(api.observer,'command',side_effect=stage),patch.object(api.process,'observe',side_effect=AssertionError('reader launched')):
+            report=fail(api,prepared,root)
+        command=report['failed_command']
+        assert command.get('pid') and command['returncode'] is not None
+        assert command.get('error_type')==report['error_type']=='KeyboardInterrupt'
+        assert target.read_bytes()==b'partial' and report['unknown_reserved_maxima']
+        assert report['started_cells']==[0] and report['runs']==[]
+        assert (root/'run/failure/artifact/0.staging.json').exists()
+        try:os.kill(command['pid'],0)
+        except ProcessLookupError:pass
+        else:raise AssertionError('staging child not reaped')
+
+
 def load_tests(loader,tests,pattern):
     return unittest.TestSuite(unittest.FunctionTestCase(v) for k,v in globals().items() if k.startswith('test_'))
 if __name__=='__main__':unittest.main()

@@ -134,6 +134,22 @@ def test_diskutil_wholedisk_is_distinct_from_ioreg_whole():
     args[-1]['WholeDisk']=False
     refused(lambda:api.parse_topology(*args))
 
+def test_cancelled_collector_retains_owned_pid_and_original_error():
+    api=module();children=[];real=api.subprocess.Popen
+    def spawn(*args,**kwargs):
+        child=real(*args,**kwargs);children.append(child);return child
+    with patch.object(api.subprocess,'Popen',side_effect=spawn), \
+         patch.object(api.selectors.DefaultSelector,'select',side_effect=KeyboardInterrupt):
+        try:api.command([sys.executable,'-c','import time;time.sleep(5)'])
+        except api.CommandFailure as exc:
+            assert exc.evidence.get('pid')==children[0].pid,'owned PID missing'
+            assert exc.evidence.get('error_type')=='KeyboardInterrupt'
+            assert exc.evidence.get('error')
+            assert exc.evidence['returncode']==children[0].returncode is not None
+            assert isinstance(exc.__cause__,KeyboardInterrupt)
+        else:raise AssertionError('cancellation ignored')
+
+
 def load_tests(loader,tests,pattern):
     return unittest.TestSuite(unittest.FunctionTestCase(v) for k,v in globals().items() if k.startswith('test_'))
 if __name__=='__main__':unittest.main()
