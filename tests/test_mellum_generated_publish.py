@@ -127,6 +127,19 @@ def test_validated_export_requires_parity_exact_native_inputs_and_complete_tape(
             assert not (native/'trace.jsonl').exists()
 
 
+def test_validation_serializes_real_host_metadata_command_bytes():
+    # host_metadata() keeps its sysctl command with raw bytes stdout/stderr.
+    api=module();validation=api.identity.sibling('mellum_generated_validation')
+    with tempfile.TemporaryDirectory() as d:
+        prepared,native,frozen,progress=validation_fixture(api,Path(d))
+        command=dict(argv=['/usr/sbin/sysctl'],pid=7,returncode=0,start_ns=1,end_ns=2,stdout=b'137438953472\nMac17,7\nApple M5 Max\n',stderr=b'')
+        progress['host']=dict(progress['host'],platform='macOS-27',command=command)
+        report=validation.validate(prepared,native,frozen,progress)
+        assert report['complete'] is True
+        saved=api.common.load_json(native/'metadata.json')['header']['capture_manifest']['execution']['host']['command']
+        assert saved['stdout']==api.host.serial(command['stdout']) and saved['pid']==7
+
+
 def test_gpu_binary_and_forced_build_receipt_are_bound_before_launch():
     api=module()
     with tempfile.TemporaryDirectory() as d:
