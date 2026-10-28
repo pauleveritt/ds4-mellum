@@ -573,6 +573,8 @@ static bool g_batched;
 /* The sessions attend with the tiled prefill kernel (kernel_mellum_attn_tiled) instead of kernel_mellum_attn_swa;
  * g_tiled_half with its half-operand form (kernel_mellum_attn_tiled_half). */
 static bool g_tiled, g_tiled_half;
+/* The sessions attend with ds4_gpu_mellum_attn_swa_ref_tensor, the sliding kernel's reference arithmetic. */
+static bool g_swa_ref;
 
 /* Run a whole sequence through the sliding kernel as a session would: stage, attend, then commit to the ring.
  * commit_first runs the wrong order (the control for the read-then-commit contract).  out is [n][Q_W]. */
@@ -600,7 +602,8 @@ static void swa_session(const seq_t *s, plan_t plan, bool commit_first, float *o
             require_ok(ds4_gpu_mellum_ring_commit_tensor(ring_k, ring_v, tags, kt, vt, n, KV_W, a, RING), "ring commit");
         }
         require_ok((g_tiled_half ? ds4_gpu_mellum_attn_tiled_half_tensor :
-                    g_tiled ? ds4_gpu_mellum_attn_tiled_tensor : ds4_gpu_mellum_attn_swa_tensor)(
+                    g_tiled ? ds4_gpu_mellum_attn_tiled_tensor :
+                    g_swa_ref ? ds4_gpu_mellum_attn_swa_ref_tensor : ds4_gpu_mellum_attn_swa_tensor)(
                        ot, qt, ring_k, ring_v, tags, k16, v16, n, a, RING, MELLUM_N_HEAD, MELLUM_N_HEAD_KV,
                        MELLUM_HEAD_DIM, attn_scale()), "sliding attention");
         if (!commit_first) {
@@ -709,6 +712,31 @@ static void test_swa_session(uint32_t n) {
         free(r24); free(r25);
     }
     free(dec); free(pb); free(pc);
+    free_seq(&s);
+}
+
+/* The sliding kernel against its reference arithmetic (ds4_gpu_mellum_attn_swa_ref_tensor), word for word: decode and
+ * 32-then-64-row prefill sessions at n keys.  The key counts take every remainder of each simdgroup's share of the
+ * keys modulo the kernel's prefetch depth, before and after the ring fills, so a speed change to the kernel that
+ * reorders, drops or reloads a key shows here, and in the oracle, as a changed bit. */
+static void test_swa_ref_session(uint32_t n) {
+    static const plan_t decode = { 0, 1 }, pre_b = { 32, 64 };
+    seq_t s = make_seq(n);
+    float *got = malloc((uint64_t)n * Q_W * 4u), *ref = malloc((uint64_t)n * Q_W * 4u);
+    require_ok(got && ref, "malloc");
+    uint64_t diff[2], first[2] = { 0, 0 };
+    for (int k = 0; k < 2; k++) {
+        swa_session(&s, k ? pre_b : decode, false, got);
+        g_swa_ref = true;
+        swa_session(&s, k ? pre_b : decode, false, ref);
+        g_swa_ref = false;
+        diff[k] = bit_diffs(got, ref, (uint64_t)n * Q_W, &first[k]);
+    }
+    CHECK(all_finite(got, (uint64_t)n * Q_W), "sliding prefill at %u keys produced a non-finite value", n);
+    CHECK(diff[0] == 0 && diff[1] == 0, "sliding kernel vs its reference arithmetic at %u keys: decode %llu words differ "
+          "(first at row %llu), prefill %llu (first at row %llu)", n, (unsigned long long)diff[0],
+          (unsigned long long)(first[0] / Q_W), (unsigned long long)diff[1], (unsigned long long)(first[1] / Q_W));
+    free(got); free(ref);
     free_seq(&s);
 }
 
@@ -2486,6 +2514,11 @@ int main(void) {
     printf("Mellum attention (GQA 32/4, head 128, sliding window 1,024, f16 keys; max|d| / max|ref|)\n");
     static const uint32_t swa_counts[] = { 26, 1000, 1023, 1024, 1025, 1057, 2100 };
     for (size_t i = 0; i < sizeof(swa_counts) / sizeof(swa_counts[0]); i++) test_swa_session(swa_counts[i]);
+    /* 1-48 keys: every remainder of the 8 simdgroups' shares modulo 2 and 3; 1,040-1,047 past the full ring */
+    for (uint32_t n = 1; n <= 48; n++) test_swa_ref_session(n);
+    for (uint32_t n = 1040; n <= 1047; n++) test_swa_ref_session(n);
+    printf("  sliding  kernel vs its reference arithmetic, decode and 64-row prefill at 1-48 and 1,040-1,047 keys: "
+           "word for word\n");
     test_swa_tags();
     test_swa_refusals();
     test_swa_rewind_one();
