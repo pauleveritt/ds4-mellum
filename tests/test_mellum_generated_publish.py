@@ -168,5 +168,24 @@ def test_report_digests_remain_valid_after_publication_links_change_ctime():
             assert value['sha256']==after['sha256'] and value['size']==after['size']
 
 
+def test_success_publishes_nested_native_recreation_without_losing_raw():
+    api=module()
+    with tempfile.TemporaryDirectory() as d:
+        root=Path(d);prepared,native,frozen,host=validation_fixture(api,root)
+        def command(argv,**kwargs):
+            import shutil
+            shutil.copytree(native,Path(argv[-1]),dirs_exist_ok=True)
+            return dict(pid=123,returncode=0,stdout=b'',stderr=b'')
+        with patch.object(api,'preflight',return_value=host),patch.object(api,'verify_inputs',return_value=frozen),patch.object(api.observer,'command',side_effect=command):
+            artifact=api.run(prepared,root/'model',root/'binary',root/'run')
+        assert (artifact/'recreated/initial.tokens').read_bytes()==(prepared/'initial.tokens').read_bytes()
+        assert (artifact/'trace.jsonl').stat().st_ino==(root/'run/raw/trace.jsonl').stat().st_ino
+        report=api.common.load_json(artifact/'report.json')
+        assert report['complete'] is True
+        for name,value in report['files'].items():
+            actual=api.common.file_identity(artifact/name)
+            assert all(actual[k]==v for k,v in value.items())
+
+
 def load_tests(loader,tests,pattern):return unittest.TestSuite(unittest.FunctionTestCase(v) for k,v in globals().items() if k.startswith('test_'))
 if __name__=='__main__':unittest.main()
