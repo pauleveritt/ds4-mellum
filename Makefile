@@ -1742,6 +1742,10 @@ test-mellum-stream: tests/test_mellum_stream
 test-mellum: test-mellum-stream
 # S4 measurement driver: built here, run only with the model (tests/test_mellum_s4_driver.py)
 test-mellum: tools/mellum_s4_measure
+.PHONY: test-mellum-s4-measure
+test-mellum-s4-measure:
+	python3 -I tests/test_mellum_s4_measure.py
+test-mellum: test-mellum-s4-measure
 clean-mellum-stream:
 	rm -f tests/test_mellum_stream
 clean: clean-mellum-stream
