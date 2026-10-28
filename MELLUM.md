@@ -444,6 +444,15 @@ chunks keep the separate kernels:
   the breaks planted in it and which the test caught), `0bb422a` decode uses it.
 - `6538f80` the decode A/B/B/A runner takes a binary per arm (for the skipped run).
 
+Phase 9, the README (2026-10-28; Paul: "README is good", "Let's just make everything on README.md file", "New
+ds4-mellum repo", "Let's wait to do the speed runs until after the go/no-go on SSD."):
+
+- RM1, the runners' single-arm mode: `e08c4ac` (red), `49bf9eb` `ARMS`; `fff1b44` (red), `ba83406` a
+  single-arm prefill run sets no variables.
+- RM5, `README.md`: `c692779` the guide on top, upstream below a divider; `ebc93df` Pi, settings, thinking;
+  `942c6e9` speed and measuring; `5c84246` a sentence about the coming tables.
+- RM3 and RM4: `98da6cb` raw logs of the checks.
+
 Review fixes and experiment E1 (after step 33, before step 34; the outside
 review of `5aa742c`):
 
@@ -922,6 +931,36 @@ numbers are from the session's output. P = 2 passed:
 
 S1 takes about a quarter of candidate 1's 1.14x ceiling at 2,056 tokens. The rest would need more partitions
 per head, which changes the merge.
+
+### README checks (phase 9, 2026-10-28; nothing pushed)
+
+`README.md` is now the Mellum guide, with upstream's text below a divider (`c692779`, `ebc93df`, `942c6e9`,
+`5c84246`). Each of its command and config blocks was run as written on the M5 Max at `ba83406`. Raw logs are
+in `tests/mellum_measurements/readme_checks/`.
+
+The checks ran under a scratch home: `HOME` and `PI_CODING_AGENT_DIR` were scratch directories and `HF_HOME`
+was the real cache. So `~/models` and `~/.pi/agent` were scratch paths, and Paul's were never touched. His
+`~/models/Mellum2.1-12B-A2.5B-Thinking-Q8_0.gguf` has sha256 `ea1e4ec7…`, not the published file, so the
+download as written would have replaced it. A local clone of `mellum` stood in for the GitHub clone, which
+waits for Paul's repository and push.
+
+| check | command (as in the README) | result | n |
+|---|---|---|---|
+| download | `hf download JetBrains/Mellum2.1-12B-A2.5B-Thinking-GGUF Mellum2.1-12B-A2.5B-Thinking-Q8_0.gguf --local-dir ~/models` | 3.1 s from the cache; 12,925,417,760 bytes; sha256 `69e0ac02a16586c2c9e991f1e3b8a1eb403882e7ab9e69ea01eb23dbbbc6841f` | 1 |
+| build | `cd ds4-mellum`, `make` | exit 0, 0 warnings | 1 |
+| smoke test | `./ds4 -m ~/models/… -c 32768 -p "Write a Python function that checks whether a string is a palindrome."` | reasoning in plain text, then a function, an example and an explanation; 35 prompt tokens (its timing line is a check, not a measurement) | 1 |
+| server | `./ds4-server -m ~/models/… -c 32768 --port 8099`; `curl -s http://127.0.0.1:8099/v1/models` | listening; context buffers 790.54 MiB; `mellum-2.1`, `context_length` 32768 | 1 |
+| Pi entry | the README's `models.json`; `pi --list-models ds4` | `mellum-2.1`, context 32.8K, max-out 16.4K, thinking "no" | 1 |
+| Pi tasks | `echo "<task>" \| pi --model ds4/mellum-2.1` (print mode; the README's command with the task piped in, not the interactive UI) in a scratch project | 3 of 3 done and checked by hand: `is_palindrome` and 5 tests, the suite run, 7 OK (11.0 s); `mean([])` fixed to 0.0 with a test, by `read` then `edit` (74.9 s); `unittest -v` run with `bash` and its 8 tests listed (4.9 s) | 3 |
+| reasoning in Pi | `pi --model ds4/mellum-2.1 --mode json "Read stats.py and tell me what median([4, 1, 3, 2]) returns." < /dev/null` | `thinking` blocks (from `reasoning_content`), a `read` tool call, more thinking, then the answer, 2.5 (correct), without `"reasoning": true` in the entry. Print mode shows only the final text. Without `< /dev/null` and with stdin not a terminal, Pi waits on stdin and sends nothing (10 minutes, stopped) | 1 |
+| sampling and context take effect | the server command plus `--trace FILE`, one task | both requests: temperature 0.600, top_k 20, top_p 0.950 (raw JSON: `"temperature":0.6`, `"top_p":0.95`, `"top_k":20`), `max_tokens` 16384 (half of `contextWindow`), think_mode high; the second request reused 1,877 of 1,896 tokens. The trace's `min_p: 0.050` is the request struct's default; the sampler starts from the engine's defaults (`server_sampling_for_request`), where Mellum's `min_p` is 0.0 | 1 task, 2 requests |
+| memory at 32K | `/usr/bin/time -l ./ds4 -m MODEL -c 32768 -p "…" -n 64` | the engine's plan: KV 0.52 GiB + buffers 0.25 GiB + resident model 12.03 GiB = 12.81 GiB; session allocated 828,944,640 bytes (equal to the plan); `time`: peak memory footprint 1,393,181,584 bytes, maximum resident set 75,022,336 (neither counts the mapped weights) | 1 |
+| measure on your own Mac | `ARMS=AA tests/mellum_cli_prefill_abba.sh ~/ds4-runs/prefill ~/models/… 2048`; `ARMS=AA tests/mellum_cli_decode_abba.sh ~/ds4-runs/decode ~/models/… tests/mellum_measurements/d1_decode_profile 2048` | both run and print a summary. Prefill 3,744 t/s (3,727-3,753), decode 123.30 t/s (122.78-124.47), as checks of the commands, not the README's numbers. The first prefill run, before `ba83406`, measured 2,447 t/s, because arm A still took T1's `DS4_MELLUM_MOE_NAX=0` (red `fff1b44`, fix `ba83406`) | 6 per runner |
+
+Waiting: the clone command, until Paul creates `pauleveritt/ds4-mellum` and pushes; RM2, the speed tables, until
+Paul's SSD-streaming decision. During the checks another model process, the Codex worktree's
+`tools/mellum_generate collect`, held the GPU for about a minute; ds4 refused to start beside it, and the checks
+waited.
 
 ## Rebase onto ee7e840 (review step RB, 2026-10-27)
 
