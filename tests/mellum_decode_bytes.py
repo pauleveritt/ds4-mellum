@@ -73,22 +73,22 @@ def find(kv, suffix):
     return hits[0] if hits else None
 
 
-def main(path, contexts):
-    version, kv, tensors = read_gguf(path)
+def layout(kv):
+    """n_layer, n_expert, n_used, window, bytes of one f16 K or V row, and which layers slide."""
     n_layer = find(kv, ".block_count")
-    n_expert, n_used = find(kv, ".expert_count"), find(kv, ".expert_used_count")
-    window = find(kv, ".attention.sliding_window")
-    n_head_kv, head_dim = find(kv, ".attention.head_count_kv"), find(kv, ".attention.key_length")
     pattern = find(kv, ".attention.sliding_window_pattern")
     if isinstance(pattern, list) and len(pattern) == n_layer:
         sliding = [bool(x) for x in pattern]
     else:
         sliding = [(il + 1) % 4 != 0 for il in range(n_layer)]
-    print("model: %s (GGUF v%d, %d tensors, %.3f GB on disk)" %
-          (path, version, len(tensors), sum(t[2] for t in tensors.values()) / 1e9))
-    print("layers %d (%d sliding, window %d), experts %d of %d, kv heads %d x %d" %
-          (n_layer, sum(sliding), window, n_used, n_expert, n_head_kv, head_dim))
+    row = find(kv, ".attention.head_count_kv") * find(kv, ".attention.key_length") * 2
+    return (n_layer, find(kv, ".expert_count"), find(kv, ".expert_used_count"),
+            find(kv, ".attention.sliding_window"), row, sliding)
 
+
+def weight_groups(kv, tensors):
+    """{group: [bytes a step reads, {types}]}; refuses if any tensor is left uncounted."""
+    n_layer, n_expert, n_used, _window, _row, _sliding = layout(kv)
     groups, used = {}, {"token_embd.weight"}
 
     def add(group, name, frac=1.0):
@@ -112,18 +112,36 @@ def main(path, contexts):
     add("norms", "output_norm.weight")
     add("output head", "output.weight")
     assert used == set(tensors), "tensors a step was not counted against: %s" % sorted(set(tensors) - used)
+    return groups
+
+
+def kv_read(kv, context):
+    """Bytes of K/V rows (and ring tags) attention reads at this context."""
+    n_layer, _ne, _nu, window, row, sliding = layout(kv)
+    total = 0
+    for il in range(n_layer):
+        rows = min(context, window) if sliding[il] else context
+        total += rows * 2 * row + (rows * 4 if sliding[il] else 0)
+    return total
+
+
+def main(path, contexts):
+    version, kv, tensors = read_gguf(path)
+    n_layer, n_expert, n_used, window, row, sliding = layout(kv)
+    print("model: %s (GGUF v%d, %d tensors, %.3f GB on disk)" %
+          (path, version, len(tensors), sum(t[2] for t in tensors.values()) / 1e9))
+    print("layers %d (%d sliding, window %d), experts %d of %d, kv heads %d x %d" %
+          (n_layer, sum(sliding), window, n_used, n_expert, find(kv, ".attention.head_count_kv"),
+           find(kv, ".attention.key_length")))
+    groups = weight_groups(kv, tensors)
     weights = sum(v[0] for v in groups.values())
     for name, (b, types) in groups.items():
         print("  %-24s %12.3f MB  %s" % (name, b / 1e6, "/".join(sorted(types))))
     print("  %-24s %12.3f MB" % ("weights per step", weights / 1e6))
 
-    row = n_head_kv * head_dim * 2  # one f16 K or V row
     print("\ncontext  KV read (MB)  total (MB)  KV share")
     for c in contexts:
-        kv_bytes = 0
-        for il in range(n_layer):
-            rows = min(c, window) if sliding[il] else c
-            kv_bytes += rows * 2 * row + (rows * 4 if sliding[il] else 0)
+        kv_bytes = kv_read(kv, c)
         total = weights + kv_bytes
         print("%7d  %12.2f  %10.2f  %7.1f%%" % (c, kv_bytes / 1e6, total / 1e6, 100 * kv_bytes / total))
 
