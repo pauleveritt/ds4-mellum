@@ -201,6 +201,83 @@ kernel void kernel_mellum_attn_swa(
     *reinterpret_cast<device float4 *>(out + ((uint64_t)row * args.n_head + h) * MELLUM_SWA_D + tiisg * 4u) = result;
 }
 
+/* The sliding kernel's reference arithmetic: kernel_mellum_attn_swa as it was before its loads were reordered
+ * for speed (phase 8c, S1), kept so the kernel tests can hold the kernel to it word for word
+ * (ds4_gpu_mellum_attn_swa_ref_tensor).  Nothing else dispatches it. */
+kernel void kernel_mellum_attn_swa_ref(
+        constant ds4_metal_args_mellum_attn_swa & args,
+        device const float   *q,          /* [T][H*128] */
+        device const half    *ring_k,     /* [window][Hkv*128] */
+        device const half    *ring_v,
+        device const int32_t *ring_tag,   /* [window] */
+        device const half    *stage_k,    /* [T][Hkv*128] */
+        device const half    *stage_v,
+        device float         *out,        /* [T][H*128] */
+        uint3 tgpig [[threadgroup_position_in_grid]],
+        ushort sgitg [[simdgroup_index_in_threadgroup]],
+        ushort tiisg [[thread_index_in_simdgroup]]) {
+    threadgroup float part_m[MELLUM_SWA_NSG], part_l[MELLUM_SWA_NSG];
+    threadgroup float part_acc[MELLUM_SWA_NSG][MELLUM_SWA_D];
+    threadgroup uint part_bad[MELLUM_SWA_NSG];
+    const uint h = tgpig.x, row = tgpig.y;
+    if (h >= args.n_head || row >= args.n_tokens) return;   /* uniform over the threadgroup */
+    const uint kvh = h / (args.n_head / args.n_head_kv);
+    const uint width = args.n_head_kv * MELLUM_SWA_D;
+    const uint qpos = args.pos0 + row;
+    const uint n = min(qpos + 1u, args.window);
+    const uint first = qpos + 1u - n;
+    const float4 qv = *reinterpret_cast<device const float4 *>(q + ((uint64_t)row * args.n_head + h) * MELLUM_SWA_D + tiisg * 4u) * args.scale;
+
+    float4 acc = float4(0.0f);
+    float m = -3.0e38f, l = 0.0f;
+    uint bad = 0u;
+    for (uint i = sgitg; i < n; i += MELLUM_SWA_NSG) {
+        const uint pos = first + i;
+        float4 kf, vf;
+        if (pos < args.pos0) {
+            const uint slot = pos % args.window;
+            bad |= (uint)(ring_tag[slot] != (int32_t)pos);
+            const uint64_t at = (uint64_t)slot * width + kvh * MELLUM_SWA_D + tiisg * 4u;
+            kf = float4(*reinterpret_cast<device const half4 *>(ring_k + at));
+            vf = float4(*reinterpret_cast<device const half4 *>(ring_v + at));
+        } else {
+            const uint64_t at = (uint64_t)(pos - args.pos0) * width + kvh * MELLUM_SWA_D + tiisg * 4u;
+            kf = float4(*reinterpret_cast<device const half4 *>(stage_k + at));
+            vf = float4(*reinterpret_cast<device const half4 *>(stage_v + at));
+        }
+        const float s = simd_sum(dot(qv, kf));
+        const float m_new = max(m, s);
+        const float corr = exp(m - m_new);
+        const float w = exp(s - m_new);
+        l = l * corr + w;
+        acc = acc * corr + w * vf;
+        m = m_new;
+    }
+    if (tiisg == 0u) {
+        part_m[sgitg] = m;
+        part_l[sgitg] = l;
+        part_bad[sgitg] = bad;
+    }
+    *reinterpret_cast<threadgroup float4 *>(&part_acc[sgitg][tiisg * 4u]) = acc;
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    if (sgitg != 0u) return;
+
+    float gm = part_m[0];
+    for (uint s = 1u; s < MELLUM_SWA_NSG; s++) gm = max(gm, part_m[s]);
+    float ll = 0.0f;
+    uint any_bad = 0u;
+    float4 o = float4(0.0f);
+    for (uint s = 0u; s < MELLUM_SWA_NSG; s++) {
+        const float c = part_l[s] > 0.0f ? exp(part_m[s] - gm) : 0.0f;
+        ll += part_l[s] * c;
+        o += *reinterpret_cast<threadgroup float4 *>(&part_acc[s][tiisg * 4u]) * c;
+        any_bad |= part_bad[s];
+    }
+    const float inv = ll > 0.0f ? 1.0f / ll : 0.0f;
+    const float4 result = any_bad != 0u ? float4(as_type<float>(0x7fc00000u)) : o * inv;
+    *reinterpret_cast<device float4 *>(out + ((uint64_t)row * args.n_head + h) * MELLUM_SWA_D + tiisg * 4u) = result;
+}
+
 /* --- tiled prefill attention --------------------------------------------- */
 
 struct ds4_metal_args_mellum_attn_tiled {

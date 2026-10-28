@@ -50780,8 +50780,10 @@ int ds4_gpu_mellum_ring_commit_tensor(
                            MTLSizeMake((n + 255u) / 256u, 1, 1), MTLSizeMake(256, 1, 1));
 }
 
-/* Mellum's sliding-window attention (ds4_gpu.h has the contract; metal/mellum.metal the kernel). */
-int ds4_gpu_mellum_attn_swa_tensor(
+/* Mellum's sliding-window attention (ds4_gpu.h has the contract; metal/mellum.metal the kernel), through the
+ * named kernel: kernel_mellum_attn_swa, or its reference arithmetic for the kernel tests. */
+static int mellum_attn_swa_dispatch(
+        const char *kernel,
         ds4_gpu_tensor *out, const ds4_gpu_tensor *q,
         const ds4_gpu_tensor *ring_k, const ds4_gpu_tensor *ring_v, const ds4_gpu_tensor *ring_tags,
         const ds4_gpu_tensor *k16, const ds4_gpu_tensor *v16,
@@ -50808,8 +50810,28 @@ int ds4_gpu_mellum_attn_swa_tensor(
         !qwen4_bind_tensor(&b[6], out, q_bytes, "mellum attention output")) {
         return 0;
     }
-    return mellum_dispatch("kernel_mellum_attn_swa", &args, sizeof(args), b, 7,
+    return mellum_dispatch(kernel, &args, sizeof(args), b, 7,
                            MTLSizeMake(n_head, n_tok, 1), MTLSizeMake(32 * 8, 1, 1));
+}
+
+int ds4_gpu_mellum_attn_swa_tensor(
+        ds4_gpu_tensor *out, const ds4_gpu_tensor *q,
+        const ds4_gpu_tensor *ring_k, const ds4_gpu_tensor *ring_v, const ds4_gpu_tensor *ring_tags,
+        const ds4_gpu_tensor *k16, const ds4_gpu_tensor *v16,
+        uint32_t n_tok, uint32_t pos0, uint32_t window,
+        uint32_t n_head, uint32_t n_head_kv, uint32_t head_dim, float scale) {
+    return mellum_attn_swa_dispatch("kernel_mellum_attn_swa", out, q, ring_k, ring_v, ring_tags, k16, v16, n_tok,
+                                    pos0, window, n_head, n_head_kv, head_dim, scale);
+}
+
+int ds4_gpu_mellum_attn_swa_ref_tensor(
+        ds4_gpu_tensor *out, const ds4_gpu_tensor *q,
+        const ds4_gpu_tensor *ring_k, const ds4_gpu_tensor *ring_v, const ds4_gpu_tensor *ring_tags,
+        const ds4_gpu_tensor *k16, const ds4_gpu_tensor *v16,
+        uint32_t n_tok, uint32_t pos0, uint32_t window,
+        uint32_t n_head, uint32_t n_head_kv, uint32_t head_dim, float scale) {
+    return mellum_attn_swa_dispatch("kernel_mellum_attn_swa_ref", out, q, ring_k, ring_v, ring_tags, k16, v16, n_tok,
+                                    pos0, window, n_head, n_head_kv, head_dim, scale);
 }
 
 /* Mellum's tiled prefill attention (ds4_gpu.h has the contract; metal/mellum.metal the kernels), f32 or half

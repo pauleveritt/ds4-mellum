@@ -3742,6 +3742,14 @@ int ds4_gpu_mellum_attn_swa_tensor(
         const ds4_gpu_tensor *k16, const ds4_gpu_tensor *v16,
         uint32_t n_tok, uint32_t pos0, uint32_t window,
         uint32_t n_head, uint32_t n_head_kv, uint32_t head_dim, float scale);
+/* For the kernel tests: the same contract through kernel_mellum_attn_swa_ref, the sliding kernel's arithmetic before
+ * its loads were reordered for speed; ds4_gpu_mellum_attn_swa_tensor must equal it word for word. */
+int ds4_gpu_mellum_attn_swa_ref_tensor(
+        ds4_gpu_tensor *out, const ds4_gpu_tensor *q,
+        const ds4_gpu_tensor *ring_k, const ds4_gpu_tensor *ring_v, const ds4_gpu_tensor *ring_tags,
+        const ds4_gpu_tensor *k16, const ds4_gpu_tensor *v16,
+        uint32_t n_tok, uint32_t pos0, uint32_t window,
+        uint32_t n_head, uint32_t n_head_kv, uint32_t head_dim, float scale);
 /* Mellum's prefill attention in tiles (metal/mellum.metal, kernel_mellum_attn_tiled), for chunks of 32 rows or
  * more on the release path: 8 tokens and one KV head per threadgroup, so the tokens share each tile of keys.  The
  * operands are f32 (K and V widened from f16 exactly), so only the summation order differs from the decode kernels.
