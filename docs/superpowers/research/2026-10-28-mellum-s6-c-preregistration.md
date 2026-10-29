@@ -1,6 +1,6 @@
 # S6 phase C: preregistration (the 8 GB M1 iMac)
 
-Date: 2026-10-28. Committed before any iMac run. **Amended 2026-10-28 23:58, still before any iMac run:**
+Date: 2026-10-28. Committed before any iMac run. **Amended 2026-10-28 23:56, still before any iMac run:**
 `ds4-server` refuses Mellum ("Mellum 2.1 is not served yet: ds4-server has no Hermes tool-call syntax";
 `2026-10-28-mellum-s6-c-evidence/workload-m5/server-*.log`). So the workload runs through
 `tools/mellum_s4_measure` as one flattened user turn, not as a chat request replayed through the server. The

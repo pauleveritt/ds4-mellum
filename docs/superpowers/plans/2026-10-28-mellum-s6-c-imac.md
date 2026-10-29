@@ -104,7 +104,7 @@ Safari with the ten URLs fixed in the preregistration, then waits for the owner'
 
   Commit everything except the raw logits, which stay git-ignored and are listed by hash.
 
-**Amendment, 2026-10-28 23:58:** `ds4-server` does not serve Mellum yet, so the workload is the frozen request
+**Amendment, 2026-10-28 23:56:** `ds4-server` does not serve Mellum yet, so the workload is the frozen request
 flattened (`s6-c-prereg/flatten.py`) and run by `tools/mellum_s4_measure`. `tools/mellum_replay_request.py`
 stays for when the server serves Mellum. The M5 reference is `s6-c-evidence/workload-m5/` (n=3 per arm).
 
