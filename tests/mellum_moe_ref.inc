@@ -132,20 +132,48 @@ static inline double mref_q8_dot_staged(const uint8_t *row, const double *x_half
     return acc;
 }
 
+/* MXFP4 staged the same way (metal/qwen4.metal:3566-3571 and :3703-3707): each weight as half(d * value), d the
+ * float E8M0 scale; the products with the half input are summed wider. */
+static inline double mref_mxfp4_dot_staged(const uint8_t *row, const double *x_half, uint32_t n) {
+    static const float v[16] = { 0.0f, 0.5f, 1.0f, 1.5f, 2.0f, 3.0f, 4.0f, 6.0f,
+                                 -0.0f, -0.5f, -1.0f, -1.5f, -2.0f, -3.0f, -4.0f, -6.0f };
+    double acc = 0.0;
+    for (uint32_t ib = 0; ib < n / 32u; ib++) {
+        const uint8_t *b = row + (uint64_t)ib * MREF_MXFP4_BLOCK_BYTES;
+        const float d = ldexpf(1.0f, (int)b[0] - 127);
+        const double *xb = x_half + ib * 32u;
+        for (uint32_t j = 0; j < 16u; j++) {
+            acc += (double)(__fp16)(d * v[b[1u + j] & 0x0fu]) * xb[j];
+            acc += (double)(__fp16)(d * v[b[1u + j] >> 4]) * xb[j + 16u];
+        }
+    }
+    return acc;
+}
+
+/* One expert's staged partial: part[o] = down row o . half(silu(g) * u), g and u the staged gate and up rows on the
+ * half input x_half. */
+static inline void mref_expert_staged(const mref_weights *a, uint64_t e, const double *x_half, double *part) {
+    assert(a->expert_type == MREF_TYPE_Q8_0 || a->expert_type == MREF_TYPE_MXFP4);
+    const bool mx = a->expert_type == MREF_TYPE_MXFP4;
+    const uint32_t bb = mx ? MREF_MXFP4_BLOCK_BYTES : MREF_Q8_BLOCK_BYTES;
+    const uint64_t row_gate = (MREF_E / 32u) * bb, row_down = (MREF_FF / 32u) * bb;
+    double (*dot)(const uint8_t *, const double *, uint32_t) = mx ? mref_mxfp4_dot_staged : mref_q8_dot_staged;
+    double mid[MREF_FF];
+    for (uint32_t f = 0; f < MREF_FF; f++) {
+        const double g = dot(a->base + a->gate + (e * MREF_FF + f) * row_gate, x_half, MREF_E);
+        const double u = dot(a->base + a->up + (e * MREF_FF + f) * row_gate, x_half, MREF_E);
+        mid[f] = (double)(__fp16)(float)(g / (1.0 + exp(-g)) * u);
+    }
+    for (uint32_t o = 0; o < MREF_E; o++) part[o] = dot(a->base + a->down + (e * MREF_E + o) * row_down, mid, MREF_FF);
+}
+
 static inline void mref_moe_row_staged(const mref_weights *a, const float *x, mref_t *r) {
-    assert(a->expert_type == MREF_TYPE_Q8_0);   /* the tile kernels' MXFP4 staging is read in S6 phase B */
     mref_moe_row(a, x, r);   /* the selection and its weights */
-    double xh[MREF_E], mid[MREF_FF];
+    double xh[MREF_E], part[MREF_E];
     for (uint32_t i = 0; i < MREF_E; i++) xh[i] = (double)(__fp16)x[i];
     for (uint32_t i = 0; i < MREF_E; i++) r->out[i] = 0.0;
     for (uint32_t s = 0; s < MREF_USED; s++) {
-        const uint64_t e = (uint64_t)r->sel[s];
-        for (uint32_t f = 0; f < MREF_FF; f++) {
-            const double g = mref_q8_dot_staged(a->base + a->gate + (e * MREF_FF + f) * MREF_ROW_GATE, xh, MREF_E);
-            const double u = mref_q8_dot_staged(a->base + a->up + (e * MREF_FF + f) * MREF_ROW_GATE, xh, MREF_E);
-            mid[f] = (double)(__fp16)(float)(g / (1.0 + exp(-g)) * u);
-        }
-        for (uint32_t o = 0; o < MREF_E; o++)
-            r->out[o] += r->w[s] * mref_q8_dot_staged(a->base + a->down + (e * MREF_E + o) * MREF_ROW_DOWN, mid, MREF_FF);
+        mref_expert_staged(a, (uint64_t)r->sel[s], xh, part);
+        for (uint32_t o = 0; o < MREF_E; o++) r->out[o] += r->w[s] * part[o];
     }
 }
