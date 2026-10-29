@@ -269,7 +269,7 @@ Exit: whole-machine memory pressure, with an editor, a browser and a couple of a
 target latency on that machine. Native host integration in `../ds4-engine` follows engine correctness and
 measurements; Python owns workflow policy, while C/Rust owns inference-critical scheduling.
 
-### S6 — 8 GB target with MXFP4 experts: phases A-C done and merged, phase D next
+### S6 — 8 GB target with MXFP4 experts: phases A-C done and merged, phase D paused
 
 Deferred until 2026-10-28, behind three reopen conditions: a target-class SSD
 read bench, better non-thinking locality, or lower-bit streamed experts.
@@ -325,8 +325,16 @@ Phase C [result](docs/superpowers/research/2026-10-28-mellum-s6-c-imac.md) (2026
 picks 2 GiB, since 2.5 GiB's Metal peak is 24.8 MB over the limit, which fires the preregistration's design falsifier.
 Apps closed, decode 5.85 t/s (n=3), first token 19.4 s, no swap growth at 2 GiB. C4's apps-open runs (no desktop
 access) and C6 (no M4 Max) were not run, so both are undecided. Merged into `mellum` on 2026-10-29 (`c04037c`).
-Next, phase D: the 2.5 GiB fit, then an asynchronous expert prefetch only if an iMac screen clears its bar
-([design](docs/superpowers/specs/2026-10-29-mellum-stream-prefetch-design.md), aim 9 t/s on the iMac).
+Phase D ([design](docs/superpowers/specs/2026-10-29-mellum-stream-prefetch-design.md),
+[plan](docs/superpowers/plans/2026-10-29-mellum-s6-d-prefetch.md)) **paused 2026-10-29 by the owner** after Task 1's cache
+stage and Task 2b:
+- On the merged build 2.5 GiB is 68,976,640 B over the C2 limit (n=1; [reference](docs/superpowers/research/2026-10-29-mellum-s6-d-reference.md)).
+- A failed expert read no longer loses slab slots on the early-load path (`--mellum-stream-read-fault`); the
+  synchronous load path, prefill and two others still do (review, in the plan's ledger).
+- The synchronous prefetch's M5 dry run avoided 1.94 stops per token and was 2.2 ms/token slower (n=2 per arm,
+  [kit](docs/superpowers/research/2026-10-29-mellum-s6-d-sync-screen/)); the earlier M5 screen avoided about 3.7.
+Reopen: re-measure that M5 difference first; then free about 69 MB for 2.5 GiB (+25% measured), and run the iMac
+screen. Prefetch alone is unlikely to reach the 20 ms/token bar.
 
 ## Working rules
 
