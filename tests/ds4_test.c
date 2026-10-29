@@ -969,6 +969,109 @@ static void test_mellum_stream_group(void) {
     free(ref);
 }
 
+/* S5 grouped prefill's events (DS4_TEST_MELLUM_MODEL), 1,100 tokens at chunk 256, K 2, 64 slots, so three
+ * groups (512, 512, 76 rows): prefill_chunk once per group, prefill_display after each of a group's 28 layer
+ * passes, cancellation only between groups (one asked for inside the second group lets it finish: the checkpoint
+ * is 1,024), and a load that fails inside the second group fails the sync and invalidates the checkpoint, though
+ * the first group had finished; a re-sync then matches resident. */
+typedef struct {
+    int chunks[8], n_chunks, displays, last_display, cancel_at_display;
+    bool ascending, cancel, fail_after_first_chunk;
+    ds4_session *s;
+} mellum_group_events;
+
+static void mellum_group_on_progress(void *ud, const char *event, int current, int total) {
+    (void)total;
+    mellum_group_events *ev = ud;
+    if (strcmp(event, "prefill_chunk")) return;
+    if (ev->n_chunks < 8) ev->chunks[ev->n_chunks] = current;
+    ev->n_chunks++;
+    if (ev->fail_after_first_chunk && ev->n_chunks == 1) TEST_ASSERT(ds4_test_mellum_stream_fail_load(ev->s, 3));
+}
+
+static void mellum_group_on_display(void *ud, const char *event, int current, int total) {
+    (void)total;
+    mellum_group_events *ev = ud;
+    if (strcmp(event, "prefill_display")) return;
+    if (current < ev->last_display) ev->ascending = false;
+    ev->last_display = current;
+    ev->displays++;
+    if (ev->cancel_at_display && ev->displays == ev->cancel_at_display) ev->cancel = true;
+}
+
+static bool mellum_group_cancel(void *ud) {
+    return ((mellum_group_events *)ud)->cancel;
+}
+
+static void test_mellum_stream_group_events(void) {
+    const char *model = getenv("DS4_TEST_MELLUM_MODEL");
+    if (!model || !model[0]) {
+        puts("mellum-stream-group-events: DS4_TEST_MELLUM_MODEL unset, skipped");
+        return;
+    }
+    float *ref = malloc(98304u * sizeof(float)), *got = malloc(98304u * sizeof(float));
+    TEST_ASSERT(ref && got);
+    if (!ref || !got) return;
+    TEST_ASSERT(mellum_group_run(model, NULL, 0, 0, 256, 8192, 0, 1100, false, 0, ref, true, NULL) == 0);
+    char *saved = test_save_env("DS4_MELLUM_STREAM_PREFILL_GROUP");
+    setenv("DS4_MELLUM_STREAM_PREFILL_GROUP", "2", 1);
+    ds4_engine *engine = NULL;
+    ds4_engine_options opt = { .model_path = model, .backend = DS4_BACKEND_METAL, .context_size = 8192, .prefill_chunk = 256,
+                               .ssd_streaming = true, .ssd_streaming_cache_experts = 64u };
+    TEST_ASSERT(ds4_engine_open(&engine, &opt) == 0 && engine);
+    ds4_tokens prompt = {0};
+    for (int i = 0; i < 1100; i++) ds4_tokens_push(&prompt, test_mellum_token(i));
+    char err[256] = {0};
+    for (int arm = 0; engine && arm < 3; arm++) {
+        ds4_session *s = NULL;
+        TEST_ASSERT(ds4_session_create(&s, engine, 8192) == 0 && s);
+        if (!s) break;
+        /* arm 1 asks to cancel at the second group's 10th layer pass; arm 2 fails its 3rd load after the first group */
+        mellum_group_events ev = { .ascending = true, .cancel_at_display = arm == 1 ? 28 + 10 : 0,
+                                   .fail_after_first_chunk = arm == 2, .s = s };
+        ds4_session_set_progress(s, mellum_group_on_progress, &ev);
+        ds4_session_set_display_progress(s, mellum_group_on_display, &ev);
+        ds4_session_set_cancel(s, mellum_group_cancel, &ev);
+        if (arm == 0) {
+            TEST_ASSERT(ds4_session_sync(s, &prompt, err, sizeof(err)) == 0);
+            TEST_ASSERT(ev.n_chunks == 3 && ev.chunks[0] == 512 && ev.chunks[1] == 1024 && ev.chunks[2] == 1100);
+            TEST_ASSERT(ev.displays == 3 * 28 && ev.ascending && ev.last_display == 1100);
+            printf("mellum-stream-group-events: %d prefill_chunk events (%d, %d, %d), %d prefill_display events\n",
+                   ev.n_chunks, ev.chunks[0], ev.chunks[1], ev.chunks[2], ev.displays);
+        } else if (arm == 1) {
+            const int rc = ds4_session_sync(s, &prompt, err, sizeof(err));
+            TEST_ASSERT(rc == DS4_SESSION_SYNC_INTERRUPTED);
+            TEST_ASSERT(ds4_session_pos(s) == 1024 && ds4_session_checkpoint_valid(s));
+            printf("mellum-stream-group-events: cancelled inside the second group: rc %d, pos %d\n", rc, ds4_session_pos(s));
+            ev.cancel_at_display = 0;
+            ev.cancel = false;
+            TEST_ASSERT(ds4_session_sync(s, &prompt, err, sizeof(err)) == 0);
+        } else {
+            TEST_ASSERT(ds4_session_sync(s, &prompt, err, sizeof(err)) != 0);
+            TEST_ASSERT(ev.n_chunks == 1 && !ds4_session_checkpoint_valid(s));
+            printf("mellum-stream-group-events: a failed load inside the second group: %s; checkpoint valid %d\n", err,
+                   ds4_session_checkpoint_valid(s));
+            ev.fail_after_first_chunk = false;
+            TEST_ASSERT(ds4_test_mellum_stream_fail_load(s, 0));
+            TEST_ASSERT(ds4_session_sync(s, &prompt, err, sizeof(err)) == 0);
+        }
+        if (arm > 0) {
+            TEST_ASSERT(ds4_session_copy_logits(s, got, 98304) == 98304);
+            uint64_t diff = 0;
+            for (uint32_t w = 0; w < 98304u; w++) diff += memcmp(&got[w], &ref[w], sizeof(float)) != 0;
+            TEST_ASSERT(diff == 0);
+            printf("mellum-stream-group-events: %s, then a re-sync: %llu of 98304 words differ\n",
+                   arm == 1 ? "cancelled" : "failed", (unsigned long long)diff);
+        }
+        ds4_session_free(s);
+    }
+    ds4_tokens_free(&prompt);
+    if (engine) ds4_engine_close(engine);
+    test_restore_env("DS4_MELLUM_STREAM_PREFILL_GROUP", saved);
+    free(ref);
+    free(got);
+}
+
 static void test_mellum_stream_identity(void) {
     const char *model = getenv("DS4_TEST_MELLUM_MODEL");
     if (!model || !model[0]) {
@@ -8324,6 +8427,7 @@ static const ds4_test_entry test_entries[] = {
     {"--mellum-stream-close", "mellum-stream-close", "S4: ds4_engine_close(NULL) leaves an open streamed engine's descriptor and its loads working (DS4_TEST_MELLUM_MODEL)", test_mellum_stream_close_null},
     {"--mellum-stream-group-memory", "mellum-stream-group-memory", "S5: the streamed prefill group buffer is planned and allocated only for K > 1, and a bad K refuses (DS4_TEST_MELLUM_MODEL)", test_mellum_stream_group_memory},
     {"--mellum-stream-group", "mellum-stream-group", "S5: grouped streamed prefill gives resident logits word for word and loads fewer experts than K = 1 (DS4_TEST_MELLUM_MODEL)", test_mellum_stream_group},
+    {"--mellum-stream-group-events", "mellum-stream-group-events", "S5: grouped prefill reports per group and per layer pass, cancels between groups, and recovers from a failed load (DS4_TEST_MELLUM_MODEL)", test_mellum_stream_group_events},
     {"--mellum-rewind", "mellum-rewind", "Mellum session rewind: one token keeps the caches, deeper replays; logits equal a straight decode (DS4_TEST_MELLUM_MODEL)", test_mellum_rewind},
     {"--mellum-moe", "mellum-moe", "Mellum MoE driver on the real model's layers against a double reference (DS4_TEST_MELLUM_MODEL)", test_mellum_moe_real},
     {"--qwen4-restore-reuse", "qwen4-restore-reuse", "Qwen restore discards old verifier state and rejects truncated payloads", test_qwen_restore_reused_session},
