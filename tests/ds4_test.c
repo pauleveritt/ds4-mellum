@@ -817,9 +817,11 @@ static void test_mellum_stream_stop_scratch(void) {
 bool ds4_test_mellum_stream_fail_read(ds4_session *s, uint64_t nth);   /* ds4.c test hook: fail the nth expert read */
 bool ds4_test_mellum_stream_slots(ds4_session *s, uint32_t *free_slots, uint32_t *held_slots, uint32_t *handed_out);
 
-/* A real expert read fails inside a decode load (the pread itself, not the host hook above): every slab slot the
- * cache handed out is afterwards on the free list or held by a resident expert, and a re-sync of the prefix gives
- * resident logits.  The sibling pass without the fault holds the same invariant. */
+/* A real expert read fails (the pread itself, not the host hook above): every slab slot the cache handed out is
+ * afterwards on the free list or held by a resident expert, exactly once, and a re-sync of the prefix gives resident
+ * logits.  Passes: resident; streamed without a fault (the sibling); a fault in a decode load on the early-load path;
+ * the same with early load off (the synchronous path); and a fault in a prefill (a 6-token sync, loads of more than
+ * one group). */
 static void test_mellum_stream_read_fault(void) {
     const char *model = getenv("DS4_TEST_MELLUM_MODEL");
     if (!model || !model[0]) {
@@ -833,8 +835,11 @@ static void test_mellum_stream_read_fault(void) {
     TEST_ASSERT(ref && got);
     if (!ref || !got) return;
     char err[256] = {0};
-    for (int pass = 0; pass < 3; pass++) {
-        const bool streaming = pass > 0, fault = pass == 2;
+    static const char *names[] = { "resident", "no fault", "a failed decode read (early load)",
+                                   "a failed decode read (synchronous)", "a failed prefill read" };
+    for (int pass = 0; pass < 5; pass++) {
+        const bool streaming = pass > 0, fault = pass >= 2, prefill = pass == 4;
+        if (pass == 3) setenv("DS4_METAL_DISABLE_STREAMING_EXPERT_EARLY_LOAD", "1", 1);
         ds4_engine *engine = NULL;
         ds4_engine_options opt = { .model_path = model, .backend = DS4_BACKEND_METAL, .context_size = 8192,
                                    .ssd_streaming = streaming, .ssd_streaming_cache_experts = streaming ? 64u : 0u };
@@ -844,9 +849,10 @@ static void test_mellum_stream_read_fault(void) {
         TEST_ASSERT(ds4_session_create(&s, engine, 8192) == 0 && s);
         ds4_tokens prefix = {0};
         uint64_t diff = 0;
-        uint32_t lost = 0;
+        uint32_t lost = 0, doubled = 0;
         for (int i = 0; i < N; i++) {
             ds4_tokens_push(&prefix, toks[i]);
+            if (prefill && i < 5) continue;   /* the first sync is the 6-token prefix, a prefill */
             if (fault && i == 5) {
                 TEST_ASSERT(ds4_test_mellum_stream_fail_read(s, 2));
                 TEST_ASSERT(ds4_session_sync(s, &prefix, err, sizeof(err)) != 0);
@@ -860,14 +866,17 @@ static void test_mellum_stream_read_fault(void) {
                 uint32_t f = 0, h = 0, handed = 0;
                 TEST_ASSERT(ds4_test_mellum_stream_slots(s, &f, &h, &handed));
                 if (f + h < handed && handed - f - h > lost) lost = handed - f - h;
+                if (f + h > handed && f + h - handed > doubled) doubled = f + h - handed;
             }
         }
         if (streaming) {
             TEST_ASSERT(diff == 0);
             TEST_ASSERT(lost == 0);
-            printf("mellum-stream-read-fault: %s, %llu of %d logit words differ, %u slab slots lost\n",
-                   fault ? "a failed read" : "no fault", (unsigned long long)diff, N * 98304, lost);
+            TEST_ASSERT(doubled == 0);
+            printf("mellum-stream-read-fault: %s, %llu logit words differ, %u slab slots lost, %u counted twice\n",
+                   names[pass], (unsigned long long)diff, lost, doubled);
         }
+        if (pass == 3) unsetenv("DS4_METAL_DISABLE_STREAMING_EXPERT_EARLY_LOAD");
         ds4_tokens_free(&prefix);
         ds4_session_free(s);
         ds4_engine_close(engine);
