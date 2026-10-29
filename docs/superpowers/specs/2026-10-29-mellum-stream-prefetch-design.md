@@ -2,6 +2,17 @@
 
 Date: 2026-10-29. Status: design, written on the owner's go-ahead; a builder check's three questions are settled as designer's calls, marked below.
 
+**Amended 2026-10-29, after Fable's review and before any phase D work.**
+- **An avoided stop is worth about 5.1 ms, not 6.4.** The stop profile's two-term fit put the 7.8 ms output head
+  into each round's fixed cost; a four-term refit gives 1.0-1.2 ms fixed per round, 2.0-2.1 ms per executed
+  layer, 0.04 ms per suppressed layer (n=2 runs plus the reads run; r² 0.39-0.74). An avoided stop removes one
+  round's fixed cost (1.1), its 14.7 suppressed dispatches (0.6), the resumed pass's encode (2.1), the mean read
+  wait (1.2) and the read start (0.1). Below, "6.4 ms" reads as 5.1, and the screen's bar is the plan's: the
+  measured ms/token change, or a projection that subtracts the event wait and wasted reads.
+- **The "existing protect mechanism" does not suffice.** It holds one layer, the read pool takes one batch at a
+  time, and the pending load is one global. The plan's Task 5 adds a second in-flight read, a queueing pool whose
+  completion signals the event, and a two-layer protect list, under stated install invariants.
+
 ## Why
 
 Streamed MXFP4 on the 8 GB M1 iMac decodes at 5.85 t/s (n=3, 2 GiB cache;

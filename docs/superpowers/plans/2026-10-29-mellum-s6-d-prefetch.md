@@ -127,8 +127,8 @@ and the note `…-sync-screen.md`.
 - [ ] **Step 3:** Run on the iMac over SSH and pull the captures back.
 - [ ] **Step 4: The bar.** Report the measured ms/token change (off minus on), stops avoided per token, prefetch
   accuracy and wasted experts per token. Project the asynchronous saving as
-  `avoided × (5.5 ms − w) − wasted × r`, where 5.5 ms is an avoided stop's cost from the four-term refit (the stop
-  profile's corrected note), `w` the projected event wait per prefetch (median read span of the prefetch's size minus
+  `avoided × (5.1 ms − w) − wasted × r`, where 5.1 ms is an avoided stop's cost from the four-term refit (the stop
+  profile's corrected note; Fable's review had 5.5, from about 26 suppressed layers per stop where the captures give 14.7), `w` the projected event wait per prefetch (median read span of the prefetch's size minus
   about 2.0 ms of GPU work before L+1's check, floored at 0) and `r` the measured read time per wasted expert. Pass if
   the measured change or the projection is at least 20 ms/token. Stops avoided alone decides nothing.
 - [ ] **Step 5:** Commit the screen and its note. **If it fails, skip to Task 7** with a verdict.
