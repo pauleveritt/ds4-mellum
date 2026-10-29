@@ -214,8 +214,9 @@ The [decode profile](docs/superpowers/research/2026-10-28-mellum-s4-decode-profi
 (n=1 per arm, short prompt). Gating the projections and copies after a stop (`9e9757f`) raised streamed
 decode from 30.6 to 39.6 t/s, against about 136 resident. The rest scales with stops per token, not SSD
 time: about 10.7 GPU passes per token, adding about 5.4 ms of GPU execution and 2.6 ms of per-buffer cost.
-Loads take about 0.95 ms per stop, serially. Load overlap was set aside (owner); a check-kernel trim was
-tried and not kept. Measurement 02's 32K figures predate the gating.
+Loads take about 0.95 ms per stop, serially. On 2026-10-28 the owner chose not to pursue load overlap,
+expecting a high-complexity change for a small gain (the spike's "Not pursued"); S5 step 2b did it on
+2026-10-29. A check-kernel trim was tried and not kept. Measurement 02's 32K figures predate the gating.
 
 ### S5 — Streamed speed, on the development laptop and an M1 Pro: in progress
 
@@ -239,10 +240,12 @@ exact against resident:
    K = 8 chunks per layer pass, streaming only. [Measurement 02](docs/superpowers/research/2026-10-28-mellum-s5-measurement-02.md)
    (C n=3, device-true, exact, no regression at n=6): cold first token 60.6 → 37.7 s median, prefill loads
    50,806 → 7,416, Metal 7.94 GiB. The preregistered load ceiling (7,168) was exceeded by 3.5%.
-2b. **Cheaper stops: done (2026-10-29, owner's overnight instruction; reopens S4's set-aside load overlap).**
+2b. **Cheaper stops: done (2026-10-29, on the owner's overnight instruction to act on a fresh review).**
    A stop's reads now run while the resumed pass is encoded, and the cache's victim scans stop at the
    installed area. [Result](docs/superpowers/research/2026-10-29-mellum-stream-decode.md) (preregistered,
    MXFP4 at 2.5 GiB on the M5, n=3): 44.8 → 24.7 ms/token (22 → 40 t/s), identical ids; 3 GiB 32.0 → 18.8 ms (n=1).
+   The load overlap S4 had not pursued added 92 product lines and gave most of the gain (screen, n=2 per
+   arm: 39.0 → 26.9 ms/token).
    Chunked reads, windowed passes and synchronous next-layer prefetch were screened and lost; pre-gating
    predicts 7.0 of the next layer's 8 experts, so an asynchronous prefetch stays a candidate for step 4.
 3. **Fewer stops per token:** hotness for layers that hit, and the eviction policy. Choose on a fresh
