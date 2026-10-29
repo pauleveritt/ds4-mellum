@@ -54,7 +54,9 @@ def test_packed_manifest_validates_at_q8_and_mxfp4_sizes():
     assert api.validate_packed(packed_manifest(3290112))['geometry']['expert_bytes'] == 3290112
     wrong = packed_manifest(3290112)
     wrong['geometry']['expert_bytes'] = 6580224      # MXFP4 spans under a Q8_0 geometry
-    for bad in (wrong, packed_manifest(1000)):
+    floats = packed_manifest(3290112)
+    floats['geometry']['layers'] = 28.0                # equal to 28 as a number, but not an integer
+    for bad in (wrong, packed_manifest(1000), floats):
         try:
             api.validate_packed(bad)
         except ValueError:
