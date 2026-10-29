@@ -1752,6 +1752,11 @@ test-mellum: test-mellum-moe-ref
 clean-mellum-moe-ref:
 	rm -f tests/test_mellum_moe_ref tests/test_mellum_moe_ref.o
 clean: clean-mellum-moe-ref
+# S6: the request replay client (phase C's Pi-shaped workload through ds4-server), tested against a fake server
+.PHONY: test-mellum-replay-request
+test-mellum-replay-request:
+	python3 -I tests/test_mellum_replay_request.py
+test-mellum: test-mellum-replay-request
 # S6: the Metal device facts that bound a streamed run (phase C, the iMac); runs nothing on the GPU
 tools/mellum_metal_limit: tools/mellum_metal_limit.m
 	$(CC) -O2 -Wall -Wextra -Werror -fobjc-arc $< -framework Metal -framework Foundation -o $@
