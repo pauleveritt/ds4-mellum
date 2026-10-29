@@ -14,10 +14,22 @@ import re
 import statistics
 import subprocess
 
-EXPERT_BYTES = 6_580_224
+EXPERT_BYTES = 6_580_224   # one Q8_0 expert; expert_bytes_for(model) gives the model's own (S6)
 READ_CAP = int(400e9)
 RATE = re.compile(r'Mellum prefill: ([0-9.]+) t/s, generation: ([0-9.]+) t/s')
 F_NOCACHE = getattr(fcntl, 'F_NOCACHE', 48)
+
+
+def expert_bytes_for(model: Path) -> int:
+    """One routed expert's bytes in this Mellum GGUF: Q8_0 6,580,224 or MXFP4 3,290,112, from the type of
+    blk.0.ffn_gate_exps (tools/mellum_expert_index.py).  Anything else raises ValueError naming the tensor."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location('mellum_expert_index', Path(__file__).with_name('mellum_expert_index.py'))
+    index = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(index)
+    with open(model, 'rb') as f:
+        directory = index.gguf.read_directory(f, os.fstat(f.fileno()).st_size)
+    return index.geometry_for(directory)['expert_bytes']
 
 
 class Busy(RuntimeError):

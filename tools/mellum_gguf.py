@@ -94,7 +94,10 @@ def read_directory(source: BinaryIO, file_size: int) -> Directory:
         names.add(name)
         dims = tuple(r.u64() for _ in range(ndims))
         kind, offset = r.u32(), r.u64()
-        size = tensor_bytes(dims, kind)
+        try:
+            size = tensor_bytes(dims, kind)
+        except ValueError as exc:
+            raise ValueError(f'{name}: {exc}') from exc
         if offset % alignment or offset >= 2**63:
             raise ValueError('invalid tensor offset/alignment')
         tensors.append(Tensor(name=name, dims=dims, type=kind, offset=offset, bytes=size))

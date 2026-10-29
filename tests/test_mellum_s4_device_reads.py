@@ -41,7 +41,7 @@ class DeviceReads(unittest.TestCase):
                            check=True, cwd=ROOT, timeout=900, capture_output=True)
             after = obs.snapshot(topo)
             report = json.loads((d / 'r.json').read_text())
-            logical = report['loads'] * meas.EXPERT_BYTES
+            logical = report['loads'] * meas.expert_bytes_for(Path(model))
             device = cls.delta(before, after)['Bytes (Read)']
             print(f'device-reads: {report["loads"]} loads, {logical} logical bytes, {device} device bytes, '
                   f'ratio {device / logical:.3f}')
