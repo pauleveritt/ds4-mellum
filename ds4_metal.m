@@ -51414,16 +51414,24 @@ int ds4_gpu_mellum_stream_load(const ds4_gpu_stream_expert_table *t, const int32
     return 1;
 }
 
-int ds4_gpu_mellum_stream_load_begin(const ds4_gpu_stream_expert_table *t, const int32_t *ids, uint32_t n) {
+int ds4_gpu_mellum_stream_load_begin(const ds4_gpu_stream_expert_table *t, const int32_t *ids, uint32_t n,
+                                     uint32_t *n_loaded) {
+    if (n_loaded) *n_loaded = 0;
     if (!g_ssd_streaming_mode || !t || !ids || n == 0 || n > 64u || !t->model_map) return 0;
-    if (n > DS4_METAL_MAX_ROUTED_EXPERT_USED) return 1;   /* load splits these into groups: no single group to match */
+    /* load splits more ids into groups, so no single group would match: load them all now */
+    if (n > DS4_METAL_MAX_ROUTED_EXPERT_USED) return ds4_gpu_mellum_stream_load(t, ids, n, n_loaded);
     if (!ds4_gpu_stream_expert_cache_ensure_addr_buffers(t->layer)) return 0;
+    ds4_gpu_stream_expert_pending_load_clear();   /* a stale pending load is finished here, never matched later */
     g_mellum_stream_protect_layer = t->layer;
     memcpy(g_mellum_stream_protect_ids, ids, (size_t)n * sizeof(int32_t));
     g_mellum_stream_protect_n = n;
     const int ok = ds4_gpu_stream_expert_cache_begin_selected_load(t, ids, n);
     g_mellum_stream_protect_n = 0;
-    return ok;
+    if (!ok) return 0;
+    if (g_stream_expert_pending_load.active) return 1;   /* reads started; load finishes them after the encode */
+    /* Nothing started (early load off, no capacity, or nothing missing): load now, before the pass is encoded.
+     * A load after the encode could fill a slab the encode never listed as resident. */
+    return ds4_gpu_mellum_stream_load(t, ids, n, n_loaded);
 }
 
 static id<MTLComputePipelineState> g_mellum_stream_check_pipeline, g_mellum_stream_restore_pipeline;

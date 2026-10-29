@@ -61042,7 +61042,10 @@ static bool mellum_stream_load_begin(void *ctx, uint32_t layer, const int32_t *i
     uint64_t gate_bytes = 0, down_bytes = 0;
     if (!streaming_layer_gate_down_expert_bytes(l, &gate_bytes, &down_bytes)) return false;
     const ds4_gpu_stream_expert_table table = graph_stream_expert_table_make(c->m, l, layer, gate_bytes, down_bytes);
-    return ds4_gpu_mellum_stream_load_begin(&table, ids, n) != 0;
+    uint32_t loaded = 0;
+    const bool ok = ds4_gpu_mellum_stream_load_begin(&table, ids, n, &loaded) != 0;
+    c->g->mellum_stream_loads += loaded;
+    return ok;
 }
 
 /* Drops an encoded resumed pass whose experts did not load, or whose token was cancelled: it must not run. */

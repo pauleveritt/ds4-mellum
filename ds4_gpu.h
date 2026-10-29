@@ -3836,8 +3836,10 @@ int ds4_gpu_mellum_stream_layer_tables(uint32_t layer, ds4_gpu_tensor **gate, ds
 int ds4_gpu_mellum_stream_load(const ds4_gpu_stream_expert_table *t, const int32_t *ids, uint32_t n, uint32_t *n_loaded);
 /* load_begin: start the reads of a load that ds4_gpu_mellum_stream_load will make as one group (at most 8 ids), and
  * return before they finish; the later load with the same ids, in order, finishes them and publishes the addresses.
- * More ids, or DS4_METAL_DISABLE_STREAMING_EXPERT_EARLY_LOAD, start nothing and leave the whole load to load. */
-int ds4_gpu_mellum_stream_load_begin(const ds4_gpu_stream_expert_table *t, const int32_t *ids, uint32_t n);
+ * When it cannot start them (more ids, DS4_METAL_DISABLE_STREAMING_EXPERT_EARLY_LOAD, no capacity) it makes the
+ * whole load itself, counted in *n_loaded, so every slab a stop fills exists before the resumed pass is encoded. */
+int ds4_gpu_mellum_stream_load_begin(const ds4_gpu_stream_expert_table *t, const int32_t *ids, uint32_t n,
+                                     uint32_t *n_loaded);
 int ds4_gpu_mellum_stream_check_tensor(ds4_gpu_tensor *gate, const ds4_gpu_tensor *selected,
                                        const ds4_gpu_tensor *weights, const ds4_gpu_tensor *attn_res,
                                        const ds4_gpu_tensor *ffn_norm, ds4_gpu_tensor *save,
