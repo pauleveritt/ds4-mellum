@@ -1,0 +1,15 @@
+q8-resident-1 rc 0
+mx-resident-1 rc 0
+mx-stream2.5g-1 rc 0
+mx-stream3g-1 rc 0
+q8-stream6g-1 rc 0
+q8-resident-2 rc 0
+mx-resident-2 rc 0
+mx-stream2.5g-2 rc 0
+mx-stream3g-2 rc 0
+q8-stream6g-2 rc 0
+q8-resident-3 rc 0
+mx-resident-3 rc 0
+mx-stream2.5g-3 rc 0
+mx-stream3g-3 rc 0
+q8-stream6g-3 rc 0
