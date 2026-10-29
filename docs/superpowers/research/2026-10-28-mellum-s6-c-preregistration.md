@@ -9,7 +9,7 @@ items that changed are marked (amended). Plan:
 [`2026-10-28-mellum-s6-c-imac.md`](../plans/2026-10-28-mellum-s6-c-imac.md). Design: Goals 4 and 5 and section C.
 The owner runs every step by hand. The agent analyzes the captures afterwards, and only them.
 
-**Amended 2026-10-29 03:20, still before any iMac run (the owner's instruction to bring in the SSD work
+**Amended 2026-10-29 02:44 (the time first written as 03:20 and corrected to the commit's), still before any iMac run (the owner's instruction to bring in the SSD work
 first):**
 - **The build is the merge `633fd23`.** It brings in the SSD branch at `9fb27ad` (S5 grouped prefill) and
   the cheaper streamed decode stops
