@@ -50,7 +50,7 @@ static void test_mxfp4_edge_scales(void) {
         block_mxfp4 blk;
         memset(&blk, 0, sizeof(blk));
         blk.e = es[i];
-        blk.qs[3] = 0x07;          /* element 3 is 6 */
+        blk.qs[3] = 0x01;          /* element 3 is 0.5: 0.5 * 2^127 fits a float, 6 * 2^127 does not */
         double x[32] = { 0 };
         float xf[32] = { 0 };
         x[3] = 1.0;
@@ -61,24 +61,26 @@ static void test_mxfp4_edge_scales(void) {
     }
 }
 
-static void fill_mxfp4_row(uint8_t *row, uint32_t n) {
+static void fill_mxfp4_row(uint8_t *row, uint32_t n, uint32_t e_lo, uint32_t e_span) {
     for (uint32_t ib = 0; ib < n / 32u; ib++) {
         uint8_t *b = row + (uint64_t)ib * MREF_MXFP4_BLOCK_BYTES;
-        b[0] = (uint8_t)(120u + lcg() % 15u);   /* 120..134 */
+        b[0] = (uint8_t)(e_lo + lcg() % e_span);
         for (uint32_t j = 0; j < 16u; j++) b[1u + j] = (uint8_t)lcg();
     }
 }
 
+/* A 2,304-wide row with scales 2^-3..2^3 and x on a 1/8 grid in [-1, 1): every product is a multiple of 2^-7
+ * below 48 and every partial sum below 2^17, so the engine's float sum is exact and must equal the double one. */
 static void test_mxfp4_row_matches_engine_dot(void) {
     g_lcg = 1u;
     uint8_t row[(MREF_E / 32u) * MREF_MXFP4_BLOCK_BYTES];
     double x[MREF_E];
     float xf[MREF_E];
-    fill_mxfp4_row(row, MREF_E);
-    for (uint32_t i = 0; i < MREF_E; i++) { xf[i] = (float)lcg_unit(); x[i] = xf[i]; }
+    fill_mxfp4_row(row, MREF_E, 124u, 7u);
+    for (uint32_t i = 0; i < MREF_E; i++) { xf[i] = (float)((int)(lcg() % 16u) - 8) / 8.0f; x[i] = xf[i]; }
     const double ref = mref_mxfp4_dot(row, x, MREF_E);
     const double eng = (double)ds4_vec_dot_mxfp4_f32((int)MREF_E, (const block_mxfp4 *)row, xf);
-    CHECK(fabs(ref - eng) <= 1e-5 * fmax(1.0, fabs(ref)), "2,304-wide row: ref %.9g, engine %.9g", ref, eng);
+    CHECK(ref == eng && ref != 0.0, "2,304-wide row: ref %.17g, engine %.17g", ref, eng);
 }
 
 /* A full-size MXFP4 layer from the LCG: mref_moe_row at type 39 gives finite outputs, and each output is the
@@ -95,9 +97,9 @@ static void test_moe_row_mxfp4_runs(void) {
     if (!base) return;
     float *rw = (float *)base;
     for (uint64_t i = 0; i < (uint64_t)MREF_NEXP * MREF_E; i++) rw[i] = (float)(lcg_unit() * 0.05);
-    for (uint64_t r = 0; r < (uint64_t)MREF_NEXP * MREF_FF; r++) fill_mxfp4_row(base + gate + r * gate_row, MREF_E);
-    for (uint64_t r = 0; r < (uint64_t)MREF_NEXP * MREF_FF; r++) fill_mxfp4_row(base + up + r * gate_row, MREF_E);
-    for (uint64_t r = 0; r < (uint64_t)MREF_NEXP * MREF_E; r++) fill_mxfp4_row(base + down + r * down_row, MREF_FF);
+    for (uint64_t r = 0; r < (uint64_t)MREF_NEXP * MREF_FF; r++) fill_mxfp4_row(base + gate + r * gate_row, MREF_E, 120u, 15u);
+    for (uint64_t r = 0; r < (uint64_t)MREF_NEXP * MREF_FF; r++) fill_mxfp4_row(base + up + r * gate_row, MREF_E, 120u, 15u);
+    for (uint64_t r = 0; r < (uint64_t)MREF_NEXP * MREF_E; r++) fill_mxfp4_row(base + down + r * down_row, MREF_FF, 120u, 15u);
     float x[MREF_E];
     double xd[MREF_E];
     for (uint32_t i = 0; i < MREF_E; i++) { x[i] = (float)(lcg_unit() * 0.1); xd[i] = x[i]; }

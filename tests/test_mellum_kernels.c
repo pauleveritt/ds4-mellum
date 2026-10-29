@@ -1296,7 +1296,7 @@ static ds4_gpu_mellum_moe moe_params(const moe_arena_t *a, uint64_t router_off) 
 /* ---- the double reference ---- */
 
 static void ref_moe_row(const moe_arena_t *a, uint64_t router_off, const float *x, mref_t *r) {
-    const mref_weights w = { a->base, router_off, a->gate, a->up, a->down };
+    const mref_weights w = { a->base, router_off, a->gate, a->up, a->down, MREF_TYPE_Q8_0 };
     mref_moe_row(&w, x, r);
 }
 

@@ -1108,7 +1108,7 @@ static void test_mellum_moe_real_rows(ds4_engine *engine) {
         int worst_pos = -1;
         for (size_t li = 0; li < sizeof(layers) / sizeof(layers[0]); li++) {
             const uint32_t il = layers[li];
-            mref_weights mw = { 0 };
+            mref_weights mw = { .expert_type = MREF_TYPE_Q8_0 };
             const void *map = NULL;
             TEST_ASSERT(ds4_test_mellum_moe_weights(engine, il, &map, &mw.router, &mw.gate, &mw.up, &mw.down));
             mw.base = map;
@@ -1211,7 +1211,7 @@ static void test_mellum_moe_real(void) {
         uint64_t row0_diff = 0;
         for (size_t li = 0; li < sizeof(layers) / sizeof(layers[0]); li++) {
             const uint32_t il = layers[li];
-            mref_weights mw = { 0 };
+            mref_weights mw = { .expert_type = MREF_TYPE_Q8_0 };
             const void *map = NULL;
             TEST_ASSERT(ds4_test_mellum_moe_weights(engine, il, &map, &mw.router, &mw.gate, &mw.up, &mw.down));
             mw.base = map;
@@ -1252,7 +1252,7 @@ static void test_mellum_moe_real(void) {
         enum { T = 64 };
         const uint32_t il = 13, rows[] = { 0, 7, 31, 63 };
         float *simd = malloc((uint64_t)T * MREF_E * sizeof(float));
-        mref_weights mw = { 0 };
+        mref_weights mw = { .expert_type = MREF_TYPE_Q8_0 };
         const void *map = NULL;
         TEST_ASSERT(simd && ds4_test_mellum_moe_weights(engine, il, &map, &mw.router, &mw.gate, &mw.up, &mw.down));
         mw.base = map;
