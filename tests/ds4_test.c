@@ -1277,11 +1277,15 @@ static void test_mellum_moe_real(void) {
             worst_simd = fmax(worst_simd, ds / scale);
             worst_tiles = fmax(worst_tiles, dt / scale);
         }
-        const bool tiles = ds4_gpu_tensor_tiles_available() != 0;
-        printf("mellum-moe: T=64 layer 13, the default (%s) against DS4_MELLUM_MOE_NAX=0 (simdgroup tiles): %llu of %llu "
-               "words differ; staged reference: simdgroup %.2e, default %.2e\n", tiles ? "tensor tiles" : "no tensor API",
+        /* E1's switch (ds4_gpu_qwen4_moe_q8_tiles) moves Q8_0 experts only; MXFP4 experts (S6) take the qwen4
+         * default level whatever DS4_MELLUM_MOE_NAX says, so the two runs must be the same bits */
+        const bool tiles = ds4_gpu_tensor_tiles_available() != 0, switched = tiles && mw.expert_type == MREF_TYPE_Q8_0;
+        printf("mellum-moe: T=64 layer 13, %s experts, the default (%s) against DS4_MELLUM_MOE_NAX=0: %llu of %llu "
+               "words differ; staged reference: NAX=0 %.2e, default %.2e\n",
+               mw.expert_type == MREF_TYPE_MXFP4 ? "MXFP4" : "Q8_0",
+               switched ? "tensor tiles" : tiles ? "the qwen4 default, switch inert" : "no tensor API",
                (unsigned long long)differ, (unsigned long long)T * MREF_E, worst_simd, worst_tiles);
-        TEST_ASSERT(tiles ? differ > 0 : differ == 0);
+        TEST_ASSERT(switched ? differ > 0 : differ == 0);
         TEST_ASSERT(worst_simd <= MOE_STAGED_TOL && worst_tiles <= MOE_STAGED_TOL);
         free(simd);
     }

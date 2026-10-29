@@ -60614,9 +60614,10 @@ static bool mellum_graph_moe(ds4_qwen4_gpu_graph *g, const ds4_model *m, const d
     return false;
 #else
     if (!g || !m || !l || T == 0 || T > g->cap_tokens || !l->ffn_gate_inp || !l->ffn_gate_exps || !l->ffn_up_exps ||
-        !l->ffn_down_exps || l->ffn_gate_inp->type != DS4_TENSOR_F32 || l->ffn_gate_exps->type != DS4_TENSOR_Q8_0 ||
-        l->ffn_up_exps->type != DS4_TENSOR_Q8_0 || l->ffn_down_exps->type != DS4_TENSOR_Q8_0) {
-        return false;
+        !l->ffn_down_exps || l->ffn_gate_inp->type != DS4_TENSOR_F32 ||
+        (l->ffn_gate_exps->type != DS4_TENSOR_Q8_0 && l->ffn_gate_exps->type != DS4_TENSOR_MXFP4) ||
+        l->ffn_up_exps->type != l->ffn_gate_exps->type || l->ffn_down_exps->type != l->ffn_gate_exps->type) {
+        return false;   /* S6: Q8_0 or MXFP4 experts, one type for gate, up and down */
     }
     ds4_gpu_mellum_moe p;
     memset(&p, 0, sizeof(p));
@@ -60624,7 +60625,7 @@ static bool mellum_graph_moe(ds4_qwen4_gpu_graph *g, const ds4_model *m, const d
     p.n_expert = DS4_N_EXPERT;
     p.n_used = DS4_N_EXPERT_USED;
     p.ff_dim = DS4_N_FF_EXP;
-    p.expert_type = DS4_TENSOR_Q8_0;
+    p.expert_type = l->ffn_gate_exps->type;
     p.router_offset = l->ffn_gate_inp->abs_offset;
     p.gate_offset = l->ffn_gate_exps->abs_offset;
     p.up_offset = l->ffn_up_exps->abs_offset;
