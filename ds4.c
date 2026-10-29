@@ -89231,7 +89231,8 @@ bool ds4_test_dspark_prefix_capture(ds4_engine *engine, const ds4_tokens *prompt
  * through the layer struct mellum_graph_moe reads (so a test's reference does not share the driver's binding),
  * and false if the layer has a shared-expert tensor. */
 bool ds4_test_mellum_moe_weights(ds4_engine *engine, uint32_t layer, const void **map,
-                                 uint64_t *router, uint64_t *gate, uint64_t *up, uint64_t *down) {
+                                 uint64_t *router, uint64_t *gate, uint64_t *up, uint64_t *down,
+                                 uint32_t *expert_type) {
     if (!engine || !ds4_model_is_mellum() || layer >= DS4_N_LAYER) return false;
     const ds4_model *m = &engine->model;
     const ds4_tensor *r = tensor_by_namef(m, "blk.%u.ffn_gate_inp.weight", layer);
@@ -89247,6 +89248,7 @@ bool ds4_test_mellum_moe_weights(ds4_engine *engine, uint32_t layer, const void 
     *gate = g->abs_offset;
     *up = u->abs_offset;
     *down = d->abs_offset;
+    *expert_type = g->type;   /* S6: Q8_0 or MXFP4; the loader made gate, up and down agree */
     return true;
 }
 

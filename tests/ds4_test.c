@@ -1012,7 +1012,8 @@ static void test_mellum_rewind(void) {
 #include "mellum_moe_ref.inc"
 
 bool ds4_test_mellum_moe_weights(ds4_engine *engine, uint32_t layer, const void **map,
-                                 uint64_t *router, uint64_t *gate, uint64_t *up, uint64_t *down);
+                                 uint64_t *router, uint64_t *gate, uint64_t *up, uint64_t *down,
+                                 uint32_t *expert_type);
 bool ds4_test_mellum_moe(ds4_engine *engine, uint32_t layer, const float *x, uint32_t T,
                          float *out, float *out1, int32_t *selected, float *weights);
 
@@ -1108,9 +1109,9 @@ static void test_mellum_moe_real_rows(ds4_engine *engine) {
         int worst_pos = -1;
         for (size_t li = 0; li < sizeof(layers) / sizeof(layers[0]); li++) {
             const uint32_t il = layers[li];
-            mref_weights mw = { .expert_type = MREF_TYPE_Q8_0 };
+            mref_weights mw = { 0 };   /* the expert type comes from the file */
             const void *map = NULL;
-            TEST_ASSERT(ds4_test_mellum_moe_weights(engine, il, &map, &mw.router, &mw.gate, &mw.up, &mw.down));
+            TEST_ASSERT(ds4_test_mellum_moe_weights(engine, il, &map, &mw.router, &mw.gate, &mw.up, &mw.down, &mw.expert_type));
             mw.base = map;
             if (!map) break;
             for (int i = 0; i < NPOS; i++)
@@ -1211,9 +1212,9 @@ static void test_mellum_moe_real(void) {
         uint64_t row0_diff = 0;
         for (size_t li = 0; li < sizeof(layers) / sizeof(layers[0]); li++) {
             const uint32_t il = layers[li];
-            mref_weights mw = { .expert_type = MREF_TYPE_Q8_0 };
+            mref_weights mw = { 0 };   /* the expert type comes from the file */
             const void *map = NULL;
-            TEST_ASSERT(ds4_test_mellum_moe_weights(engine, il, &map, &mw.router, &mw.gate, &mw.up, &mw.down));
+            TEST_ASSERT(ds4_test_mellum_moe_weights(engine, il, &map, &mw.router, &mw.gate, &mw.up, &mw.down, &mw.expert_type));
             mw.base = map;
             if (!map) break;
             for (uint64_t i = 0; i < (uint64_t)T * MREF_E; i++) x[i] = 1.7f * test_mellum_frand(&rng);
@@ -1252,9 +1253,9 @@ static void test_mellum_moe_real(void) {
         enum { T = 64 };
         const uint32_t il = 13, rows[] = { 0, 7, 31, 63 };
         float *simd = malloc((uint64_t)T * MREF_E * sizeof(float));
-        mref_weights mw = { .expert_type = MREF_TYPE_Q8_0 };
+        mref_weights mw = { 0 };   /* the expert type comes from the file */
         const void *map = NULL;
-        TEST_ASSERT(simd && ds4_test_mellum_moe_weights(engine, il, &map, &mw.router, &mw.gate, &mw.up, &mw.down));
+        TEST_ASSERT(simd && ds4_test_mellum_moe_weights(engine, il, &map, &mw.router, &mw.gate, &mw.up, &mw.down, &mw.expert_type));
         mw.base = map;
         for (uint64_t i = 0; i < (uint64_t)T * MREF_E; i++) x[i] = 1.7f * test_mellum_frand(&rng);
         setenv("DS4_MELLUM_MOE_NAX", "0", 1);
