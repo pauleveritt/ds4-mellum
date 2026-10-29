@@ -36,19 +36,23 @@ int ds4_mellum_stream_config(bool streaming, uint64_t cache_bytes, uint64_t expe
 }
 
 int ds4_mellum_stream_decode(const ds4_mellum_stream_ops *ops, uint32_t n_layer, uint32_t *stops) {
-    if (!ops || !ops->encode || !ops->finish || !ops->load || !ops->cancelled || !stops || n_layer == 0) {
+    if (!ops || !ops->encode || !ops->finish || !ops->load || !ops->cancelled || !stops || n_layer == 0 ||
+        (ops->load_begin && !ops->discard)) {
         return DS4_MELLUM_STREAM_PROTOCOL;
     }
     *stops = 0;
     uint32_t layer = 0;
     uint64_t loaded_here = 0;  /* experts loaded at `layer` since the first stop there */
-    bool resume = false;
+    bool resume = false, encoded = false;
     for (;;) {
         bool stopped = false;
         ds4_mellum_stream_stop stop;
-        if (!ops->encode(ops->ctx, layer, resume) || !ops->finish(ops->ctx, &stopped, &stop)) {
+        if (!encoded && !ops->encode(ops->ctx, layer, resume)) {
+            if (ops->discard) ops->discard(ops->ctx);   /* a partly encoded pass must not run */
             return DS4_MELLUM_STREAM_GPU;
         }
+        if (!ops->finish(ops->ctx, &stopped, &stop)) return DS4_MELLUM_STREAM_GPU;
+        encoded = false;
         if (!stopped) return DS4_MELLUM_STREAM_OK;
         if (*stops >= n_layer * 8u || stop.layer >= n_layer || stop.n_missing == 0 || stop.n_missing > 8u ||
             (resume && stop.layer < layer)) {
@@ -65,8 +69,26 @@ int ds4_mellum_stream_decode(const ds4_mellum_stream_ops *ops, uint32_t n_layer,
             loaded_here = 0;
         }
         (*stops)++;
-        if (!ops->load(ops->ctx, stop.layer, stop.missing, stop.n_missing)) return DS4_MELLUM_STREAM_LOAD;
-        if (ops->cancelled(ops->ctx)) return DS4_MELLUM_STREAM_CANCELLED;
+        if (ops->load_begin) {
+            /* the reads run while the resumed pass is encoded; the pass is committed only once they finish */
+            if (!ops->load_begin(ops->ctx, stop.layer, stop.missing, stop.n_missing)) return DS4_MELLUM_STREAM_LOAD;
+            if (!ops->encode(ops->ctx, stop.layer, true)) {
+                ops->discard(ops->ctx);
+                return DS4_MELLUM_STREAM_GPU;
+            }
+            encoded = true;
+            if (!ops->load(ops->ctx, stop.layer, stop.missing, stop.n_missing)) {
+                ops->discard(ops->ctx);
+                return DS4_MELLUM_STREAM_LOAD;
+            }
+            if (ops->cancelled(ops->ctx)) {
+                ops->discard(ops->ctx);
+                return DS4_MELLUM_STREAM_CANCELLED;
+            }
+        } else {
+            if (!ops->load(ops->ctx, stop.layer, stop.missing, stop.n_missing)) return DS4_MELLUM_STREAM_LOAD;
+            if (ops->cancelled(ops->ctx)) return DS4_MELLUM_STREAM_CANCELLED;
+        }
         loaded_here |= missing;
         layer = stop.layer;
         resume = true;

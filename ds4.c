@@ -49,6 +49,8 @@
 /* S4: set at engine open when the engine streams Mellum's experts; sessions read it at allocation. */
 static bool g_mellum_stream_engine;
 static int g_mellum_stream_fd = -1;
+/* S5: K, the chunks per streamed prefill group (DS4_MELLUM_STREAM_PREFILL_GROUP), read at the same open */
+static uint32_t g_mellum_stream_group_k = 1u;
 /* tests/ds4_test.c --mellum-stream-faults: fail the nth streamed load from when it was set (0: never) */
 static uint64_t g_mellum_stream_fail_load_at, g_mellum_stream_load_count;
 #endif
@@ -17527,6 +17529,7 @@ typedef enum {
     MELLUM_REQ_TAG,         /* index = sliding layer: int32 position tag per ring slot (K and V rows share it) */
     MELLUM_REQ_SCRATCH,     /* index = mellum_scratch_id */
     MELLUM_REQ_LOGITS,
+    MELLUM_REQ_GROUP_HIDDEN, /* S5: a streamed prefill group's hidden rows, K x cap_tokens, f32 */
 } mellum_req_kind;
 
 typedef enum {
@@ -17551,7 +17554,7 @@ typedef struct {
     uint64_t bytes;
 } mellum_req;
 
-#define MELLUM_MAX_REQS (3u * DS4_MAX_LAYER + MELLUM_SCRATCH_COUNT + 1u)
+#define MELLUM_MAX_REQS (3u * DS4_MAX_LAYER + MELLUM_SCRATCH_COUNT + 2u)   /* + logits and the S5 group buffer */
 
 /* Full attention's rows kernels work in slices of 64 rows and split each row's keys
  * into at most 64 parts (QWEN4_ATTN_MAX_SPLITS, ds4_metal.m; mellum_graph_alloc checks
@@ -17595,7 +17598,28 @@ static uint32_t mellum_prefill_cap(uint32_t ctx, uint32_t requested) {
 
 /* Every GPU tensor of a Mellum session, in allocation order.  Returns the
  * count; out holds MELLUM_MAX_REQS entries. */
-static uint32_t mellum_requests(uint32_t ctx, uint32_t cap_tokens, mellum_req *out) {
+/* S5: K for a streamed Mellum graph of cap_tokens rows: 1 (per chunk) unless streaming with K > 1 and
+ * chunks of two rows or more; one-row chunks all run on the decode path, so they never group. */
+static uint32_t mellum_group_k(uint32_t cap_tokens) {
+#if defined(__APPLE__)
+    return g_mellum_stream_engine && cap_tokens > 1u ? g_mellum_stream_group_k : 1u;
+#else
+    (void)cap_tokens;
+    return 1u;
+#endif
+}
+
+/* S5: the rows of the streamed prefill group buffer a Mellum graph of cap_tokens rows holds (0: none). */
+static uint32_t mellum_group_rows(uint32_t cap_tokens) {
+#if defined(__APPLE__)
+    return mellum_group_k(cap_tokens) > 1u ? mellum_group_k(cap_tokens) * cap_tokens : 0u;
+#else
+    (void)cap_tokens;
+    return 0u;
+#endif
+}
+
+static uint32_t mellum_requests(uint32_t ctx, uint32_t cap_tokens, uint32_t group_rows, mellum_req *out) {
     const uint64_t E = DS4_N_EMBD, T = cap_tokens, window = DS4_N_SWA;
     const uint64_t q_dim = (uint64_t)DS4_N_HEAD * DS4_N_HEAD_DIM;
     const uint64_t kv_dim = (uint64_t)DS4_N_HEAD_KV * DS4_N_HEAD_DIM;
@@ -17643,6 +17667,7 @@ static uint32_t mellum_requests(uint32_t ctx, uint32_t cap_tokens, mellum_req *o
     MELLUM_SCRATCH(MELLUM_S_MOE_COUNTS, MELLUM_CLASS_MOE, n_exp * sizeof(int32_t));
 #undef MELLUM_SCRATCH
     MELLUM_ADD(MELLUM_REQ_LOGITS, MELLUM_CLASS_LOGITS, 0, (uint64_t)DS4_N_VOCAB * sizeof(float));
+    if (group_rows > cap_tokens) MELLUM_ADD(MELLUM_REQ_GROUP_HIDDEN, MELLUM_CLASS_PREFILL, 0, (uint64_t)group_rows * E * sizeof(float));
 #undef MELLUM_ADD
     return n;
 }
@@ -17655,7 +17680,7 @@ static ds4_context_memory mellum_context_memory(int ctx_size, uint32_t requested
     const uint32_t ctx = ctx_size > 0 ? (uint32_t)ctx_size : 1u;
     const uint32_t cap = mellum_prefill_cap(ctx, requested_chunk);
     mellum_req reqs[MELLUM_MAX_REQS];
-    const uint32_t n = mellum_requests(ctx, cap, reqs);
+    const uint32_t n = mellum_requests(ctx, cap, mellum_group_rows(cap), reqs);
     for (uint32_t i = 0; i < n; i++) {
         if (reqs[i].cls == MELLUM_CLASS_KV) m.raw_bytes += reqs[i].bytes;
         else m.scratch_bytes += reqs[i].bytes;
@@ -59354,6 +59379,10 @@ typedef struct ds4_qwen4_gpu_graph {
     void *mellum_stream_cancel_ud;
     ds4_gpu_tensor *mellum_stream_gate, *mellum_stream_save;
     ds4_gpu_tensor *mellum_stream_addr[DS4_MAX_LAYER][3];
+    /* S5 grouped prefill: K chunks per layer pass (1: per chunk, as before), and the group's hidden rows
+     * (NULL unless streaming with K > 1) */
+    uint32_t mellum_group_k;
+    ds4_gpu_tensor *mellum_group_hidden;
     uint32_t mellum_stream_resume;
     uint64_t mellum_stream_stops;
     uint64_t mellum_stream_loads;     /* experts read into slots */
@@ -59503,6 +59532,7 @@ static bool mellum_graph_alloc(ds4_qwen4_gpu_graph *g, uint32_t ctx_cap, uint32_
     g->mellum_moe_nax = nax && !strcmp(nax, "0") ? 0u : 2u;
 #if defined(__APPLE__)
     g->mellum_stream = g_mellum_stream_engine;
+    g->mellum_group_k = mellum_group_k(cap_tokens);
     g->mellum_stream_resume = UINT32_MAX;
     if (g->mellum_stream) {
         g->mellum_stream_gate = ds4_gpu_stream_gate_create();
@@ -59522,7 +59552,7 @@ static bool mellum_graph_alloc(ds4_qwen4_gpu_graph *g, uint32_t ctx_cap, uint32_
     g->n_logit_rows = 1u;
     g->owns_scratch = true;
     mellum_req reqs[MELLUM_MAX_REQS];
-    const uint32_t n = mellum_requests(ctx_cap, cap_tokens, reqs);
+    const uint32_t n = mellum_requests(ctx_cap, cap_tokens, mellum_group_rows(cap_tokens), reqs);
     bool ok = true;
     uint64_t allocated = 0;
     for (uint32_t i = 0; i < n && ok; i++) {
@@ -59536,6 +59566,7 @@ static bool mellum_graph_alloc(ds4_qwen4_gpu_graph *g, uint32_t ctx_cap, uint32_
         case MELLUM_REQ_TAG: g->mellum_tag[x] = t; break;
         case MELLUM_REQ_SCRATCH: g->mellum_scratch[x] = t; break;
         case MELLUM_REQ_LOGITS: g->logits = t; break;
+        case MELLUM_REQ_GROUP_HIDDEN: g->mellum_group_hidden = t; break;
         }
     }
     ok = ok && mellum_graph_forget_ring(g);
@@ -59691,6 +59722,7 @@ static void qwen4_graph_free(ds4_qwen4_gpu_graph *g) {
     for (uint32_t i = 0; i < MELLUM_SCRATCH_COUNT; i++) ds4_gpu_tensor_free(g->mellum_scratch[i]);
     ds4_gpu_tensor_free(g->mellum_stream_gate);
     ds4_gpu_tensor_free(g->mellum_stream_save);
+    ds4_gpu_tensor_free(g->mellum_group_hidden);
     for (uint32_t il = 0; il < DS4_MAX_LAYER; il++)
         for (int t = 0; t < 3; t++) ds4_gpu_tensor_free(g->mellum_stream_addr[il][t]);
     free(g->host_logits);
@@ -61003,6 +61035,26 @@ static bool mellum_stream_load(void *ctx, uint32_t layer, const int32_t *ids, ui
     return mellum_stream_load_ids(c->m, &c->w->layer[layer], layer, ids, n, &c->g->mellum_stream_loads);
 }
 
+/* Starts the stop's reads (the load that follows finishes them); see ds4_gpu_mellum_stream_load_begin. */
+static bool mellum_stream_load_begin(void *ctx, uint32_t layer, const int32_t *ids, uint32_t n) {
+    mellum_stream_ctx *c = ctx;
+    const ds4_layer_weights *l = &c->w->layer[layer];
+    uint64_t gate_bytes = 0, down_bytes = 0;
+    if (!streaming_layer_gate_down_expert_bytes(l, &gate_bytes, &down_bytes)) return false;
+    const ds4_gpu_stream_expert_table table = graph_stream_expert_table_make(c->m, l, layer, gate_bytes, down_bytes);
+    uint32_t loaded = 0;
+    const bool ok = ds4_gpu_mellum_stream_load_begin(&table, ids, n, &loaded) != 0;
+    c->g->mellum_stream_loads += loaded;
+    return ok;
+}
+
+/* Drops an encoded resumed pass whose experts did not load, or whose token was cancelled: it must not run. */
+static void mellum_stream_discard(void *ctx) {
+    (void)ctx;
+    ds4_gpu_discard_commands();
+    (void)ds4_gpu_stream_gate_bind(NULL);
+}
+
 static bool mellum_stream_cancelled(void *ctx) {
     const ds4_qwen4_gpu_graph *g = ((mellum_stream_ctx *)ctx)->g;
     return g->mellum_stream_cancel && g->mellum_stream_cancel(g->mellum_stream_cancel_ud);
@@ -61012,7 +61064,7 @@ static bool mellum_stream_decode(ds4_qwen4_gpu_graph *g, const ds4_model *m, con
                                  float *logits_out) {
     mellum_stream_ctx c = { g, m, w, token };
     const ds4_mellum_stream_ops ops = { &c, mellum_stream_encode, mellum_stream_finish, mellum_stream_load,
-                                        mellum_stream_cancelled };
+                                        mellum_stream_cancelled, mellum_stream_load_begin, mellum_stream_discard };
     uint32_t stops = 0;
     const int rc = ds4_mellum_stream_decode(&ops, DS4_N_LAYER, &stops);
     if (ds4_gpu_commands_active()) (void)ds4_gpu_end_commands();
@@ -61147,6 +61199,77 @@ static bool mellum_graph_forward_tokens(ds4_qwen4_gpu_graph *g, const ds4_model 
     if (ok) ok = route_done(pos0, T, tokens);
 #endif
     if (ok) g->pos += T;
+    return ok;
+#endif
+}
+
+/* S5 grouped layer-major prefill (streamed Mellum, K > 1).  rows (two or more, at most K x cap_tokens, never
+ * ending in a one-row chunk) at g->pos.. run as consecutive chunks of cap_tokens, every layer over all of the
+ * group's chunks, in order, before the next layer, so a layer's experts load about once per group rather than
+ * once per chunk.  Each (layer, chunk) is the ordinary mellum_graph_layer on that chunk's rows, copied from the
+ * group buffer into HIDDEN and back, at the chunk's own position: its KV, ring and hidden inputs equal the
+ * per-chunk forward's.  The streamed MoE waits on the GPU after every (layer, chunk) router, which keeps the
+ * CPU-written full-attention rows table safe to reuse across a layer's chunks.  logits_out receives the last
+ * row's logits; display, when set, hears a prefill_display event after each layer pass (not a checkpoint). */
+static bool mellum_graph_prefill_group(ds4_qwen4_gpu_graph *g, const ds4_model *m, const ds4_weights *w,
+                                       const int *tokens, uint32_t rows, float *logits_out,
+                                       ds4_session_progress_fn display, void *display_ud,
+                                       int display_base, int display_total) {
+#if !defined(__APPLE__)
+    (void)g; (void)m; (void)w; (void)tokens; (void)rows; (void)logits_out;
+    (void)display; (void)display_ud; (void)display_base; (void)display_total;
+    return false;
+#else
+    const uint32_t cap = g ? g->cap_tokens : 0u, E = DS4_N_EMBD;
+    if (!g || !tokens || !g->mellum_stream || !g->mellum_group_hidden || cap == 0 || rows < 2u ||
+        rows > g->mellum_group_k * cap || g->pos + rows > g->ctx_cap) return false;
+    const uint32_t n_chunk = (rows + cap - 1u) / cap, last = rows - (n_chunk - 1u) * cap;
+    if (last == 1u) return false;   /* a one-row chunk runs on the decode path */
+    mellum_trace_cfg tc;
+    if (!mellum_trace_parse(&tc)) return false;
+    if (g->mellum_capture || tc.prefix) {
+        fprintf(stderr, "ds4: Mellum SSD streaming does not support route capture or tracing\n");
+        return false;
+    }
+    ds4_gpu_tensor *const *s = g->mellum_scratch;
+    ds4_gpu_tensor *hid = g->mellum_group_hidden;
+    const ds4_gpu_mellum_rope rope = mellum_rope_params();
+    const uint32_t pos0 = g->pos;
+    const uint64_t row_bytes = (uint64_t)E * sizeof(float);
+    bool ok = true;
+    for (uint32_t c = 0; c < n_chunk && ok; c++) {
+        const uint32_t r0 = c * cap, T = c + 1u < n_chunk ? cap : last;
+        /* TOKENS is one chunk wide: the previous chunk's embed must have run before it is rewritten */
+        if (ds4_gpu_commands_active() && !ds4_gpu_end_commands()) ok = false;
+        ok = ok && ds4_gpu_tensor_write(s[MELLUM_S_TOKENS], 0, tokens + r0, (uint64_t)T * sizeof(int32_t)) != 0 &&
+             glm_graph_begin_commands_if_needed() &&
+             ds4_gpu_embed_tokens_q8_0_tensor(s[MELLUM_S_HIDDEN], s[MELLUM_S_TOKENS], m->map, m->size,
+                                              w->token_embd->abs_offset, (uint32_t)w->token_embd->dim[1], T, E) != 0 &&
+             ds4_gpu_tensor_copy(hid, r0 * row_bytes, s[MELLUM_S_HIDDEN], 0, T * row_bytes) != 0;
+    }
+    uint32_t full_slot = 0;
+    for (uint32_t il = 0; il < DS4_N_LAYER && ok; il++) {
+        for (uint32_t c = 0; c < n_chunk && ok; c++) {
+            const uint32_t r0 = c * cap, T = c + 1u < n_chunk ? cap : last;
+            ok = glm_graph_begin_commands_if_needed() &&
+                 ds4_gpu_tensor_copy(s[MELLUM_S_HIDDEN], 0, hid, r0 * row_bytes, T * row_bytes) != 0 &&
+                 mellum_graph_layer(g, m, &w->layer[il], il, full_slot, pos0 + r0, T, &rope) &&
+                 ds4_gpu_tensor_copy(hid, r0 * row_bytes, s[MELLUM_S_HIDDEN], 0, T * row_bytes) != 0;
+        }
+        if (!ds4_mellum_layer_is_sliding(il)) full_slot++;
+        if (ok && display) {
+            display(display_ud, "prefill_display", display_base + (int)((uint64_t)rows * (il + 1u) / DS4_N_LAYER),
+                    display_total);
+        }
+    }
+    /* the last chunk's rows are still in HIDDEN: its last row's logits */
+    if (ok && logits_out) {
+        ok = glm_graph_begin_commands_if_needed() && mellum_graph_head(g, m, w, last - 1u) &&
+             ds4_gpu_end_commands() != 0 &&
+             ds4_gpu_tensor_read(g->logits, 0, logits_out, (uint64_t)DS4_N_VOCAB * sizeof(float)) != 0;
+    }
+    if (ds4_gpu_commands_active() && !ds4_gpu_end_commands()) ok = false;
+    if (ok) g->pos += rows;
     return ok;
 #endif
 }
@@ -74347,7 +74470,15 @@ static int ds4_engine_open_internal(ds4_engine **out,
          * and read-ahead off, so they come from the device rather than from cached file pages. */
         g_mellum_stream_engine = ds4_model_is_mellum() && e->ssd_streaming;
         ds4_gpu_mellum_stream_set_readahead(!g_mellum_stream_engine);
+        g_mellum_stream_group_k = 1u;
         if (g_mellum_stream_engine) {
+            g_mellum_stream_group_k = ds4_mellum_stream_prefill_group(getenv("DS4_MELLUM_STREAM_PREFILL_GROUP"));
+            if (!g_mellum_stream_group_k) {
+                fprintf(stderr, "ds4: Mellum SSD streaming: DS4_MELLUM_STREAM_PREFILL_GROUP must be 1-64\n");
+                ds4_engine_close(e);
+                *out = NULL;
+                return 1;
+            }
             g_mellum_stream_fd = open(opt->model_path, O_RDONLY | O_CLOEXEC);
             if (g_mellum_stream_fd < 0 || fcntl(g_mellum_stream_fd, F_NOCACHE, 1) != 0 ||
                 fcntl(g_mellum_stream_fd, F_RDAHEAD, 0) != 0) {
@@ -75705,6 +75836,7 @@ void ds4_engine_close(ds4_engine *e) {
         g_mellum_stream_fd = -1;
     }
     g_mellum_stream_engine = false;
+    g_mellum_stream_group_k = 1u;
 #endif
     ds4_engine_tp_unbind(e);
 #if !defined(DS4_NO_GPU) && !defined(__APPLE__) && !defined(DS4_ROCM_BUILD)
@@ -78441,12 +78573,23 @@ static int ds4_session_sync_internal(ds4_session *s, const ds4_tokens *prompt, c
             }
             uint32_t chunk = (uint32_t)(prompt->len - i);
             if (chunk > s->qwen4_graph.cap_tokens) chunk = s->qwen4_graph.cap_tokens;
+            /* S5: a streamed Mellum graph with K > 1 takes a group of up to K chunks, one checkpoint */
+            const bool grouped = ds4_model_is_mellum() && s->qwen4_graph.mellum_stream &&
+                                 s->qwen4_graph.mellum_group_k > 1u;
+            if (grouped) {
+                chunk = ds4_mellum_stream_group_rows((uint32_t)(prompt->len - i), s->qwen4_graph.cap_tokens,
+                                                     s->qwen4_graph.mellum_group_k);
+            }
             /* Progress callbacks may persist this frontier, and cancellation
              * may leave it as the live session. Every completed chunk needs
              * its own logits as well as recurrent/KV state. */
             s->checkpoint_valid = false;
-            if (!qwen4_graph_forward_tokens(&s->qwen4_graph, &e->model, &e->weights,
-                                            prompt->v + i, chunk, s->logits, false)) {
+            const bool fok = grouped && chunk > 1u ?
+                mellum_graph_prefill_group(&s->qwen4_graph, &e->model, &e->weights, prompt->v + i, chunk, s->logits,
+                                           s->display_progress, s->display_progress_ud, i, prompt->len) :
+                qwen4_graph_forward_tokens(&s->qwen4_graph, &e->model, &e->weights,
+                                           prompt->v + i, chunk, s->logits, false);
+            if (!fok) {
                 snprintf(err, errlen, "%s prefill failed at token %d", ds4_qwen4_family_name(), i);
                 s->checkpoint_valid = false;
                 prefill_rc = 1;

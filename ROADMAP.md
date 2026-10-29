@@ -1,6 +1,6 @@
 # Mellum roadmap
 
-Updated 2026-10-28. [MELLUM.md](MELLUM.md) records the port, measurements and
+Updated 2026-10-29. [MELLUM.md](MELLUM.md) records the port, measurements and
 numbered checkpoints. This roadmap tracks the separate SSD investigation.
 
 ## Current baseline
@@ -235,8 +235,16 @@ exact against resident:
    (C n=3, device-true, exact, no regression at n=6): decode 39.0 t/s median, up 49% from 02; cold first
    token 60.6 s; 29.5 t/s after a 1,905-token append, whose first token took 4.3 s. R's preregistered
    reuse-time check failed, so the per-turn figures are reported, not claimed.
-2. **Layer-major prefill:** read each layer's experts once per prompt, not once per 1,024-row chunk. In
-   02, prefill loaded 334 GB and added about 31 s to the first token. It helps on any machine.
+2. **Layer-major prefill: done.** [Grouped prefill](docs/superpowers/specs/2026-10-28-mellum-s5-layer-major-prefill-design.md),
+   K = 8 chunks per layer pass, streaming only. [Measurement 02](docs/superpowers/research/2026-10-28-mellum-s5-measurement-02.md)
+   (C n=3, device-true, exact, no regression at n=6): cold first token 60.6 → 37.7 s median, prefill loads
+   50,806 → 7,416, Metal 7.94 GiB. The preregistered load ceiling (7,168) was exceeded by 3.5%.
+2b. **Cheaper stops: done (2026-10-29, owner's overnight instruction; reopens S4's set-aside load overlap).**
+   A stop's reads now run while the resumed pass is encoded, and the cache's victim scans stop at the
+   installed area. [Result](docs/superpowers/research/2026-10-29-mellum-stream-decode.md) (preregistered,
+   MXFP4 at 2.5 GiB on the M5, n=3): 44.8 → 24.7 ms/token (22 → 40 t/s), identical ids; 3 GiB 32.0 → 18.8 ms (n=1).
+   Chunked reads, windowed passes and synchronous next-layer prefetch were screened and lost; pre-gating
+   predicts 7.0 of the next layer's 8 experts, so an asynchronous prefetch stays a candidate for step 4.
 3. **Fewer stops per token:** hotness for layers that hit, and the eviction policy. Choose on a fresh
    trace, never the held-out -02 trace or ac-demo. After the append, stops rose from 8.7 to 12.7 per
    token. Wait for the M1 Pro's baseline, whose cost per stop

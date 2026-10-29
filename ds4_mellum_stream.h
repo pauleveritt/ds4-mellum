@@ -36,6 +36,11 @@ typedef struct ds4_mellum_stream_ops {
     bool (*finish)(void *ctx, bool *stopped, ds4_mellum_stream_stop *stop);  /* commit, wait, read the gate */
     bool (*load)(void *ctx, uint32_t layer, const int32_t *ids, uint32_t n);  /* returns once resident */
     bool (*cancelled)(void *ctx);
+    /* Optional, together: load_begin starts a stop's reads and returns before they finish, so the resumed
+     * pass is encoded while they run; load then finishes them before the pass is committed.  discard drops
+     * an encoded pass uncommitted, when a load fails or the token is cancelled after the encode. */
+    bool (*load_begin)(void *ctx, uint32_t layer, const int32_t *ids, uint32_t n);
+    void (*discard)(void *ctx);
 } ds4_mellum_stream_ops;
 enum { DS4_MELLUM_STREAM_OK = 0, DS4_MELLUM_STREAM_LOAD = -1,
        DS4_MELLUM_STREAM_PROTOCOL = -2, DS4_MELLUM_STREAM_CANCELLED = -3, DS4_MELLUM_STREAM_GPU = -4 };

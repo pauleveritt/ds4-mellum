@@ -98,7 +98,9 @@ static void test_config_refuses_unknown_expert_type(void) {
 typedef struct {
     ds4_mellum_stream_stop stops[300];
     uint32_t n_stops, next;
-    bool load_fails, cancel_after_load, cancelled;
+    bool load_fails, cancel_after_load, cancelled, begin_fails;
+    uint32_t fail_encode_at;   /* 1-based: that encode fails (0: none) */
+    uint32_t encodes;
     char log[16384];
 } fake_t;
 
@@ -111,7 +113,7 @@ static bool fake_encode(void *ctx, uint32_t from_layer, bool resume_at_experts) 
     char b[32];
     snprintf(b, sizeof(b), "E%u%s ", from_layer, resume_at_experts ? "x" : "");
     fake_log(f, b);
-    return true;
+    return ++f->encodes != f->fail_encode_at;
 }
 
 static bool fake_finish(void *ctx, bool *stopped, ds4_mellum_stream_stop *stop) {
@@ -149,7 +151,33 @@ static void fake_stop(fake_t *f, uint32_t layer, uint32_t n, const int32_t *ids)
 }
 
 static int fake_run(fake_t *f, uint32_t *stops) {
-    const ds4_mellum_stream_ops ops = { f, fake_encode, fake_finish, fake_load, fake_cancelled };
+    const ds4_mellum_stream_ops ops = { f, fake_encode, fake_finish, fake_load, fake_cancelled, NULL, NULL };
+    *stops = 12345u;
+    return ds4_mellum_stream_decode(&ops, 28u, stops);
+}
+
+/* the overlapped protocol: load_begin starts a stop's reads, the resumed pass is encoded while they run, load
+ * finishes them, and discard drops an encoded pass that must not run */
+static bool fake_load_begin(void *ctx, uint32_t layer, const int32_t *ids, uint32_t n) {
+    fake_t *f = ctx;
+    char b[64];
+    snprintf(b, sizeof(b), "B%u:", layer);
+    fake_log(f, b);
+    for (uint32_t i = 0; i < n; i++) {
+        snprintf(b, sizeof(b), i ? ",%d" : "%d", ids[i]);
+        fake_log(f, b);
+    }
+    fake_log(f, " ");
+    return !f->begin_fails;
+}
+
+static void fake_discard(void *ctx) {
+    fake_log(ctx, "D ");
+}
+
+static int fake_run_overlap(fake_t *f, uint32_t *stops) {
+    const ds4_mellum_stream_ops ops = { f, fake_encode, fake_finish, fake_load, fake_cancelled, fake_load_begin,
+                                        fake_discard };
     *stops = 12345u;
     return ds4_mellum_stream_decode(&ops, 28u, stops);
 }
@@ -235,6 +263,79 @@ static void test_stop_cap(void) {
     CHECK(rc == DS4_MELLUM_STREAM_PROTOCOL && f.next == 225u, "the 225th stop is a protocol error (rc %d, finishes %u)", rc, f.next);
 }
 
+static void test_overlap_encodes_while_loading(void) {
+    fake_t f = { 0 };
+    fake_stop(&f, 9u, 2u, (const int32_t[]){ 3, 41 });
+    fake_stop(&f, 20u, 1u, (const int32_t[]){ 7 });
+    uint32_t stops;
+    const int rc = fake_run_overlap(&f, &stops);
+    CHECK(rc == DS4_MELLUM_STREAM_OK && stops == 2u, "overlap: ok with two stops (rc %d, stops %u)", rc, stops);
+    CHECK(!strcmp(f.log, "E0 F B9:3,41 E9x L9:3,41 F B20:7 E20x L20:7 F "),
+          "overlap: begin the reads, encode the resumed pass, finish the reads, then commit (log \"%s\")", f.log);
+}
+
+static void test_overlap_all_hit_is_unchanged(void) {
+    fake_t f = { 0 };
+    uint32_t stops;
+    const int rc = fake_run_overlap(&f, &stops);
+    CHECK(rc == DS4_MELLUM_STREAM_OK && stops == 0u && !strcmp(f.log, "E0 F "),
+          "overlap, all-hit: one encode and one finish (rc %d, log \"%s\")", rc, f.log);
+}
+
+static void test_overlap_load_failure_discards(void) {
+    fake_t f = { 0 };
+    f.load_fails = true;
+    fake_stop(&f, 9u, 1u, (const int32_t[]){ 3 });
+    uint32_t stops;
+    const int rc = fake_run_overlap(&f, &stops);
+    CHECK(rc == DS4_MELLUM_STREAM_LOAD, "overlap: a failed load returns LOAD (rc %d)", rc);
+    CHECK(!strcmp(f.log, "E0 F B9:3 E9x L9:3 D "), "overlap: a failed load discards the encoded pass (log \"%s\")", f.log);
+}
+
+static void test_overlap_cancel_discards(void) {
+    fake_t f = { 0 };
+    f.cancel_after_load = true;
+    fake_stop(&f, 9u, 1u, (const int32_t[]){ 3 });
+    uint32_t stops;
+    const int rc = fake_run_overlap(&f, &stops);
+    CHECK(rc == DS4_MELLUM_STREAM_CANCELLED, "overlap: cancellation returns CANCELLED (rc %d)", rc);
+    CHECK(!strcmp(f.log, "E0 F B9:3 E9x L9:3 D "), "overlap: cancellation discards the encoded pass (log \"%s\")", f.log);
+}
+
+static void test_overlap_begin_failure_encodes_nothing(void) {
+    fake_t f = { 0 };
+    f.begin_fails = true;
+    fake_stop(&f, 9u, 1u, (const int32_t[]){ 3 });
+    uint32_t stops;
+    const int rc = fake_run_overlap(&f, &stops);
+    CHECK(rc == DS4_MELLUM_STREAM_LOAD && !strcmp(f.log, "E0 F B9:3 "),
+          "overlap: a failed begin returns LOAD and encodes nothing (rc %d, log \"%s\")", rc, f.log);
+}
+
+static void test_overlap_encode_failure_discards(void) {
+    /* a failed encode leaves a partly encoded pass: with discard set it is dropped, never committed */
+    fake_t f = { 0 };
+    f.fail_encode_at = 1u;
+    uint32_t stops;
+    int rc = fake_run_overlap(&f, &stops);
+    CHECK(rc == DS4_MELLUM_STREAM_GPU && !strcmp(f.log, "E0 D "),
+          "overlap: a failed first encode is discarded (rc %d, log \"%s\")", rc, f.log);
+    fake_t g = { 0 };
+    g.fail_encode_at = 2u;
+    fake_stop(&g, 9u, 1u, (const int32_t[]){ 3 });
+    rc = fake_run_overlap(&g, &stops);
+    CHECK(rc == DS4_MELLUM_STREAM_GPU && !strcmp(g.log, "E0 F B9:3 E9x D "),
+          "overlap: a failed resumed encode is discarded (rc %d, log \"%s\")", rc, g.log);
+}
+
+static void test_overlap_needs_discard(void) {
+    fake_t f = { 0 };
+    const ds4_mellum_stream_ops ops = { &f, fake_encode, fake_finish, fake_load, fake_cancelled, fake_load_begin, NULL };
+    uint32_t stops = 0;
+    CHECK(ds4_mellum_stream_decode(&ops, 28u, &stops) == DS4_MELLUM_STREAM_PROTOCOL && f.log[0] == 0,
+          "load_begin without discard is a protocol error before any encode (log \"%s\")", f.log);
+}
+
 /* ---- streamed prefill: one layer's chunk needs the unique experts its rows chose ---- */
 
 static void test_unique_sorted(void) {
@@ -298,6 +399,13 @@ int main(void) {
     test_load_failure();
     test_cancel_between_stops();
     test_stop_cap();
+    test_overlap_encodes_while_loading();
+    test_overlap_all_hit_is_unchanged();
+    test_overlap_load_failure_discards();
+    test_overlap_cancel_discards();
+    test_overlap_begin_failure_encodes_nothing();
+    test_overlap_needs_discard();
+    test_overlap_encode_failure_discards();
     test_unique_sorted();
     test_unique_rejects_out_of_range();
     test_prefill_group_setting();

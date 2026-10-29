@@ -329,7 +329,7 @@ static uint64_t expect_fixed(uint64_t cap) {
 
 static uint64_t sum_requests(uint32_t ctx, uint32_t cap, uint32_t *n_out) {
     mellum_req reqs[MELLUM_MAX_REQS];
-    const uint32_t n = mellum_requests(ctx, cap, reqs);
+    const uint32_t n = mellum_requests(ctx, cap, 0u, reqs);
     uint64_t total = 0;
     for (uint32_t i = 0; i < n; i++) total += reqs[i].bytes;
     if (n_out) *n_out = n;
@@ -373,7 +373,7 @@ static void check_mellum_plan_scales_with_chunk(void) {
     CHECK(s.prefill_cap == 300 && s.scratch_bytes == 300 * expect_per_row() + expect_fixed(300));
 
     mellum_req reqs[MELLUM_MAX_REQS];
-    const uint32_t n = mellum_requests(20000, 1024, reqs);
+    const uint32_t n = mellum_requests(20000, 1024, 0u, reqs);
     uint32_t k = 0, v = 0, tags = 0, scratch = 0, logits = 0;
     uint64_t moe = 0;
     for (uint32_t i = 0; i < n; i++) {
@@ -513,7 +513,7 @@ static void check_mellum_attention_scratch(void) {
     CHECK(n_full == 7);
     for (size_t c = 0; c < sizeof(caps) / sizeof(caps[0]); c++) {
         mellum_req reqs[MELLUM_MAX_REQS];
-        const uint32_t n = mellum_requests(20000, caps[c], reqs);
+        const uint32_t n = mellum_requests(20000, caps[c], 0u, reqs);
         int tables = 0, parts = 0;
         for (uint32_t i = 0; i < n; i++) {
             if (reqs[i].kind != MELLUM_REQ_SCRATCH) continue;
@@ -530,7 +530,7 @@ static void check_mellum_attention_scratch(void) {
     }
     /* at the default chunk: 7 x 1,024 x 64 B = 448 KiB, and 65.0 MiB of partials */
     mellum_req reqs[MELLUM_MAX_REQS];
-    const uint32_t n = mellum_requests(20000, 1024, reqs);
+    const uint32_t n = mellum_requests(20000, 1024, 0u, reqs);
     for (uint32_t i = 0; i < n; i++) {
         if (reqs[i].kind == MELLUM_REQ_SCRATCH && reqs[i].index == MELLUM_S_ATTN_TABLE) CHECK(reqs[i].bytes == 458752ull);
         if (reqs[i].kind == MELLUM_REQ_SCRATCH && reqs[i].index == MELLUM_S_ATTN_PART) CHECK(reqs[i].bytes == 68157440ull);

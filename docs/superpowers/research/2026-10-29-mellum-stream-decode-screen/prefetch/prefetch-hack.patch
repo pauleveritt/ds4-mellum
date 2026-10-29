@@ -1,0 +1,75 @@
+diff --git a/ds4.c b/ds4.c
+index 5e276b8..27a329f 100644
+--- a/ds4.c
++++ b/ds4.c
+@@ -61030,9 +61030,31 @@ static bool mellum_stream_finish(void *ctx, bool *stopped, ds4_mellum_stream_sto
+                                DS4_N_EXPERT_USED * sizeof(int32_t)) != 0;
+ }
+ 
++int ds4_gpu_screen_prefetch(const ds4_gpu_stream_expert_table *t, const int32_t *ids, uint32_t n, uint32_t keep_layer,
++                            const int32_t *keep, uint32_t keep_n, uint32_t *loaded);
++static uint64_t g_screen_prefetched;
++static void screen_prefetch_report(void) { fprintf(stderr, "screen_prefetch loaded %llu\n", (unsigned long long)g_screen_prefetched); }
+ static bool mellum_stream_load(void *ctx, uint32_t layer, const int32_t *ids, uint32_t n) {
+     mellum_stream_ctx *c = ctx;
+-    return mellum_stream_load_ids(c->m, &c->w->layer[layer], layer, ids, n, &c->g->mellum_stream_loads);
++    if (!mellum_stream_load_ids(c->m, &c->w->layer[layer], layer, ids, n, &c->g->mellum_stream_loads)) return false;
++    static int on = -1;
++    if (on < 0) { on = getenv("SCREEN_PREFETCH") != NULL; if (on) atexit(screen_prefetch_report); }
++    if (!on || layer + 1u >= DS4_N_LAYER || n > 8u) return true;
++    const uint32_t E = DS4_N_EMBD;
++    float x[8192];
++    if (E > 8192u || !ds4_gpu_tensor_read(c->g->mellum_scratch[MELLUM_S_FFN_NORM], 0, x, (uint64_t)E * sizeof(float))) return true;
++    const ds4_layer_weights *l1 = &c->w->layer[layer + 1u];
++    const float *router = (const float *)((const uint8_t *)c->m->map + l1->ffn_gate_inp->abs_offset);
++    float logit[64]; int32_t top[8];
++    for (uint32_t e = 0; e < 64u; e++) { double a = 0; for (uint32_t i = 0; i < E; i++) a += (double)router[(uint64_t)e * E + i] * x[i]; logit[e] = (float)a; }
++    for (uint32_t k = 0; k < 8u; k++) { int32_t best = -1; for (int32_t e = 0; e < 64; e++) { bool used = false; for (uint32_t j = 0; j < k; j++) used |= top[j] == e; if (!used && (best < 0 || logit[e] > logit[best])) best = e; } top[k] = best; }
++    uint64_t gate_bytes = 0, down_bytes = 0;
++    if (!streaming_layer_gate_down_expert_bytes(l1, &gate_bytes, &down_bytes)) return true;
++    const ds4_gpu_stream_expert_table table = graph_stream_expert_table_make(c->m, l1, layer + 1u, gate_bytes, down_bytes);
++    uint32_t loaded = 0;
++    (void)ds4_gpu_screen_prefetch(&table, top, 8u, layer, ids, n, &loaded);
++    g_screen_prefetched += loaded;
++    return true;
+ }
+ 
+ /* Starts the stop's reads (the load that follows finishes them); see ds4_gpu_mellum_stream_load_begin. */
+diff --git a/ds4_metal.m b/ds4_metal.m
+index b291eff..b4c0c91 100644
+--- a/ds4_metal.m
++++ b/ds4_metal.m
+@@ -15480,6 +15480,7 @@ static void ds4_gpu_stream_expert_cache_prune_layer(
+ static uint32_t g_mellum_stream_protect_layer;
+ static int32_t g_mellum_stream_protect_ids[64];
+ static uint32_t g_mellum_stream_protect_n;
++static uint32_t g_screen_keep_layer, g_screen_keep_n; static int32_t g_screen_keep_ids[8];   /* SCREEN HACK */
+ 
+ static int ds4_gpu_stream_expert_cache_entry_protected(
+         uint32_t layer,
+@@ -15491,6 +15492,10 @@ static int ds4_gpu_stream_expert_cache_entry_protected(
+         ds4_gpu_stream_expert_cache_is_protected(expert, g_mellum_stream_protect_ids, g_mellum_stream_protect_n)) {
+         return 1;
+     }
++    if (g_screen_keep_n && layer == g_screen_keep_layer &&
++        ds4_gpu_stream_expert_cache_is_protected(expert, g_screen_keep_ids, g_screen_keep_n)) {
++        return 1;
++    }
+     if (layer < DS4_METAL_STREAM_EXPERT_CACHE_MAX_LAYER &&
+         expert < DS4_METAL_STREAM_EXPERT_CACHE_MAX_EXPERT &&
+         ds4_gpu_stream_expert_cache_entry_inflight(
+@@ -51407,6 +51412,14 @@ int ds4_gpu_mellum_stream_load(const ds4_gpu_stream_expert_table *t, const int32
+     return 1;
+ }
+ 
++int ds4_gpu_screen_prefetch(const ds4_gpu_stream_expert_table *t, const int32_t *ids, uint32_t n, uint32_t keep_layer,
++                            const int32_t *keep, uint32_t keep_n, uint32_t *loaded) {
++    g_screen_keep_layer = keep_layer; memcpy(g_screen_keep_ids, keep, keep_n * sizeof(int32_t)); g_screen_keep_n = keep_n;
++    const int ok = ds4_gpu_mellum_stream_load(t, ids, n, loaded);
++    g_screen_keep_n = 0;
++    return ok;
++}
++
+ int ds4_gpu_mellum_stream_load_begin(const ds4_gpu_stream_expert_table *t, const int32_t *ids, uint32_t n) {
+     if (!g_ssd_streaming_mode || !t || !ids || n == 0 || n > 64u || !t->model_map) return 0;
+     if (n > DS4_METAL_MAX_ROUTED_EXPERT_USED) return 1;   /* load splits these into groups: no single group to match */

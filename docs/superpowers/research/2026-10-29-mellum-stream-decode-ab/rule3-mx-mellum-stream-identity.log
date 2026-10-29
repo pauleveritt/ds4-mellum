@@ -1,0 +1,37 @@
+mellum-stream-identity:
+ds4: Metal device Apple M5 Max, 128.00 GiB RAM
+ds4: Metal 4 tensor API enabled for Tensor kernels
+ds4: drift-patch flags hc_stable=on norm_unify=on kv_raw_f32=off rope_exp2_log2=off math_safe=off tensor_matmul=on
+ds4: Metal model views created in 0.323 ms, residency requested in 1562.739 ms, warmup 2.338 ms (mapped 6700.47 MiB from offset 3.42 MiB)
+ds4: Metal mapped mmaped model as 1 overlapping shared buffers
+ds4: metal backend initialized for graph diagnostics
+ds4: memory: KV 0.15 GiB (raw 0.15 + compressed 0.00) + buffers 0.25 GiB + resident model 6.54 GiB = 6.95 GiB planned
+ds4: memory detail: ctx=8192 prefill_cap=1024 raw_kv_rows=8192 compressed_kv_rows=0 backend=metal
+mellum: session allocated 432496896 bytes, planned 432496896 bytes
+ds4: Metal device Apple M5 Max, 128.00 GiB RAM
+ds4: Metal 4 tensor API enabled for Tensor kernels
+ds4: drift-patch flags hc_stable=on norm_unify=on kv_raw_f32=off rope_exp2_log2=off math_safe=off tensor_matmul=on
+ds4: Metal SSD streaming mode enabled; full model residency and warmup are skipped
+ds4: Mellum SSD streaming: 1958 expert slots (6.00 GiB)
+ds4: Metal SSD static weights locked 1.05 GiB; pageable 0.00 GiB
+ds4: SSD streaming initial metal model map (56 spans, 1.05 GiB tensor span)
+ds4: metal backend initialized for graph diagnostics
+ds4: memory: KV 0.15 GiB (raw 0.15 + compressed 0.00) + buffers 0.32 GiB + resident model 1.05 GiB + expert cache 6.00 GiB = 7.53 GiB planned
+ds4: memory detail: ctx=8192 prefill_cap=1024 raw_kv_rows=8192 compressed_kv_rows=0 backend=metal
+mellum: session allocated 507994368 bytes, planned 507994368 bytes
+ds4: Metal device Apple M5 Max, 128.00 GiB RAM
+ds4: Metal 4 tensor API enabled for Tensor kernels
+ds4: drift-patch flags hc_stable=on norm_unify=on kv_raw_f32=off rope_exp2_log2=off math_safe=off tensor_matmul=on
+ds4: Metal SSD streaming mode enabled; full model residency and warmup are skipped
+ds4: Mellum SSD streaming: 64 expert slots (0.20 GiB)
+ds4: Metal SSD static weights locked 1.05 GiB; pageable 0.00 GiB
+ds4: WARNING: SSD streaming expert cache (64 experts) is under twice the per-token routed working set (28 layers x 8 experts = 224); expect heavy thrashing below 1.37 GiB
+ds4: SSD streaming initial metal model map (56 spans, 1.05 GiB tensor span)
+ds4: metal backend initialized for graph diagnostics
+ds4: memory: KV 0.15 GiB (raw 0.15 + compressed 0.00) + buffers 0.32 GiB + resident model 1.05 GiB + expert cache 0.20 GiB = 1.72 GiB planned
+ds4: memory detail: ctx=8192 prefill_cap=1024 raw_kv_rows=8192 compressed_kv_rows=0 backend=metal
+mellum: session allocated 507994368 bytes, planned 507994368 bytes
+mellum-stream-identity: OK
+mellum-stream-identity: 6 GiB: 0 of 8650752 logit words differ; 603 stops over 88 tokens, 63 tokens stopped, 1247 experts loaded
+mellum-stream-identity: 64 slots: 0 of 8650752 logit words differ; 2464 stops over 88 tokens, 88 tokens stopped, 15900 experts loaded
+ds4 tests: ok
