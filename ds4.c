@@ -61078,6 +61078,24 @@ static bool mellum_stream_encode(void *ctx, uint32_t from_layer, bool resume) {
     return ok && mellum_graph_head(g, c->m, c->w, 0);
 }
 
+/* Tests (tests/ds4_test.c --mellum-stream-stop-scratch): when set, every stop compares scratch ATTN_RES and
+ * FFN_NORM with the stopped layer's save slot; a difference means a dispatch ran past the gate's trip. */
+static bool g_mellum_stream_check_scratch;
+static uint64_t g_mellum_stream_scratch_intact, g_mellum_stream_scratch_broken;
+
+static void mellum_stream_check_scratch(ds4_qwen4_gpu_graph *g, uint32_t layer) {
+    const uint64_t E = DS4_N_EMBD, row = E * sizeof(float);
+    float *a = malloc(2u * row), *b = malloc(2u * row);
+    bool same = a && b &&
+        ds4_gpu_tensor_read(g->mellum_scratch[MELLUM_S_ATTN_RES], 0, a, row) &&
+        ds4_gpu_tensor_read(g->mellum_scratch[MELLUM_S_FFN_NORM], 0, a + E, row) &&
+        ds4_gpu_tensor_read(g->mellum_stream_save, (uint64_t)layer * (2u * E + 16u) * sizeof(float), b, 2u * row);
+    same = same && memcmp(a, b, 2u * row) == 0;
+    if (same) g_mellum_stream_scratch_intact++; else g_mellum_stream_scratch_broken++;
+    free(a);
+    free(b);
+}
+
 static bool mellum_stream_finish(void *ctx, bool *stopped, ds4_mellum_stream_stop *stop) {
     mellum_stream_ctx *c = ctx;
     ds4_qwen4_gpu_graph *g = c->g;
@@ -61087,6 +61105,7 @@ static bool mellum_stream_finish(void *ctx, bool *stopped, ds4_mellum_stream_sto
     g->mellum_stream_resume = UINT32_MAX;
     if (!ok || !ds4_gpu_stream_gate_read(g->mellum_stream_gate, &layer, stopped)) return false;
     if (!*stopped) return true;
+    if (g_mellum_stream_check_scratch) mellum_stream_check_scratch(g, layer);
     /* the stopped layer's top-8 is still in SELECTED (its saved slot holds the same): load all eight, the
      * cache keeps the resident ones */
     memset(stop, 0, sizeof(*stop));
@@ -89549,6 +89568,17 @@ bool ds4_test_mellum_stream_fail_load(ds4_session *s, uint64_t nth) {
     if (!s || !ds4_session_is_qwen4(s) || !s->qwen4_graph.mellum_stream) return false;
     g_mellum_stream_fail_load_at = nth;
     g_mellum_stream_load_count = 0;
+    return true;
+}
+
+/* For tests/ds4_test.c --mellum-stream-stop-scratch: switch the per-stop scratch check on or off, and read its
+ * counts since it was last switched on. */
+bool ds4_test_mellum_stream_stop_scratch(ds4_session *s, bool on, uint64_t *intact, uint64_t *broken) {
+    if (!s || !ds4_session_is_qwen4(s) || !s->qwen4_graph.mellum_stream) return false;
+    if (on && !g_mellum_stream_check_scratch) g_mellum_stream_scratch_intact = g_mellum_stream_scratch_broken = 0;
+    g_mellum_stream_check_scratch = on;
+    if (intact) *intact = g_mellum_stream_scratch_intact;
+    if (broken) *broken = g_mellum_stream_scratch_broken;
     return true;
 }
 
