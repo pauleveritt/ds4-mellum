@@ -242,7 +242,7 @@ exact against resident:
 2b. **Cheaper stops: done (2026-10-29, owner's overnight instruction; reopens S4's set-aside load overlap).**
    A stop's reads now run while the resumed pass is encoded, and the cache's victim scans stop at the
    installed area. [Result](docs/superpowers/research/2026-10-29-mellum-stream-decode.md) (preregistered,
-   MXFP4 at 2.5 GiB on the M5, n=3): 43.5 → 25.3 ms/token, identical ids; 3 GiB 30.8 → 18.9 ms (n=1).
+   MXFP4 at 2.5 GiB on the M5, n=3): 44.8 → 24.7 ms/token (22 → 40 t/s), identical ids; 3 GiB 32.0 → 18.8 ms (n=1).
    Chunked reads, windowed passes and synchronous next-layer prefetch were screened and lost; pre-gating
    predicts 7.0 of the next layer's 8 experts, so an asynchronous prefetch stays a candidate for step 4.
 3. **Fewer stops per token:** hotness for layers that hit, and the eviction policy. Choose on a fresh

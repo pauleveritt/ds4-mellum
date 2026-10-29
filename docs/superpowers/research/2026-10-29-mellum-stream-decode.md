@@ -16,25 +16,33 @@ Date: 2026-10-29. Branch `research/mellum-stream-decode`. Preregistration:
 
 ## Verdict (preregistered)
 
+The A/B ran twice:
+- **First:** B at `e31a071`, before the review.
+- **Final:** B at `dd0b6f4`, after the review's two fixes. The preregistration's B is the head the night ends
+  on, so the final run decides. The first is kept beside it.
+
 | Arm | ms/token, median of 3 (range) | t/s | Loads/token | Stops/token |
 |---|---|---|---|---|
-| A: `42f51b7` (phase C kit + SSD tip) | 43.52 (40.66–45.59) | 23.0 | 22.62 | 15.05 |
-| B: `e31a071` | 25.27 (25.19–25.36) | 39.6 | 22.62 | 15.05 |
+| A: `42f51b7` (phase C kit + SSD tip), final run | 44.76 (41.84–45.98) | 22.3 | 22.62 | 15.05 |
+| **B: `dd0b6f4`, final run** | **24.69 (24.61–24.73)** | **40.5** | 22.62 | 15.05 |
+| A, first run | 43.52 (40.66–45.59) | 23.0 | 22.62 | 15.05 |
+| B: `e31a071`, first run | 25.27 (25.19–25.36) | 39.6 | 22.62 | 15.05 |
 
-- **Rule 1, identity:** pass. Every run's 512 ids are equal: six streamed runs at 2.5 GiB, the resident run,
-  and both 3 GiB runs.
-- **Rule 2, speed:** pass. B/A = 0.581, against the 0.85 bar.
-- **Rule 3, tests:** pass. `make test-mellum`, `make test-mellum-kernels`, and
-  `ds4_test --mellum-stream-identity/-prefill/-faults` on the MXFP4 and the Q8_0 files.
-- **Not judged:**
-  - at 3 GiB (979 slots), A 30.84 and B 18.92 ms/token (32.4 and 52.8 t/s), n=1 each;
-  - B resident, 7.01 ms (142.7 t/s);
-  - time to first token, unchanged at 1.59–1.60 s;
+- **Rule 1, identity:** pass in both runs. Every run's 512 ids are equal: six streamed runs at 2.5 GiB, the
+  resident run, and both 3 GiB runs.
+- **Rule 2, speed:** pass. B/A = 0.552 in the final run, 0.581 in the first; the bar is 0.85.
+- **Rule 3, tests:** pass at both heads. `make test-mellum`, `make test-mellum-kernels`, and
+  `ds4_test --mellum-stream-identity/-prefill/-faults` on the MXFP4 and the Q8_0 files; at the final head,
+  also the review's new `--mellum-stream-slabs`.
+- **Not judged (final run):**
+  - at 3 GiB (979 slots), A 32.00 and B 18.82 ms/token (31.2 and 53.1 t/s), n=1 each;
+  - B resident, 7.00 ms (142.9 t/s);
+  - time to first token, 1.59–1.64 s streamed (one A run 1.40);
   - Metal peak unchanged (4.37 GiB at 2.5 GiB).
-- B's three runs span 0.17 ms; A's span 4.9 ms.
+- B's three runs span 0.12 ms; A's span 4.1 ms.
 
-Recompute: `python3 -I 2026-10-29-mellum-stream-decode-ab/analyze.py 2026-10-29-mellum-stream-decode-ab`.
-To rerun, see `run_ab.sh` in the same directory.
+Recompute: `python3 -I 2026-10-29-mellum-stream-decode-ab/analyze.py 2026-10-29-mellum-stream-decode-ab/final`
+(drop `/final` for the first run). To rerun, see `run_ab.sh`.
 
 ## What landed
 
@@ -44,7 +52,9 @@ To rerun, see `run_ab.sh` in the same directory.
      the existing early-load path, encodes the resumed pass, and finishes the reads before the commit.
    - The layer's selected experts are protected from that path's evictions.
    - A failed load or a cancel after the encode drops the pass uncommitted (`ds4_gpu_discard_commands`).
-   - `DS4_METAL_DISABLE_STREAMING_EXPERT_EARLY_LOAD` turns the overlap off.
+   - `DS4_METAL_DISABLE_STREAMING_EXPERT_EARLY_LOAD` turns the overlap off. It gives load-then-encode
+     again only since the review fix (`a946e4d`). Before it, it gave encode-then-load, a new order, and that is
+     what the screen's "off" arm ran. The A/B's arm A is the old code itself, so the verdict is unaffected.
    - **Screen** (128 tokens, n=2 per arm, alternated): 39.0 → 26.9 ms/token.
    - **Profiled** (64 tokens, n=1 per arm), the gain splits into load wait −4.9 ms (the hidden encode) and GPU
      wait −3.6 ms. The GPU wait falls although the GPU work is identical. Conjecture, not measured: with
@@ -54,6 +64,26 @@ To rerun, see `run_ab.sh` in the same directory.
    - Each scan drops from 0.056 to 0.016 ms. The victims are the same: loads, stops and ids are identical.
    - 26.8 → 26.3 ms/token (n=2 per arm).
    - No new unit test, because nothing observable changed. The evidence is the identical victim choice.
+
+## Review
+
+A fresh Opus review of `42f51b7..e31a071` (code read, nothing run) found no Critical issues and two Important
+ones. Both are fixed, each with a test that failed first.
+- **Slab residency.** When `load_begin` started no reads, the stop's experts were loaded after the resumed
+  pass was encoded. A slab that load allocated was never made resident for the pass. This happens when early
+  load is off, there is no capacity, or a stale pending load matched.
+  - Reproduced: `--mellum-stream-slabs` (early load off, 16 MiB slabs) gave all 8,650,752 logit words
+    different at `cda51b6`, against 0 at `42f51b7`.
+  - Fixed in `a946e4d`: when no reads were started, `load_begin` makes the whole load before the encode, and
+    it finishes a stale pending load first.
+- **A failed first-pass encode was committed** by the caller's `end_commands`. This predates the night's
+  work. Fixed in `dd0b6f4`: with `discard` set, a failed encode is dropped. The review's missing test for an
+  encode failing after `load_begin` was added with it.
+- **Minor, deferred:**
+  - `wait_inflight` can flush the open batch (latent: Mellum never marks entries in flight);
+  - victims are now chosen before `load` updates hotness (performance only; the stopped layer's experts are
+    protected either way);
+  - `discard` leaves a timeline record and transient buffers to the next finish.
 
 ## Screened and not landed
 
@@ -103,7 +133,7 @@ through the cache policy (S5 step 3) or an asynchronous prefetch, are what is le
 - One prompt, one machine, n=3 per arm. The A arm's spread (40.7–45.6 ms) is wide.
 - The overlap leans on the early-load path, shared with GLM and DeepSeek. Only Mellum calls it this way, under
   a Mellum protect list.
-- An encode failure after `load_begin` leaves the early load pending. It is finished or cleared by the next
-  load. The fault tests cover a failed load and a cancel, not a failed encode.
+- An encode failure after `load_begin` leaves the early load pending. The next `load_begin` finishes it
+  first. The protocol tests cover a failed encode; the real-model fault tests cover a failed load and a cancel.
 - The owner had set load overlap aside during S4 (ROADMAP, S4). This work was done on the owner's
   instruction of 2026-10-29 to act on a fresh review's ideas overnight.
