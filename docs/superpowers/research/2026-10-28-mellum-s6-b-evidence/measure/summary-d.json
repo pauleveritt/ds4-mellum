@@ -1,0 +1,283 @@
+{
+ "long": {
+  "Q8": {
+   "ttft_s": {
+    "n": 3,
+    "median": 28.765661584,
+    "min": 28.155857625,
+    "max": 32.116898083
+   },
+   "prefill_tps": {
+    "n": 3,
+    "median": 1064.4636109127912,
+    "min": 953.3921962472355,
+    "max": 1087.517929939099
+   },
+   "decode_tps_first256": {
+    "n": 3,
+    "median": 102.74295244089012,
+    "min": 100.85676223936846,
+    "max": 103.77253186838645
+   },
+   "decode_tps_last256": {
+    "n": 3,
+    "median": 88.08550888938947,
+    "min": 86.05880403121962,
+    "max": 91.39403378640718
+   },
+   "phys_footprint_peak": {
+    "n": 3,
+    "median": 1007715192,
+    "min": 982926152,
+    "max": 1008042848
+   }
+  },
+  "MX": {
+   "ttft_s": {
+    "n": 3,
+    "median": 29.50035525,
+    "min": 28.564713083,
+    "max": 31.593840459
+   },
+   "prefill_tps": {
+    "n": 3,
+    "median": 1037.9536022706031,
+    "min": 969.1762557241569,
+    "max": 1071.9519538329682
+   },
+   "decode_tps_first256": {
+    "n": 3,
+    "median": 115.90576255534435,
+    "min": 115.21184117348503,
+    "max": 118.09581336243943
+   },
+   "decode_tps_last256": {
+    "n": 3,
+    "median": 100.3772660331018,
+    "min": 99.57571255640867,
+    "max": 101.8754786538282
+   },
+   "phys_footprint_peak": {
+    "n": 3,
+    "median": 982926128,
+    "min": 982713184,
+    "max": 1007911776
+   }
+  }
+ },
+ "short": {
+  "Q8": {
+   "prefill": {
+    "n": 6,
+    "median": 497.8,
+    "min": 496.02,
+    "max": 507.78
+   },
+   "gen": {
+    "n": 6,
+    "median": 139.53,
+    "min": 137.7,
+    "max": 139.71
+   }
+  },
+  "MX": {
+   "prefill": {
+    "n": 6,
+    "median": 580.1800000000001,
+    "min": 575.0,
+    "max": 601.47
+   },
+   "gen": {
+    "n": 6,
+    "median": 166.78,
+    "min": 166.41,
+    "max": 167.21
+   }
+  }
+ },
+ "long_runs": [
+  {
+   "arm": "Q8",
+   "figures": {
+    "prompt_tokens": 30620,
+    "ttft_s": 28.155857625,
+    "prefill_tps": 1087.517929939099,
+    "decode_tps_first256": 103.77253186838645,
+    "decode_tps_last256": 91.39403378640718,
+    "decode_loads_per_token": 0.0,
+    "stops": 0,
+    "loads": 0,
+    "slots": 0,
+    "phys_footprint_peak": 982926152,
+    "metal_allocated_peak": 13727727616
+   }
+  },
+  {
+   "arm": "MX",
+   "figures": {
+    "prompt_tokens": 30620,
+    "ttft_s": 29.50035525,
+    "prefill_tps": 1037.9536022706031,
+    "decode_tps_first256": 115.90576255534435,
+    "decode_tps_last256": 99.57571255640867,
+    "decode_loads_per_token": 0.0,
+    "stops": 0,
+    "loads": 0,
+    "slots": 0,
+    "phys_footprint_peak": 982926128,
+    "metal_allocated_peak": 7831846912
+   }
+  },
+  {
+   "arm": "MX",
+   "figures": {
+    "prompt_tokens": 30620,
+    "ttft_s": 28.564713083,
+    "prefill_tps": 1071.9519538329682,
+    "decode_tps_first256": 118.09581336243943,
+    "decode_tps_last256": 100.3772660331018,
+    "decode_loads_per_token": 0.0,
+    "stops": 0,
+    "loads": 0,
+    "slots": 0,
+    "phys_footprint_peak": 982713184,
+    "metal_allocated_peak": 7831846912
+   }
+  },
+  {
+   "arm": "Q8",
+   "figures": {
+    "prompt_tokens": 30620,
+    "ttft_s": 28.765661584,
+    "prefill_tps": 1064.4636109127912,
+    "decode_tps_first256": 102.74295244089012,
+    "decode_tps_last256": 86.05880403121962,
+    "decode_loads_per_token": 0.0,
+    "stops": 0,
+    "loads": 0,
+    "slots": 0,
+    "phys_footprint_peak": 1007715192,
+    "metal_allocated_peak": 13727727616
+   }
+  },
+  {
+   "arm": "Q8",
+   "figures": {
+    "prompt_tokens": 30620,
+    "ttft_s": 32.116898083,
+    "prefill_tps": 953.3921962472355,
+    "decode_tps_first256": 100.85676223936846,
+    "decode_tps_last256": 88.08550888938947,
+    "decode_loads_per_token": 0.0,
+    "stops": 0,
+    "loads": 0,
+    "slots": 0,
+    "phys_footprint_peak": 1008042848,
+    "metal_allocated_peak": 13727727616
+   }
+  },
+  {
+   "arm": "MX",
+   "figures": {
+    "prompt_tokens": 30620,
+    "ttft_s": 31.593840459,
+    "prefill_tps": 969.1762557241569,
+    "decode_tps_first256": 115.21184117348503,
+    "decode_tps_last256": 101.8754786538282,
+    "decode_loads_per_token": 0.0,
+    "stops": 0,
+    "loads": 0,
+    "slots": 0,
+    "phys_footprint_peak": 1007911776,
+    "metal_allocated_peak": 7831846912
+   }
+  }
+ ],
+ "short_runs": [
+  {
+   "name": "d-short-00-A",
+   "rc": 0,
+   "prefill": 498.22,
+   "gen": 137.7,
+   "arm": "Q8"
+  },
+  {
+   "name": "d-short-01-B",
+   "rc": 0,
+   "prefill": 575.0,
+   "gen": 166.53,
+   "arm": "MX"
+  },
+  {
+   "name": "d-short-02-B",
+   "rc": 0,
+   "prefill": 583.02,
+   "gen": 166.41,
+   "arm": "MX"
+  },
+  {
+   "name": "d-short-03-A",
+   "rc": 0,
+   "prefill": 499.41,
+   "gen": 139.64,
+   "arm": "Q8"
+  },
+  {
+   "name": "d-short-04-A",
+   "rc": 0,
+   "prefill": 496.75,
+   "gen": 139.71,
+   "arm": "Q8"
+  },
+  {
+   "name": "d-short-05-B",
+   "rc": 0,
+   "prefill": 577.34,
+   "gen": 166.66,
+   "arm": "MX"
+  },
+  {
+   "name": "d-short-06-B",
+   "rc": 0,
+   "prefill": 576.95,
+   "gen": 166.9,
+   "arm": "MX"
+  },
+  {
+   "name": "d-short-07-A",
+   "rc": 0,
+   "prefill": 496.02,
+   "gen": 139.47,
+   "arm": "Q8"
+  },
+  {
+   "name": "d-short-08-A",
+   "rc": 0,
+   "prefill": 497.38,
+   "gen": 139.59,
+   "arm": "Q8"
+  },
+  {
+   "name": "d-short-09-B",
+   "rc": 0,
+   "prefill": 601.47,
+   "gen": 166.99,
+   "arm": "MX"
+  },
+  {
+   "name": "d-short-10-B",
+   "rc": 0,
+   "prefill": 584.92,
+   "gen": 167.21,
+   "arm": "MX"
+  },
+  {
+   "name": "d-short-11-A",
+   "rc": 0,
+   "prefill": 507.78,
+   "gen": 139.41,
+   "arm": "Q8"
+  }
+ ],
+ "energy": "not measured: powermetrics needs root"
+}

@@ -1,0 +1,79 @@
+{
+ "resident": {
+  "prompt_tokens": 30620,
+  "ttft_s": 27.93056975,
+  "prefill_tps": 1096.2898456448422,
+  "decode_tps_first256": 117.62529717054949,
+  "decode_tps_last256": 103.6577623494806,
+  "decode_loads_per_token": 0.0,
+  "stops": 0,
+  "loads": 0,
+  "slots": 0,
+  "phys_footprint_peak": 1008010032,
+  "metal_allocated_peak": 7831846912
+ },
+ "collapse": null,
+ "streamed": [
+  {
+   "name": "e-stream-2.5g-1",
+   "stream_bytes": 2684354560,
+   "ok": true,
+   "ids_equal": true,
+   "first_difference": null,
+   "figures": {
+    "prompt_tokens": 30620,
+    "ttft_s": 44.539233167,
+    "prefill_tps": 687.4837715591153,
+    "decode_tps_first256": 26.29052141788609,
+    "decode_tps_last256": 22.547001384406144,
+    "decode_loads_per_token": 19.982901807523206,
+    "stops": 28878,
+    "loads": 91660,
+    "slots": 815,
+    "phys_footprint_peak": 3672445728,
+    "metal_allocated_peak": 4621664256
+   }
+  },
+  {
+   "name": "e-stream-2.5g-2",
+   "stream_bytes": 2684354560,
+   "ok": true,
+   "ids_equal": true,
+   "first_difference": null,
+   "figures": {
+    "prompt_tokens": 30620,
+    "ttft_s": 42.644821708,
+    "prefill_tps": 718.0238719172745,
+    "decode_tps_first256": 25.637712441750317,
+    "decode_tps_last256": 22.425198076341317,
+    "decode_loads_per_token": 19.982901807523206,
+    "stops": 28878,
+    "loads": 91660,
+    "slots": 815,
+    "phys_footprint_peak": 3672347352,
+    "metal_allocated_peak": 4621664256
+   }
+  },
+  {
+   "name": "e-stream-3g-1",
+   "stream_bytes": 3221225472,
+   "ok": true,
+   "ids_equal": true,
+   "first_difference": null,
+   "figures": {
+    "prompt_tokens": 30620,
+    "ttft_s": 42.85360875,
+    "prefill_tps": 714.5255882329864,
+    "decode_tps_first256": 33.07515512808805,
+    "decode_tps_last256": 34.155087865513856,
+    "decode_loads_per_token": 11.467024914509038,
+    "stops": 18607,
+    "loads": 74203,
+    "slots": 979,
+    "phys_footprint_peak": 4212266192,
+    "metal_allocated_peak": 5161746432
+   }
+  }
+ ],
+ "pass_": true
+}

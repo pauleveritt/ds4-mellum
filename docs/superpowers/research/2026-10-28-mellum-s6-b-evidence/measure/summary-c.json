@@ -1,0 +1,121 @@
+{
+ "runs": [
+  {
+   "name": "c-00-A",
+   "rc": 0,
+   "prefill": 502.84,
+   "gen": 139.6,
+   "arm": "A"
+  },
+  {
+   "name": "c-01-B",
+   "rc": 0,
+   "prefill": 502.16,
+   "gen": 139.74,
+   "arm": "B"
+  },
+  {
+   "name": "c-02-B",
+   "rc": 0,
+   "prefill": 495.15,
+   "gen": 139.59,
+   "arm": "B"
+  },
+  {
+   "name": "c-03-A",
+   "rc": 0,
+   "prefill": 506.03,
+   "gen": 139.54,
+   "arm": "A"
+  },
+  {
+   "name": "c-04-A",
+   "rc": 0,
+   "prefill": 493.4,
+   "gen": 139.0,
+   "arm": "A"
+  },
+  {
+   "name": "c-05-B",
+   "rc": 0,
+   "prefill": 492.31,
+   "gen": 139.46,
+   "arm": "B"
+  },
+  {
+   "name": "c-06-B",
+   "rc": 0,
+   "prefill": 495.32,
+   "gen": 139.1,
+   "arm": "B"
+  },
+  {
+   "name": "c-07-A",
+   "rc": 0,
+   "prefill": 496.62,
+   "gen": 139.28,
+   "arm": "A"
+  },
+  {
+   "name": "c-08-A",
+   "rc": 0,
+   "prefill": 495.65,
+   "gen": 139.72,
+   "arm": "A"
+  },
+  {
+   "name": "c-09-B",
+   "rc": 0,
+   "prefill": 497.99,
+   "gen": 139.67,
+   "arm": "B"
+  },
+  {
+   "name": "c-10-B",
+   "rc": 0,
+   "prefill": 494.75,
+   "gen": 139.55,
+   "arm": "B"
+  },
+  {
+   "name": "c-11-A",
+   "rc": 0,
+   "prefill": 506.72,
+   "gen": 139.54,
+   "arm": "A"
+  }
+ ],
+ "verdict": {
+  "medians": {
+   "A": {
+    "prefill": 499.73,
+    "gen": 139.54
+   },
+   "B": {
+    "prefill": 495.235,
+    "gen": 139.57
+   }
+  },
+  "ratio": {
+   "prefill": 0.9910051427770996,
+   "gen": 1.0002149921169556
+  },
+  "pass": true
+ },
+ "generated_text_identical": true,
+ "traced_logits": {
+  "short": {
+   "files": 30,
+   "differ": []
+  },
+  "1100": {
+   "files": 65,
+   "differ": []
+  },
+  "2200": {
+   "files": 65,
+   "differ": []
+  }
+ },
+ "pass_": true
+}

@@ -1,0 +1,46 @@
+22:38:32 start c
+22:38:37 c-00-A rc=0 5s
+22:39:09 c-01-B rc=0 2s
+22:39:41 c-02-B rc=0 2s
+22:40:13 c-03-A rc=0 2s
+22:40:46 c-04-A rc=0 2s
+22:41:18 c-05-B rc=0 2s
+22:41:50 c-06-B rc=0 2s
+22:42:22 c-07-A rc=0 2s
+22:42:54 c-08-A rc=0 2s
+22:43:26 c-09-B rc=0 2s
+22:43:58 c-10-B rc=0 2s
+22:44:31 c-11-A rc=0 2s
+22:45:04 c-trace-A-short rc=0 3s
+22:45:34 c-trace-B-short rc=0 0s
+22:46:05 c-trace-A-1100 rc=0 1s
+22:46:36 c-trace-B-1100 rc=0 1s
+22:47:07 c-trace-A-2200 rc=0 1s
+22:47:38 c-trace-B-2200 rc=0 1s
+22:48:08 c: pass=True
+22:48:08 start d
+22:48:59 d-long-0-Q8 rc=0 51s
+22:50:18 d-long-1-MX rc=0 49s
+22:51:36 d-long-2-MX rc=0 49s
+22:52:58 d-long-3-Q8 rc=0 52s
+22:54:24 d-long-4-Q8 rc=0 55s
+22:55:46 d-long-5-MX rc=0 52s
+22:56:18 d-short-00-A rc=0 2s
+22:56:50 d-short-01-B rc=0 2s
+22:57:21 d-short-02-B rc=0 2s
+22:57:54 d-short-03-A rc=0 2s
+22:58:26 d-short-04-A rc=0 2s
+22:58:58 d-short-05-B rc=0 2s
+22:59:29 d-short-06-B rc=0 2s
+23:00:01 d-short-07-A rc=0 2s
+23:00:34 d-short-08-A rc=0 2s
+23:01:05 d-short-09-B rc=0 2s
+23:01:37 d-short-10-B rc=0 2s
+23:02:09 d-short-11-A rc=0 2s
+23:02:39 d: done
+23:02:39 start e
+23:03:27 e-resident rc=0 47s
+23:06:06 e-stream-2.5g-1 rc=0 129s
+23:08:45 e-stream-2.5g-2 rc=0 128s
+23:10:59 e-stream-3g-1 rc=0 104s
+23:11:29 e: pass=True collapse=None
