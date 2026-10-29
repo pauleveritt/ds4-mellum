@@ -716,6 +716,9 @@ static int g_model_buffer_cache_over_limit;
 static uint64_t g_stream_expert_cache_bytes;
 static uint64_t g_stream_expert_cache_expert_bytes;
 static uint32_t g_stream_expert_cache_entry_count;
+/* One past the highest layer and expert ever installed since the cache was cleared: the victim scans stop there,
+ * since every entry beyond is invalid (Mellum fills 28 x 64 of the 80 x 384 table). */
+static uint32_t g_stream_expert_cache_layer_end, g_stream_expert_cache_expert_end;
 static uint32_t g_stream_expert_cache_budget_override;
 static uint64_t g_stream_expert_cache_hits;
 static uint64_t g_stream_expert_cache_misses;
@@ -15324,6 +15327,8 @@ static void ds4_gpu_stream_expert_cache_clear_all(int reset_stats) {
     }
     g_stream_expert_cache_bytes = 0;
     g_stream_expert_cache_entry_count = 0;
+    g_stream_expert_cache_layer_end = 0;
+    g_stream_expert_cache_expert_end = 0;
     for (uint32_t i = 0; i < g_stream_expert_cache_slab_count; i++) {
         g_stream_expert_cache_slabs[i] = nil;
         g_stream_expert_cache_slab_start_slot[i] = 0;
@@ -15550,10 +15555,10 @@ retry:
     const double scan_t0 = timing ? ds4_gpu_now_ms() : 0.0;
     uint64_t scan_entries = 0;
     for (uint32_t layer = 0;
-         layer < DS4_METAL_STREAM_EXPERT_CACHE_MAX_LAYER;
+         layer < g_stream_expert_cache_layer_end;
          layer++) {
         for (uint32_t expert = 0;
-             expert < DS4_METAL_STREAM_EXPERT_CACHE_MAX_EXPERT;
+             expert < g_stream_expert_cache_expert_end;
              expert++) {
             scan_entries++;
             ds4_gpu_stream_expert_cache_entry *e =
@@ -15674,10 +15679,10 @@ retry:
     }
 
     for (uint32_t layer = 0;
-         layer < DS4_METAL_STREAM_EXPERT_CACHE_MAX_LAYER;
+         layer < g_stream_expert_cache_layer_end;
          layer++) {
         for (uint32_t expert = 0;
-             expert < DS4_METAL_STREAM_EXPERT_CACHE_MAX_EXPERT;
+             expert < g_stream_expert_cache_expert_end;
              expert++) {
             scan_entries++;
             ds4_gpu_stream_expert_cache_entry *e =
@@ -16108,10 +16113,10 @@ static void ds4_gpu_stream_expert_cache_prune_global(
         uint32_t lowest_hotness = UINT32_MAX;
         uint64_t oldest = UINT64_MAX;
         for (uint32_t layer = 0;
-             layer < DS4_METAL_STREAM_EXPERT_CACHE_MAX_LAYER;
+             layer < g_stream_expert_cache_layer_end;
              layer++) {
             for (uint32_t expert = 0;
-                 expert < DS4_METAL_STREAM_EXPERT_CACHE_MAX_EXPERT;
+                 expert < g_stream_expert_cache_expert_end;
                  expert++) {
                 ds4_gpu_stream_expert_cache_entry *e =
                     &g_stream_expert_cache[layer][expert];
@@ -16290,6 +16295,8 @@ ds4_gpu_stream_expert_cache_install_loaded(
         e->slab_slot = 0;
     }
     e->valid = 1;
+    if (layer >= g_stream_expert_cache_layer_end) g_stream_expert_cache_layer_end = layer + 1u;
+    if (expert >= g_stream_expert_cache_expert_end) g_stream_expert_cache_expert_end = expert + 1u;
     g_stream_expert_cache_layer_count[layer]++;
     if (g_stream_expert_cache_entry_count < UINT32_MAX) {
         g_stream_expert_cache_entry_count++;
