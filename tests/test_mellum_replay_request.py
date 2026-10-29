@@ -47,8 +47,17 @@ class Fake(http.server.BaseHTTPRequestHandler):
         pass
 
 
+class Loopback(http.server.ThreadingHTTPServer):
+    """HTTPServer.server_bind looks up the host's FQDN (reverse DNS), which can take tens of seconds; a
+    loopback fixture needs no name."""
+    def server_bind(self):
+        import socketserver
+        socketserver.TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[:2]
+
+
 def serve():
-    server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Fake)
+    server = Loopback(('127.0.0.1', 0), Fake)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return server
 
@@ -90,7 +99,7 @@ def test_replay_refuses_an_answer_without_usage():
             self.end_headers()
             self.wfile.write(chunk({'content': 'x'}))
             self.wfile.write(b'data: [DONE]\n\n')
-    server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), NoUsage)
+    server = Loopback(('127.0.0.1', 0), NoUsage)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     try:
         r, report = run('http://127.0.0.1:%d' % server.server_port, {'messages': []})
