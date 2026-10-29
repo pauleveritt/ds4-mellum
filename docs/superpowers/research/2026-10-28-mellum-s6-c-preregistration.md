@@ -26,6 +26,8 @@ first):**
   The old `workload-m5/` reference is kept as the pre-merge build's.
 - No pass rule changed.
 
+**Addendum 2026-10-29 07:23, before any iMac or C6 run:** C6's 27B command is fixed (section C6).
+
 **Honesty header.**
 - **Fixed in advance:** the inputs, the cache choice rule, and the pass rules.
 - **Measured:** one 8 GB M1 iMac (macOS 27.1), n stated per item.
@@ -118,9 +120,26 @@ The 27B on the owner's 36 GB M4 Max, with `ds4-engine`, on the same flattened pr
 greedy, 512 tokens; amended).
 - **Metric, both sides:** decode t/s = (generated tokens − 1) / (seconds from the first generated token to
   the last). On the iMac it comes from `measure.json`'s per-token `ns`, tokens 1 to 511.
-- **The 27B's exact invocation is not fixed yet (amended 2026-10-29).** The owner fixes it in a dated
-  addendum before C6 runs, with this metric and settings. C6 is not run without it. The design is falsified if the iMac's median streamed MXFP4 decode t/s from C4, apps open, is not
-above the 27B's median.
+- **The 27B's command (addendum 2026-10-29 07:23, on the owner's instruction that day, before any iMac or
+  C6 run):** [`run_c6_27b.sh`](2026-10-28-mellum-s6-c-prereg/run_c6_27b.sh).
+  - It runs ds4-engine's engine at its pin `ebdcb0f` through `ds4-bench`, built there. The model is
+    `Qwen3.8-27B-Q4_K_M.gguf` (sha256 `e00082f7…`, as in ds4-engine's `profile.rs`).
+  - The prompt is the same `workload-prompt.txt`, rendered by the engine's chat template as one user turn:
+    2,573 tokens. Context 32,768; 512 greedy tokens with EOS disallowed.
+  - n=3, with a 20 s rest before each run, apps closed, on AC power.
+  - The 27B's figure is the median of the three runs' `gen_steady_tps`, the metric above (each run's
+    `gen_steady_tokens` must be 511).
+- **What the command is not.** ds4-engine, the product, turns DFlash on when the drafter fits. `ds4-bench`
+  cannot draft, since the DFlash loop lives in ds4-engine's host. So C6 compares against the 27B
+  **without DFlash**, a slower 27B than the product's. A falsification under it is the stronger for that.
+  A pass supports only "faster than the 27B without DFlash". The 27B's side also renders with thinking
+  off, and Mellum's with it on. Plain decode's per-token cost depends on position, not text, so this is
+  taken to matter little; that is not measured.
+- **Dry run on the M5,** not C6 (`2026-10-28-mellum-s6-c-evidence/c6-dryrun-m5/`): 26.40–28.35 t/s, median
+  27.46 (n=3). A first attempt failed because the bench ran outside the engine's directory; the script
+  was fixed before this run, and the failed captures are kept.
+- The design is falsified if the iMac's median streamed MXFP4 decode t/s from C4, apps open, is not above
+  the 27B's median.
 
 ## What would falsify this preregistration's design
 

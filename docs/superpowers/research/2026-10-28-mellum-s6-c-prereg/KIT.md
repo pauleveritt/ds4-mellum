@@ -33,7 +33,9 @@ Set `MX` and `OUT` first, then run each stage as `MX=… OUT=… sh docs/superpo
 4. **`footprint closed BYTES`** (C4).
 5. **Start the background load:** `sh tools/mellum_background_load.sh ../mellum-demo docs/superpowers/research/2026-10-28-mellum-s6-c-prereg/urls.txt`.
    Wait until it prints `ready`, then run **`footprint open BYTES`**.
-6. **C6, on the M4 Max:** first fix the 27B's exact `ds4-engine` invocation in a dated addendum to the
-   preregistration (C6). Then run it on `workload-prompt.txt`, n=3.
+6. **C6, on the M4 Max** (the preregistration's addendum of 2026-10-29 07:23), with ds4-engine's
+   submodule at its pin:
+   `DS4=…/ds4-engine/external/ds4 MODEL=…/Qwen3.8-27B-Q4_K_M.gguf OUT=$OUT/c6 sh docs/superpowers/research/2026-10-28-mellum-s6-c-prereg/run_c6_27b.sh`.
+   It checks the pin and the model's sha256, builds `ds4-bench`, and runs three times.
 
 Bring `$OUT` back whole, including failed stages. The agent writes the analysis from those captures alone.
