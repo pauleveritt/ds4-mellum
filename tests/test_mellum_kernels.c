@@ -1230,7 +1230,13 @@ typedef struct {
     /* declared and poisoned: a shared-expert input gate and gate/up/down rows; the driver must never read them */
     uint64_t sh_gate_inp, sh_gate, sh_up, sh_down;
     float x0[MREF_E];      /* the input the tie routers are built for */
+    uint32_t expert_type;  /* MREF_TYPE_Q8_0 or MREF_TYPE_MXFP4 (S6): the routed experts' type */
 } moe_arena_t;
+
+/* one routed-expert row of in values in the arena's expert type */
+static uint64_t moe_row_bytes(const moe_arena_t *a, uint32_t in) {
+    return (uint64_t)(in / 32u) * (a->expert_type == MREF_TYPE_MXFP4 ? MREF_MXFP4_BLOCK_BYTES : MREF_Q8_BLOCK_BYTES);
+}
 
 static uint64_t g_rng64 = 0x2545F4914F6CDD1Dull;
 
@@ -1266,6 +1272,17 @@ static void fill_q8(uint8_t *dst, uint64_t n_blocks) {
     }
 }
 
+/* random MXFP4 blocks (S6): scale 2^-8 .. 2^-6 (E8M0 119..121), random E2M1 nibbles, so a weight is at most
+ * 6 * 2^-6 = 0.09 and about 0.02 typically, near fill_q8's */
+static void fill_mxfp4(uint8_t *dst, uint64_t n_blocks) {
+    for (uint64_t i = 0; i < n_blocks; i++) {
+        uint8_t *b = dst + i * MREF_MXFP4_BLOCK_BYTES;
+        b[0] = (uint8_t)(119u + rng64() % 3u);
+        const uint64_t v0 = rng64(), v1 = rng64();
+        for (uint32_t j = 0; j < 8u; j++) { b[1u + j] = (uint8_t)(v0 >> (8u * j)); b[9u + j] = (uint8_t)(v1 >> (8u * j)); }
+    }
+}
+
 static void fill_router_random(float *w, float amp) {
     for (uint64_t i = 0; i < (uint64_t)MREF_NEXP * MREF_E; i++) w[i] = amp * frand();
 }
@@ -1285,7 +1302,7 @@ static ds4_gpu_mellum_moe moe_params(const moe_arena_t *a, uint64_t router_off) 
     p.n_expert = MREF_NEXP;
     p.n_used = MREF_USED;
     p.ff_dim = MREF_FF;
-    p.expert_type = 8u; /* Q8_0 */
+    p.expert_type = a->expert_type;
     p.router_offset = router_off;
     p.gate_offset = a->gate;
     p.up_offset = a->up;
@@ -1296,7 +1313,7 @@ static ds4_gpu_mellum_moe moe_params(const moe_arena_t *a, uint64_t router_off) 
 /* ---- the double reference ---- */
 
 static void ref_moe_row(const moe_arena_t *a, uint64_t router_off, const float *x, mref_t *r) {
-    const mref_weights w = { a->base, router_off, a->gate, a->up, a->down, MREF_TYPE_Q8_0 };
+    const mref_weights w = { a->base, router_off, a->gate, a->up, a->down, a->expert_type };
     mref_moe_row(&w, x, r);
 }
 
@@ -1578,7 +1595,7 @@ static void test_moe_no_shared(const moe_arena_t *a) {
     float gl = 0.0f;
     require_ok(ds4_gpu_tensor_read(sg, 0, &gl, 4), "shared gate readback");
     CHECK(isnan(gl), "control: the shared gate logit read over the poison must be NaN, got %g", (double)gl);
-    require_ok(ds4_gpu_qwen4_moe_mid_tensor(mid9, xt, sel, a->base, a->size, a->gate, a->up, 8u, MREF_NEXP, 1, MREF_USED, MREF_E, MREF_FF,
+    require_ok(ds4_gpu_qwen4_moe_mid_tensor(mid9, xt, sel, a->base, a->size, a->gate, a->up, a->expert_type, MREF_NEXP, 1, MREF_USED, MREF_E, MREF_FF,
                                             a->sh_gate, a->sh_up, 8u), "mid with a shared slot");
     float shared_mid[MREF_FF];
     require_ok(ds4_gpu_tensor_read(mid9, (uint64_t)MREF_USED * MREF_FF * 4u, shared_mid, sizeof(shared_mid)), "shared slot readback");
@@ -1615,10 +1632,10 @@ static void test_moe_refusals(const moe_arena_t *a) {
     /* Q4_0 has valid row sizes at both widths, so only the type check refuses it; Q4_K is also refused by its
      * 256-wide blocks (896 is not a multiple of 256) */
     p = good; p.expert_type = 2u;
-    CHECK(moe_call(a, &p, &r) == 0, "expert type Q4_0 is refused (Mellum's experts are Q8_0)");
+    CHECK(moe_call(a, &p, &r) == 0, "expert type Q4_0 is refused (Mellum's experts are Q8_0 or MXFP4)");
     MOE_UNTOUCHED("an expert type");
     p = good; p.expert_type = 12u;
-    CHECK(moe_call(a, &p, &r) == 0, "expert type Q4_K is refused (Mellum's experts are Q8_0)");
+    CHECK(moe_call(a, &p, &r) == 0, "expert type Q4_K is refused (Mellum's experts are Q8_0 or MXFP4)");
     MOE_UNTOUCHED("an expert type (Q4_K)");
     p = good; p.n_expert = 513u;
     CHECK(moe_call(a, &p, &r) == 0, "513 experts are refused");
@@ -1828,7 +1845,7 @@ static void test_moe_q8_tiles_mellum_only(const moe_arena_t *a) {
 typedef struct { ds4_gpu_tensor *gate[MREF_NEXP], *up[MREF_NEXP], *down[MREF_NEXP], *ga, *ua, *da; } addr_slots_t;
 
 static void addr_slots_make(const moe_arena_t *a, addr_slots_t *s) {
-    const uint64_t gb = (uint64_t)MREF_FF * MREF_ROW_GATE, db = (uint64_t)MREF_E * MREF_ROW_DOWN;
+    const uint64_t gb = (uint64_t)MREF_FF * moe_row_bytes(a, MREF_E), db = (uint64_t)MREF_E * moe_row_bytes(a, MREF_FF);
     uint64_t ga[MREF_NEXP], ua[MREF_NEXP], da[MREF_NEXP];
     for (uint32_t e = 0; e < MREF_NEXP; e++) {
         s->gate[e] = ds4_gpu_tensor_alloc(gb); s->up[e] = ds4_gpu_tensor_alloc(gb); s->down[e] = ds4_gpu_tensor_alloc(db);
@@ -1997,10 +2014,14 @@ static void test_moe_addr_tiled(const moe_arena_t *a, uint32_t level) {
     addr_slots_free(&s);
 }
 
-static void test_moe(void) {
-    printf("Mellum MoE driver (2304 -> 64 F32 router, softmax over all, top-8, renormalized, 896-wide Q8_0 experts, no shared expert)\n");
+/* An arena of random weights whose routed experts are of type expert_type; the shared-expert poison stays
+ * Q8_0-sized (it is never read as experts).  Registers the arena as the model map. */
+static moe_arena_t *moe_arena_make(uint32_t expert_type) {
     moe_arena_t *a = calloc(1, sizeof(*a));
     require_ok(a != NULL, "calloc");
+    a->expert_type = expert_type;
+    const uint64_t gate_bytes = (uint64_t)MREF_NEXP * MREF_FF * moe_row_bytes(a, MREF_E);
+    const uint64_t down_bytes = (uint64_t)MREF_NEXP * MREF_E * moe_row_bytes(a, MREF_FF);
     a->size = (uint64_t)448 << 20;
     a->base = mmap(NULL, a->size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
     if (a->base == MAP_FAILED) { perror("mmap"); exit(1); }
@@ -2009,17 +2030,18 @@ static void test_moe(void) {
     a->router_tie = moe_take(a, MREF_ROUTER_BYTES);
     a->router_near = moe_take(a, MREF_ROUTER_BYTES);
     a->sh_gate_inp = moe_take(a, MREF_E * 4u);
-    a->gate = moe_take(a, MREF_GATE_BYTES);
-    a->up = moe_take(a, MREF_GATE_BYTES);
-    a->down = moe_take(a, MREF_DOWN_BYTES);
+    a->gate = moe_take(a, gate_bytes);
+    a->up = moe_take(a, gate_bytes);
+    a->down = moe_take(a, down_bytes);
     a->sh_gate = moe_take(a, (uint64_t)MREF_FF * MREF_ROW_GATE);
     a->sh_up = moe_take(a, (uint64_t)MREF_FF * MREF_ROW_GATE);
     a->sh_down = moe_take(a, (uint64_t)MREF_E * MREF_ROW_DOWN);
     /* logits about 2 in standard deviation: a softmax that is not flat, with the top eight holding most of its mass */
     fill_router_random((float *)(a->base + a->router), 0.072f);
-    fill_q8(a->base + a->gate, (uint64_t)MREF_NEXP * MREF_FF * (MREF_E / 32u));
-    fill_q8(a->base + a->up, (uint64_t)MREF_NEXP * MREF_FF * (MREF_E / 32u));
-    fill_q8(a->base + a->down, (uint64_t)MREF_NEXP * MREF_E * (MREF_FF / 32u));
+    void (*fill)(uint8_t *, uint64_t) = expert_type == MREF_TYPE_MXFP4 ? fill_mxfp4 : fill_q8;
+    fill(a->base + a->gate, (uint64_t)MREF_NEXP * MREF_FF * (MREF_E / 32u));
+    fill(a->base + a->up, (uint64_t)MREF_NEXP * MREF_FF * (MREF_E / 32u));
+    fill(a->base + a->down, (uint64_t)MREF_NEXP * MREF_E * (MREF_FF / 32u));
     /* the tie routers: expert e's logit on x0 is alpha[e]; experts 10 and 40 share a row (or 40 is 1e-3 above) */
     for (uint32_t i = 0; i < MREF_E; i++) a->x0[i] = 1.7f * frand();
     {
@@ -2034,6 +2056,17 @@ static void test_moe(void) {
         fill_router_for((float *)(a->base + a->router_near), a->x0, alpha);
     }
     require_ok(ds4_gpu_set_model_map(a->base, a->size), "model map registration");
+    return a;
+}
+
+static void moe_arena_free(moe_arena_t *a) {
+    munmap(a->base, a->size);
+    free(a);
+}
+
+static void test_moe(void) {
+    printf("Mellum MoE driver (2304 -> 64 F32 router, softmax over all, top-8, renormalized, 896-wide Q8_0 experts, no shared expert)\n");
+    moe_arena_t *a = moe_arena_make(MREF_TYPE_Q8_0);
     test_moe_reference(a);
     test_moe_ties_direct();
     test_moe_ties_driver(a);
@@ -2050,8 +2083,20 @@ static void test_moe(void) {
         test_moe_rows_equal_singles(a);
     }
     g_batched = false;
-    munmap(a->base, a->size);
-    free(a);
+    moe_arena_free(a);
+
+    /* S6: the same driver on MXFP4 experts (GGUF type 39), against the double reference at type 39 */
+    printf("Mellum MoE driver, MXFP4 experts (E8M0 scales, E2M1 values, 32-wide blocks of 17 bytes)\n");
+    a = moe_arena_make(MREF_TYPE_MXFP4);
+    test_moe_reference(a);
+    test_moe_no_shared(a);
+    test_moe_refusals(a);
+    for (int batched = 0; batched <= 1; batched++) {
+        g_batched = batched != 0;
+        test_moe_rows_equal_singles(a);
+    }
+    g_batched = false;
+    moe_arena_free(a);
 }
 
 /* ======================================================================
