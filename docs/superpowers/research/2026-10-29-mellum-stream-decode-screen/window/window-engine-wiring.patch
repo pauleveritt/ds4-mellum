@@ -1,0 +1,87 @@
+diff --git a/ds4.c b/ds4.c
+index fddb029..bfad44f 100644
+--- a/ds4.c
++++ b/ds4.c
+@@ -51,6 +51,8 @@ static bool g_mellum_stream_engine;
+ static int g_mellum_stream_fd = -1;
+ /* S5: K, the chunks per streamed prefill group (DS4_MELLUM_STREAM_PREFILL_GROUP), read at the same open */
+ static uint32_t g_mellum_stream_group_k = 1u;
++/* layers per streamed decode pass (DS4_MELLUM_STREAM_DECODE_WINDOW), read at the same open */
++static uint32_t g_mellum_stream_window = DS4_MELLUM_STREAM_WINDOW_DEFAULT;
+ /* tests/ds4_test.c --mellum-stream-faults: fail the nth streamed load from when it was set (0: never) */
+ static uint64_t g_mellum_stream_fail_load_at, g_mellum_stream_load_count;
+ #endif
+@@ -60980,8 +60982,9 @@ static bool mellum_graph_head(ds4_qwen4_gpu_graph *g, const ds4_model *m, const
+  * returns, so the next chunk may reuse every scratch, the rows-table regions included. */
+ #if defined(__APPLE__)
+ /* S4 streamed decode of one token (ds4_mellum_stream_decode): encode the token from layer 0 with the gate
+- * bound; at a stop, load that layer's experts and encode again from its experts.  The finished encode's
+- * head leaves the logits in g->logits. */
++ * bound; at a stop, load that layer's experts and encode again from its experts.  Each pass covers at most
++ * g_mellum_stream_window layers, so a stop suppresses at most that many; a pass that runs through continues
++ * from the hidden state on the GPU.  The last pass's head leaves the logits in g->logits. */
+ typedef struct {
+     ds4_qwen4_gpu_graph *g;
+     const ds4_model *m;
+@@ -60991,14 +60994,13 @@ typedef struct {
+ 
+ static bool mellum_stream_encode(void *ctx, uint32_t from_layer, uint32_t end_layer, bool resume) {
+     mellum_stream_ctx *c = ctx;
+-    (void)end_layer;   /* windows: not yet */
+     ds4_qwen4_gpu_graph *g = c->g;
+     ds4_gpu_tensor *const *s = g->mellum_scratch;
+     const ds4_gpu_mellum_rope rope = mellum_rope_params();
+     g->mellum_stream_resume = resume ? from_layer : UINT32_MAX;
+     bool ok = ds4_gpu_stream_gate_reset(g->mellum_stream_gate) && ds4_gpu_stream_gate_bind(g->mellum_stream_gate) &&
+               glm_graph_begin_commands_if_needed();
+-    if (ok && !resume) {
++    if (ok && !resume && from_layer == 0) {
+         ok = ds4_gpu_tensor_write(s[MELLUM_S_TOKENS], 0, &c->token, sizeof(int32_t)) != 0 &&
+              ds4_gpu_embed_tokens_q8_0_tensor(s[MELLUM_S_HIDDEN], s[MELLUM_S_TOKENS], c->m->map, c->m->size,
+                                               c->w->token_embd->abs_offset, (uint32_t)c->w->token_embd->dim[1], 1,
+@@ -61006,11 +61008,11 @@ static bool mellum_stream_encode(void *ctx, uint32_t from_layer, uint32_t end_la
+     }
+     uint32_t full_slot = 0;
+     for (uint32_t il = 0; il < from_layer; il++) if (!ds4_mellum_layer_is_sliding(il)) full_slot++;
+-    for (uint32_t il = from_layer; il < DS4_N_LAYER && ok; il++) {
++    for (uint32_t il = from_layer; il < end_layer && il < DS4_N_LAYER && ok; il++) {
+         ok = mellum_graph_layer(g, c->m, &c->w->layer[il], il, full_slot, g->pos, 1, &rope);
+         if (!ds4_mellum_layer_is_sliding(il)) full_slot++;
+     }
+-    return ok && mellum_graph_head(g, c->m, c->w, 0);
++    return ok && (end_layer < DS4_N_LAYER || mellum_graph_head(g, c->m, c->w, 0));
+ }
+ 
+ static bool mellum_stream_finish(void *ctx, bool *stopped, ds4_mellum_stream_stop *stop) {
+@@ -61062,7 +61064,8 @@ static bool mellum_stream_decode(ds4_qwen4_gpu_graph *g, const ds4_model *m, con
+                                  float *logits_out) {
+     mellum_stream_ctx c = { g, m, w, token };
+     const ds4_mellum_stream_ops ops = { &c, mellum_stream_encode, mellum_stream_finish, mellum_stream_load,
+-                                        mellum_stream_cancelled, mellum_stream_load_begin, mellum_stream_discard, 0u };
++                                        mellum_stream_cancelled, mellum_stream_load_begin, mellum_stream_discard,
++                                        g_mellum_stream_window };
+     uint32_t stops = 0;
+     const int rc = ds4_mellum_stream_decode(&ops, DS4_N_LAYER, &stops);
+     if (ds4_gpu_commands_active()) (void)ds4_gpu_end_commands();
+@@ -74477,6 +74480,13 @@ static int ds4_engine_open_internal(ds4_engine **out,
+                 *out = NULL;
+                 return 1;
+             }
++            g_mellum_stream_window = ds4_mellum_stream_decode_window(getenv("DS4_MELLUM_STREAM_DECODE_WINDOW"));
++            if (!g_mellum_stream_window) {
++                fprintf(stderr, "ds4: Mellum SSD streaming: DS4_MELLUM_STREAM_DECODE_WINDOW must be 1-64\n");
++                ds4_engine_close(e);
++                *out = NULL;
++                return 1;
++            }
+             g_mellum_stream_fd = open(opt->model_path, O_RDONLY | O_CLOEXEC);
+             if (g_mellum_stream_fd < 0 || fcntl(g_mellum_stream_fd, F_NOCACHE, 1) != 0 ||
+                 fcntl(g_mellum_stream_fd, F_RDAHEAD, 0) != 0) {
+@@ -75835,6 +75845,7 @@ void ds4_engine_close(ds4_engine *e) {
+     }
+     g_mellum_stream_engine = false;
+     g_mellum_stream_group_k = 1u;
++    g_mellum_stream_window = DS4_MELLUM_STREAM_WINDOW_DEFAULT;
+ #endif
+     ds4_engine_tp_unbind(e);
+ #if !defined(DS4_NO_GPU) && !defined(__APPLE__) && !defined(DS4_ROCM_BUILD)

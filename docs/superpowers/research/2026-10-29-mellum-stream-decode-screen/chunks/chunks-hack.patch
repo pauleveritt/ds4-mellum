@@ -1,0 +1,35 @@
+diff --git a/ds4_metal.m b/ds4_metal.m
+index b291eff..f7aa1c2 100644
+--- a/ds4_metal.m
++++ b/ds4_metal.m
+@@ -13418,7 +13418,7 @@ typedef struct {
+     NSUInteger gate_inners[DS4_METAL_STREAM_EXPERT_CACHE_MAX_SELECTED];
+     NSUInteger up_inners[DS4_METAL_STREAM_EXPERT_CACHE_MAX_SELECTED];
+     NSUInteger down_inners[DS4_METAL_STREAM_EXPERT_CACHE_MAX_SELECTED];
+-    ds4_gpu_stream_expert_pread_task tasks[DS4_METAL_STREAM_EXPERT_CACHE_MAX_SELECTED * 3u];
++    ds4_gpu_stream_expert_pread_task tasks[DS4_METAL_STREAM_EXPERT_CACHE_MAX_SELECTED * 3u * 4u];
+     double start_ms;
+     double prepare_ms;
+ } ds4_gpu_stream_expert_pending_load;
+@@ -16876,6 +16876,21 @@ int ds4_gpu_stream_expert_cache_begin_selected_load(
+         }
+     }
+ 
++    { /* SCREEN HACK: split each tensor into page-aligned chunks */
++        const char *ce = getenv("SCREEN_READ_CHUNKS"); const uint32_t k = ce ? (uint32_t)atoi(ce) : 1u;
++        if (k > 1u && k <= 4u) {
++            ds4_gpu_stream_expert_pread_task src[DS4_METAL_STREAM_EXPERT_CACHE_MAX_SELECTED * 3u];
++            const uint32_t n = p->n_tasks; memcpy(src, p->tasks, n * sizeof(src[0])); p->n_tasks = 0;
++            for (uint32_t t = 0; t < n; t++) {
++                uint64_t step = (src[t].len / k + 16383u) / 16384u * 16384u, off = 0;
++                while (off < src[t].len) {
++                    const uint64_t len = src[t].len - off < step ? src[t].len - off : step;
++                    p->tasks[p->n_tasks++] = (ds4_gpu_stream_expert_pread_task){ .offset = src[t].offset + off, .len = len, .dst = src[t].dst + off };
++                    off += len;
++                }
++            }
++        }
++    }
+     const uint32_t n_workers =
+         ds4_gpu_stream_expert_pread_thread_count(p->n_tasks);
+     p->start_ms = ds4_gpu_now_ms();
