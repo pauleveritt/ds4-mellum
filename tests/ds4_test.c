@@ -1104,6 +1104,36 @@ static void test_mellum_stream_identity(void) {
     free(ref);
 }
 
+/* A stop whose reads the early-load path does not start (here: turned off) must still load before the resumed
+ * pass is encoded: with 16 MiB slabs a decode stop can allocate a slab, and a pass encoded before that slab
+ * existed would not have made it resident (it would read the stopped layer's experts from it regardless). */
+static void test_mellum_stream_slabs(void) {
+    const char *model = getenv("DS4_TEST_MELLUM_MODEL");
+    if (!model || !model[0]) {
+        puts("mellum-stream-slabs: DS4_TEST_MELLUM_MODEL unset, skipped");
+        return;
+    }
+    int toks[MELLUM_STREAM_STEPS];
+    for (int i = 0; i < MELLUM_STREAM_PROMPT; i++) toks[i] = test_mellum_token(i);
+    float *ref = malloc((size_t)MELLUM_STREAM_STEPS * 98304u * sizeof(float));
+    TEST_ASSERT(ref != NULL);
+    if (!ref) return;
+    TEST_ASSERT(mellum_stream_run(model, false, 0, 0, toks, ref, true, NULL, NULL, NULL) == 0);
+    char *early = test_save_env("DS4_METAL_DISABLE_STREAMING_EXPERT_EARLY_LOAD");
+    char *slab = test_save_env("DS4_METAL_STREAMING_EXPERT_SLAB_MB");
+    setenv("DS4_METAL_DISABLE_STREAMING_EXPERT_EARLY_LOAD", "1", 1);
+    setenv("DS4_METAL_STREAMING_EXPERT_SLAB_MB", "16", 1);
+    uint64_t stops = 0, loads = 0;
+    uint32_t stopped = 0;
+    const int64_t diff = mellum_stream_run(model, true, 64, 0, toks, ref, false, &stops, &stopped, &loads);
+    test_restore_env("DS4_METAL_STREAMING_EXPERT_SLAB_MB", slab);
+    test_restore_env("DS4_METAL_DISABLE_STREAMING_EXPERT_EARLY_LOAD", early);
+    TEST_ASSERT(diff == 0 && stops > 0);
+    printf("mellum-stream-slabs: early load off, 16 MiB slabs, 64 slots: %lld of %d logit words differ; %llu stops\n",
+           (long long)diff, MELLUM_STREAM_STEPS * 98304, (unsigned long long)stops);
+    free(ref);
+}
+
 static void test_mellum_rewind_case(ds4_engine *engine, int len, int k) {
     ds4_session *s = NULL;
     TEST_ASSERT(ds4_session_create(&s, engine, 4096) == 0 && s != NULL);
@@ -8427,6 +8457,7 @@ static const ds4_test_entry test_entries[] = {
     {"--qwen4-prefill-checkpoints", "qwen4-prefill-checkpoints", "Qwen chunk checkpoints restore matching logits and state", test_qwen_prefill_checkpoints},
     {"--mellum-session", "mellum-session", "Mellum session allocation equals its plan (DS4_TEST_MELLUM_MODEL)", test_mellum_session_allocation},
     {"--mellum-exact-prefill", "mellum-exact-prefill", "Mellum prefill equals decode byte for byte under DS4_MELLUM_EXACT_PREFILL=1 (DS4_TEST_MELLUM_MODEL)", test_mellum_exact_prefill},
+    {"--mellum-stream-slabs", "mellum-stream-slabs", "S5: with early load off and 16 MiB slabs, streamed decode still equals resident (a stop loads before its resumed pass is encoded) (DS4_TEST_MELLUM_MODEL)", test_mellum_stream_slabs},
     {"--mellum-stream-identity", "mellum-stream-identity", "S4: Mellum decode from a bounded expert-slot cache equals resident, word for word, at 6 GiB and 64 slots (DS4_TEST_MELLUM_MODEL)", test_mellum_stream_identity},
     {"--mellum-stream-prefill", "mellum-stream-prefill", "S4: Mellum prefill from a bounded expert-slot cache equals resident last-row logits at 2,200 and 31 tokens (DS4_TEST_MELLUM_MODEL)", test_mellum_stream_prefill_identity},
     {"--mellum-stream-faults", "mellum-stream-faults", "S4: a failed streamed load and a cancellation end the eval and a re-sync recovers resident logits (DS4_TEST_MELLUM_MODEL)", test_mellum_stream_faults},
