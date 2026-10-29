@@ -51191,7 +51191,7 @@ int ds4_gpu_mellum_moe_tensor(
         ds4_gpu_tensor *out, const ds4_gpu_tensor *x, ds4_gpu_tensor *logits,
         ds4_gpu_tensor *selected, ds4_gpu_tensor *weights, ds4_gpu_tensor *mid, ds4_gpu_tensor *part,
         const void *model_map, uint64_t model_size, const ds4_gpu_mellum_moe *p, uint32_t n_tokens) {
-    if (!p || !model_map || n_tokens == 0u || p->expert_type != 8u ||
+    if (!p || !model_map || n_tokens == 0u || (p->expert_type != 8u && p->expert_type != 39u) ||
         p->n_embd == 0u || (p->n_embd % 128u) != 0u || p->ff_dim == 0u || (p->ff_dim % 32u) != 0u ||
         p->n_expert == 0u || p->n_expert > 512u || p->n_used == 0u || p->n_used > p->n_expert || p->n_used > 16u) {
         return 0;

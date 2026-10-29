@@ -3792,7 +3792,8 @@ int ds4_gpu_mellum_attn_full_rows_tensor(
  * Shapes (all f32 unless noted): x and out [n_tokens][n_embd]; logits
  * [n_tokens][n_expert]; selected int32 and weights [n_tokens][n_used]; mid
  * [n_tokens][n_used][ff_dim]; part [n_tokens][n_used][n_embd].  The router is
- * F32 [n_expert][n_embd]; the experts are Q8_0 (expert_type 8), gate and up
+ * F32 [n_expert][n_embd]; the experts are Q8_0 (expert_type 8) or MXFP4 (39,
+ * S6), one type for gate, up and down; gate and up
  * [n_expert][ff_dim][n_embd], down [n_expert][n_embd][ff_dim], each expert
  * contiguous.  Every offset is into model_map.  Checked before the first
  * dispatch (a refused call writes nothing): sizes, ranges (overflow-safe),
@@ -3804,7 +3805,7 @@ typedef struct {
     uint32_t n_expert;     /* 64 */
     uint32_t n_used;       /* 8 */
     uint32_t ff_dim;       /* 896 */
-    uint32_t expert_type;  /* 8: Q8_0 */
+    uint32_t expert_type;  /* 8: Q8_0, 39: MXFP4 */
     uint32_t pad0;
     uint64_t router_offset;
     uint64_t gate_offset;

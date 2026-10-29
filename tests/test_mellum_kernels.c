@@ -2083,11 +2083,14 @@ static void test_moe(void) {
         test_moe_rows_equal_singles(a);
     }
     g_batched = false;
-    moe_arena_free(a);
 
-    /* S6: the same driver on MXFP4 experts (GGUF type 39), against the double reference at type 39 */
+    /* S6: the same driver on MXFP4 experts (GGUF type 39), against the double reference at type 39.  The Q8_0
+     * arena stays mapped until the end: a new mapping at a freed one's address would leave the Metal model map
+     * wrapping the old pages. */
     printf("Mellum MoE driver, MXFP4 experts (E8M0 scales, E2M1 values, 32-wide blocks of 17 bytes)\n");
+    moe_arena_t *q8 = a;
     a = moe_arena_make(MREF_TYPE_MXFP4);
+    require_ok(a->base != q8->base, "a distinct MXFP4 arena");
     test_moe_reference(a);
     test_moe_no_shared(a);
     test_moe_refusals(a);
@@ -2097,6 +2100,7 @@ static void test_moe(void) {
     }
     g_batched = false;
     moe_arena_free(a);
+    moe_arena_free(q8);
 }
 
 /* ======================================================================
