@@ -1,0 +1,2 @@
+03a9e98685eb238b4a4131db3a2cce9c429319ed0c5e98471555f04548ca02a2  /Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/phase-d/docs/superpowers/research/2026-10-29-mellum-s6-d-sync-screen/prefetch-sync.patch
+6bff589e923e9da168ab5a0de830d0bb5a6537a04aac119d87eed16d3603dfe5  docs/superpowers/research/2026-10-29-mellum-imac-stop-profile/profile.patch

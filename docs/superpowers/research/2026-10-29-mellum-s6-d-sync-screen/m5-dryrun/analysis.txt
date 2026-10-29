@@ -1,0 +1,10 @@
+| run | decode ms/token | stops/token | demand experts/token | prefetch calls/token | prefetched experts/token | swap-out growth |
+|---|---|---|---|---|---|---|
+| off-1 | 27.0 | 16.55 | 29.01 | 0.00 | 0.00 | 0 |
+| off-2 | 26.9 | 16.55 | 29.01 | 0.00 | 0.00 | 0 |
+| on-1 | 29.3 | 14.62 | 22.62 | 13.99 | 11.20 | 0 |
+| on-2 | 29.1 | 14.62 | 22.62 | 13.99 | 11.20 | 0 |
+
+means: off 27.0 ms/token, on 29.2; measured change -2.2 ms/token (positive: on is faster)
+stops avoided per token 1.94; prefetched experts per token 11.20; demand experts per token off 29.01, on 22.62
+every run's ids equal: True
