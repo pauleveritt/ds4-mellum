@@ -1,0 +1,27 @@
+Processes: 510 total, 2 running, 508 sleeping, 2223 threads 
+2026/10/29 10:28:16
+Load Avg: 1.71, 1.71, 1.79 
+CPU usage: 1.5% user, 12.63% sys, 86.31% idle 
+SharedLibs: 770M resident, 151M data, 108M linkedit.
+MemRegions: 70786 total, 1137M resident, 271M private, 425M shared.
+PhysMem: 7120M used (1138M wired, 1104M compressor), 192M unused.
+VM: 232T vsize, 57G framework vsize, 968561(0) swapins, 1162363(0) swapouts.
+Networks: packets: 15614685/18G in, 3180644/907M out.
+Disks: 46627802/2658G read, 12180748/234G written.
+
+PID    COMMAND          MEM 
+632    WindowServer     502M
+1868   TGOnDeviceInfere 274M
+35408  VTDecoderXPCServ 236M
+1903   TGOnDeviceInfere 138M
+1521   mediaanalysisd   103M
+589    mds              85M 
+1627   Finder           75M 
+1522   NotificationCent 74M 
+1625   ControlCenter    68M 
+1638   Siri AI          66M 
+635    loginwindow      60M 
+18599  TGOnDeviceInfere 59M 
+1624   Dock             52M 
+1450   identityservices 51M 
+0      kernel_task      50M 

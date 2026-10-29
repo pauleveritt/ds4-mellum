@@ -1,0 +1,1 @@
+interrupted by hand during run 3 (started 10:52:31, no measure.json); runs 1-2 complete; noted 2026-10-29 11:50

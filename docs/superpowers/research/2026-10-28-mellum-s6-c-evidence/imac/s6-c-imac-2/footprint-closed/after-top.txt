@@ -1,0 +1,27 @@
+Processes: 481 total, 2 running, 479 sleeping, 2430 threads 
+2026/10/29 09:32:04
+Load Avg: 1.70, 1.77, 2.02 
+CPU usage: 2.43% user, 11.38% sys, 86.17% idle 
+SharedLibs: 529M resident, 125M data, 92M linkedit.
+MemRegions: 96981 total, 1415M resident, 299M private, 410M shared.
+PhysMem: 7207M used (1144M wired, 652M compressor), 104M unused.
+VM: 219T vsize, 57G framework vsize, 785828(0) swapins, 1022052(0) swapouts.
+Networks: packets: 15359449/18G in, 3112745/889M out.
+Disks: 45126180/2477G read, 11904761/229G written.
+
+PID    COMMAND          MEM 
+632    WindowServer     671M
+19972  Photos           561M
+9950   com.apple.WebKit 497M
+1621   Podcasts         425M
+1613   Mail             328M
+1868   TGOnDeviceInfere 274M
+1617   Books            202M
+1612   Safari           193M
+1619   Music            167M
+1622   Messages         150M
+10035  firefox          150M
+1903   TGOnDeviceInfere 138M
+10817  com.apple.WebKit 120M
+1521   mediaanalysisd   102M
+1627   Finder           96M 
