@@ -872,6 +872,95 @@ static void test_mellum_stream_close_null(void) {
     ds4_engine_close(engine);
 }
 
+/* S5 grouped prefill (DS4_TEST_MELLUM_MODEL): one run of `n` test tokens with prefill chunk `chunk`, context `ctx`
+ * and DS4_MELLUM_STREAM_PREFILL_GROUP `k` (NULL: unset).  n_first > 0 syncs that many tokens first (a warm
+ * append); two_sessions syncs the prompt in one session, frees it, and measures a second.  Records the last
+ * row's logits (record) or returns how many words differ from them; *loads gets the measured session's loads. */
+static int64_t mellum_group_run(const char *model, const char *k, uint32_t experts, uint64_t bytes, uint32_t chunk,
+                                int ctx, int n_first, int n, bool two_sessions, float *logits, bool record, uint64_t *loads) {
+    char *saved = test_save_env("DS4_MELLUM_STREAM_PREFILL_GROUP");
+    if (k) setenv("DS4_MELLUM_STREAM_PREFILL_GROUP", k, 1);
+    else unsetenv("DS4_MELLUM_STREAM_PREFILL_GROUP");
+    const bool streaming = experts || bytes;
+    ds4_engine *engine = NULL;
+    ds4_engine_options opt = { .model_path = model, .backend = DS4_BACKEND_METAL, .context_size = ctx, .prefill_chunk = chunk,
+                               .ssd_streaming = streaming, .ssd_streaming_cache_experts = experts,
+                               .ssd_streaming_cache_bytes = bytes };
+    int64_t diff = -1;
+    if (ds4_engine_open(&engine, &opt) != 0 || !engine) { test_restore_env("DS4_MELLUM_STREAM_PREFILL_GROUP", saved); return -1; }
+    ds4_tokens first = {0}, prompt = {0};
+    for (int i = 0; i < n; i++) {
+        ds4_tokens_push(&prompt, test_mellum_token(i));
+        if (i < n_first) ds4_tokens_push(&first, test_mellum_token(i));
+    }
+    char err[256] = {0};
+    float *got = malloc(98304u * sizeof(float));
+    bool ok = got != NULL;
+    for (int pass = 0; ok && pass < (two_sessions ? 2 : 1); pass++) {
+        ds4_session *s = NULL;
+        ok = ds4_session_create(&s, engine, ctx) == 0 && s;
+        if (ok && n_first > 0) ok = ds4_session_sync(s, &first, err, sizeof(err)) == 0;
+        ok = ok && ds4_session_sync(s, &prompt, err, sizeof(err)) == 0 && ds4_session_copy_logits(s, got, 98304) == 98304;
+        if (ok && loads) ok = !streaming ? (*loads = 0, true) : ds4_test_mellum_stream_loads(s, loads);
+        if (s) ds4_session_free(s);
+    }
+    if (ok) {
+        diff = 0;
+        if (record) memcpy(logits, got, 98304u * sizeof(float));
+        else for (uint32_t w = 0; w < 98304u; w++) diff += memcmp(&got[w], &logits[w], sizeof(float)) != 0;
+    } else {
+        fprintf(stderr, "mellum-stream-group: %d tokens: %s\n", n, err);
+    }
+    free(got);
+    ds4_tokens_free(&first);
+    ds4_tokens_free(&prompt);
+    ds4_engine_close(engine);
+    test_restore_env("DS4_MELLUM_STREAM_PREFILL_GROUP", saved);
+    return diff;
+}
+
+/* S5 grouped layer-major prefill: streamed syncs in groups of K chunks give the resident logits word for word
+ * (several groups, a one-row tail, one partial group at the default K, the context limit, a warm append, a
+ * second session), and K = 2 loads fewer experts than K = 1. */
+static void test_mellum_stream_group(void) {
+    const char *model = getenv("DS4_TEST_MELLUM_MODEL");
+    if (!model || !model[0]) {
+        puts("mellum-stream-group: DS4_TEST_MELLUM_MODEL unset, skipped");
+        return;
+    }
+    float *ref = malloc(98304u * sizeof(float));
+    TEST_ASSERT(ref != NULL);
+    if (!ref) return;
+    static const struct { const char *name; const char *k; uint32_t chunk; int ctx, n_first, n; bool two, six_gib; } cases[] = {
+        { "1,281 tokens, chunk 256, K 2 (one-row tail)", "2", 256, 8192, 0, 1281, false, true },
+        { "1,281 tokens, chunk 256, K 2 (one-row tail)", "2", 256, 8192, 0, 1281, false, false },
+        { "1,100 tokens, chunk 256, K 2", "2", 256, 8192, 0, 1100, false, true },
+        { "1,100 tokens, chunk 256, K 2", "2", 256, 8192, 0, 1100, false, false },
+        { "2,200 tokens, chunk 1,024, default K", NULL, 1024, 8192, 0, 2200, false, true },
+        { "2,047 tokens in context 2,048, chunk 256, K 2", "2", 256, 2048, 0, 2047, false, false },
+        { "700 then 1,281 tokens, chunk 256, K 2", "2", 256, 8192, 700, 1281, false, false },
+        { "a second session, 1,100 tokens, chunk 256, K 2", "2", 256, 8192, 0, 1100, true, false },
+    };
+    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        TEST_ASSERT(mellum_group_run(model, NULL, 0, 0, cases[i].chunk, cases[i].ctx, cases[i].n_first, cases[i].n, false,
+                                     ref, true, NULL) == 0);
+        const int64_t diff = mellum_group_run(model, cases[i].k, cases[i].six_gib ? 0u : 64u, cases[i].six_gib ? 6ull << 30 : 0u,
+                                              cases[i].chunk, cases[i].ctx, cases[i].n_first, cases[i].n, cases[i].two,
+                                              ref, false, NULL);
+        TEST_ASSERT(diff == 0);
+        printf("mellum-stream-group: %s, %s: %lld of 98304 last-row logit words differ\n", cases[i].name,
+               cases[i].six_gib ? "6 GiB" : "64 slots", (long long)diff);
+    }
+    uint64_t loads1 = 0, loads2 = 0;
+    TEST_ASSERT(mellum_group_run(model, NULL, 0, 0, 256, 8192, 0, 1100, false, ref, true, NULL) == 0);
+    TEST_ASSERT(mellum_group_run(model, "1", 64, 0, 256, 8192, 0, 1100, false, ref, false, &loads1) == 0);
+    TEST_ASSERT(mellum_group_run(model, "2", 64, 0, 256, 8192, 0, 1100, false, ref, false, &loads2) == 0);
+    TEST_ASSERT(loads2 < loads1);
+    printf("mellum-stream-group: 1,100 tokens at 64 slots load %llu experts at K 1 and %llu at K 2\n",
+           (unsigned long long)loads1, (unsigned long long)loads2);
+    free(ref);
+}
+
 static void test_mellum_stream_identity(void) {
     const char *model = getenv("DS4_TEST_MELLUM_MODEL");
     if (!model || !model[0]) {
@@ -8226,6 +8315,7 @@ static const ds4_test_entry test_entries[] = {
     {"--mellum-stream-faults", "mellum-stream-faults", "S4: a failed streamed load and a cancellation end the eval and a re-sync recovers resident logits (DS4_TEST_MELLUM_MODEL)", test_mellum_stream_faults},
     {"--mellum-stream-close", "mellum-stream-close", "S4: ds4_engine_close(NULL) leaves an open streamed engine's descriptor and its loads working (DS4_TEST_MELLUM_MODEL)", test_mellum_stream_close_null},
     {"--mellum-stream-group-memory", "mellum-stream-group-memory", "S5: the streamed prefill group buffer is planned and allocated only for K > 1, and a bad K refuses (DS4_TEST_MELLUM_MODEL)", test_mellum_stream_group_memory},
+    {"--mellum-stream-group", "mellum-stream-group", "S5: grouped streamed prefill gives resident logits word for word and loads fewer experts than K = 1 (DS4_TEST_MELLUM_MODEL)", test_mellum_stream_group},
     {"--mellum-rewind", "mellum-rewind", "Mellum session rewind: one token keeps the caches, deeper replays; logits equal a straight decode (DS4_TEST_MELLUM_MODEL)", test_mellum_rewind},
     {"--mellum-moe", "mellum-moe", "Mellum MoE driver on the real model's layers against a double reference (DS4_TEST_MELLUM_MODEL)", test_mellum_moe_real},
     {"--qwen4-restore-reuse", "qwen4-restore-reuse", "Qwen restore discards old verifier state and rejects truncated payloads", test_qwen_restore_reused_session},
