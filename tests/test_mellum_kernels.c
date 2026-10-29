@@ -1862,7 +1862,7 @@ static void moe_tiled_part(const moe_arena_t *a, const float *x, const int32_t *
  * The inputs come from a fixed seed, so both arenas see the same rows and selections; the shared generator's state
  * is restored after, so no other test's inputs change. */
 static double moe_tiled_staged_worst(const moe_arena_t *a) {
-    static const uint32_t Ts[] = { 64, 100 };
+    static const uint32_t Ts[] = { 64, 100, 1024 };   /* at 1,024 rows every expert spans several 64-row tiles */
     const uint32_t K = MREF_USED, saved = g_rng;
     g_rng = 0x5eed1234u;
     const mref_weights w = { a->base, a->router, a->gate, a->up, a->down, a->expert_type };
@@ -1877,6 +1877,7 @@ static double moe_tiled_staged_worst(const moe_arena_t *a) {
             for (uint32_t k = 0; k < K; k++) sel[t * K + k] = (int32_t)((t * 7u + k * 9u) % MREF_NEXP);
         moe_tiled_part(a, x, sel, T, part);
         for (uint32_t t = 0; t < T; t++) {
+            if (T > 128u && t % 64u != 0u && t != T - 1u) continue;   /* 1,024 rows: every 64th and the last */
             for (uint32_t i = 0; i < MREF_E; i++) xh[i] = (double)(__fp16)x[(uint64_t)t * MREF_E + i];
             for (uint32_t k = 0; k < K; k++) {
                 mref_expert_staged(&w, (uint64_t)sel[t * K + k], xh, ref);
@@ -1890,16 +1891,18 @@ static double moe_tiled_staged_worst(const moe_arena_t *a) {
     return worst;
 }
 
-/* S6: MXFP4's tiled experts are held to Q8_0's own tiled figure on the same rows (q8_worst, the production path):
- * at most twice it, and both within 1e-3.  A single slot is a harsher view than the routed output MOE_TOL bounds;
- * Q8_0's tiled slots are about 1e-4 from the staged reference here (2026-10-28), not 1e-5. */
+/* S6: MXFP4's tiled experts against the staged reference, slot by slot, within MOE_STAGED_TOL: the bound
+ * tests/ds4_test.c holds the tiled rows of the real weights to.  1e-5 (MOE_TOL) bounds the decode path's routed
+ * output; a single tiled slot is not held to it, and Q8_0's is not either.  q8_worst is Q8_0's figure on the same
+ * rows, printed as context only: it is measured at the test's Q8_0 tile level (0, the simdgroup tiles), while
+ * production Mellum Q8_0 prefill runs level 2 and MXFP4 runs the qwen4 default. */
+#define MOE_STAGED_TOL 2.5e-4
 static void test_moe_tiled_staged_reference(const moe_arena_t *a, double q8_worst) {
     const double worst = moe_tiled_staged_worst(a);
-    CHECK(q8_worst <= 1e-3 && worst <= 1e-3 && worst <= 2.0 * q8_worst,
-          "tiled MXFP4 experts vs the staged reference: worst slot %.3e, Q8_0's %.3e (bound: <= 2x Q8_0's and <= 1e-3)",
-          worst, q8_worst);
-    printf("  moe    tiled mid/down, T 64/100, vs staged double reference: worst slot MXFP4 %.2e, Q8_0 %.2e "
-           "(bound: <= 2x Q8_0's, <= 1e-3)\n", worst, q8_worst);
+    CHECK(worst <= MOE_STAGED_TOL, "tiled MXFP4 experts vs the staged reference: worst slot %.3e (tol %.1e)",
+          worst, MOE_STAGED_TOL);
+    printf("  moe    tiled mid/down, T 64/100/1024, vs staged double reference: worst slot MXFP4 %.2e (tol %.1e); "
+           "context: Q8_0 at tile level 0 %.2e\n", worst, MOE_STAGED_TOL, q8_worst);
 }
 
 /* ---- S4 address-table variants: each expert in its own slot buffer, reached through a uint64 GPU-address
@@ -1944,6 +1947,56 @@ static void addr_pick(int32_t sel[MREF_USED]) {
         } while (dup);
         sel[k] = e;
     }
+}
+
+/* S6: the four address-table entry points refuse Q4_0 (2) and Q4_K (12) experts, writing nothing; the sibling
+ * is the same call at the arena's type, which runs. */
+static void test_moe_addr_refusals(const moe_arena_t *a) {
+    enum { T = 32 };
+    const uint32_t K = MREF_USED;
+    addr_slots_t s;
+    addr_slots_make(a, &s);
+    ds4_gpu_tensor *res[2u * MREF_NEXP], *dres[MREF_NEXP];
+    for (uint32_t e = 0; e < MREF_NEXP; e++) { res[2u * e] = s.gate[e]; res[2u * e + 1u] = s.up[e]; dres[e] = s.down[e]; }
+    int32_t sel_h[T * MREF_USED];
+    for (uint32_t t = 0; t < T; t++) addr_pick(sel_h + t * K);
+    float *x = rand_vec((uint64_t)T * MREF_E, 1.7f);
+    const uint64_t mid_bytes = (uint64_t)T * K * MREF_FF * 4u, part_bytes = (uint64_t)T * K * MREF_E * 4u;
+    float *mark = malloc(part_bytes), *back = malloc(part_bytes);
+    require_ok(mark && back, "malloc");
+    for (uint64_t i = 0; i < part_bytes / 4u; i++) mark[i] = 12345.0f;
+    ds4_gpu_tensor *xt = upload(x, (uint64_t)T * MREF_E), *sel = ds4_gpu_tensor_alloc(sizeof(sel_h));
+    ds4_gpu_tensor *lists = zeroed((uint64_t)MREF_NEXP * T * 4u), *counts = zeroed(MREF_NEXP * 4u);
+    ds4_gpu_tensor *mid = ds4_gpu_tensor_alloc(mid_bytes), *part = ds4_gpu_tensor_alloc(part_bytes);
+    require_ok(sel && mid && part && ds4_gpu_tensor_write(sel, 0, sel_h, sizeof(sel_h)) &&
+               ds4_gpu_qwen4_moe_build_lists_tensor(lists, counts, sel, T, K, MREF_NEXP, T) &&
+               ds4_gpu_tensor_write(mid, 0, mark, mid_bytes) && ds4_gpu_tensor_write(part, 0, mark, part_bytes), "setup");
+    static const uint32_t bad[] = { 2u, 12u };
+    int refused = 0, calls = 0;
+    for (size_t b = 0; b < sizeof(bad) / sizeof(bad[0]); b++, calls += 4) {
+        const uint32_t ty = bad[b];
+        refused += ds4_gpu_qwen4_moe_mid_addr_tensor(mid, xt, sel, s.ga, s.ua, res, 2u * MREF_NEXP, ty, MREF_NEXP, T, K,
+                                                     MREF_E, MREF_FF) == 0;
+        refused += ds4_gpu_qwen4_moe_down_addr_tensor(part, mid, sel, s.da, dres, MREF_NEXP, ty, MREF_NEXP, T, K,
+                                                      MREF_FF, MREF_E) == 0;
+        refused += ds4_gpu_qwen4_moe_mm_mid_addr_tensor(mid, xt, lists, counts, s.ga, s.ua, res, 2u * MREF_NEXP, ty,
+                                                        MREF_NEXP, T, K, K, MREF_E, MREF_FF, T) == 0;
+        refused += ds4_gpu_qwen4_moe_mm_down_addr_tensor(part, mid, lists, counts, s.da, dres, MREF_NEXP, ty, MREF_NEXP,
+                                                         T, K, K, MREF_FF, MREF_E, T) == 0;
+    }
+    bool untouched = ds4_gpu_tensor_read(mid, 0, back, mid_bytes) && memcmp(back, mark, mid_bytes) == 0;
+    untouched = untouched && ds4_gpu_tensor_read(part, 0, back, part_bytes) && memcmp(back, mark, part_bytes) == 0;
+    CHECK(refused == calls, "addr: %d of %d calls with Q4_0 or Q4_K experts were refused", refused, calls);
+    CHECK(untouched, "addr: a refused call must leave mid and part as they were");
+    const int sibling = ds4_gpu_qwen4_moe_mid_addr_tensor(mid, xt, sel, s.ga, s.ua, res, 2u * MREF_NEXP, a->expert_type,
+                                                          MREF_NEXP, T, K, MREF_E, MREF_FF);
+    CHECK(sibling != 0, "addr: the same call at the arena's own type must run");
+    printf("  moe    addr refusals: Q4_0 and Q4_K through the four address-table entry points -> %d of %d refused, "
+           "outputs untouched %s; the same call at type %u runs\n", refused, calls, untouched ? "yes" : "NO", a->expert_type);
+    ds4_gpu_tensor_free(xt); ds4_gpu_tensor_free(sel); ds4_gpu_tensor_free(lists); ds4_gpu_tensor_free(counts);
+    ds4_gpu_tensor_free(mid); ds4_gpu_tensor_free(part);
+    addr_slots_free(&s);
+    free(x); free(mark); free(back);
 }
 
 static void test_moe_addr_decode(const moe_arena_t *a) {
@@ -2160,6 +2213,7 @@ static void test_moe(void) {
     test_moe_refusals(a);
     test_moe_addr_decode(a);
     test_moe_addr_tiled(a, 0u);   /* the tensor-tile levels apply to Q8_0 only */
+    test_moe_addr_refusals(a);
     test_moe_tiled_staged_reference(a, q8_tiled);
     for (int batched = 0; batched <= 1; batched++) {
         g_batched = batched != 0;
