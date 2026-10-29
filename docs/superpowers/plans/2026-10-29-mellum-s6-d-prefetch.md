@@ -36,7 +36,10 @@ over SSH; the M5 is a no-regression guard.
 ## Review Focus
 
 1. **A prefetch read that fails or is cancelled must still signal the event**, or the GPU waits forever: Task 5's
-   fault test injects a failed prefetch read and expects resident logits and no hang.
+   fault test injects a failed prefetch read inside the read task and expects resident logits, and an `alarm()`
+   timeout in the test turns a hang into a failure (`ds4_test` has no timeout of its own).
+6. **An install while the GPU runs layer L** must never evict or overwrite a slot L is reading: Task 5's forced-
+   eviction test (Fable review, 2026-10-29, finding 3).
 2. **Tiny caches:** at 64 slots a prefetch could evict the stopped layer's experts. Task 5 runs identity at 64
    slots with prefetch on.
 3. **The last layer:** a stop at layer 27 has no layer 28. Task 4's test expects no prefetch call there.
@@ -77,8 +80,10 @@ The merge added `mellum`'s rewind frontier (about 44 MB on the M5: the 2.5 GiB M
 else 2147483648.
 
 - [ ] **Step 1: Inventory.** On the iMac at 2.5 GiB, run the workload once with `DS4_METAL_TRACE_ALLOCS=1`
-  (`tools/mellum_s4_measure … --gen 16`), and list allocations by size. Pick the smallest change that frees Task 1's
-  overage plus 16 MB of margin, in this order: buffers that streamed decode sizes for prefill but never uses; the S5
+  (`tools/mellum_s4_measure … --gen 16`), and list allocations by size. Add the streaming buffers that sit outside
+  `mellum_requests` (the gate, the save slots, the 84 address-table views, `ds4.c:59562-59567`; `ds4_test.c:600-601`
+  exempts them) and the slabs. Pick the smallest change that frees Task 1's overage plus 64 MB of margin (the measure
+  tool samples `currentAllocatedSize` once per token, so its peak is a lower bound), in this order: buffers that streamed decode sizes for prefill but never uses; the S5
   group buffer; `prefill_cap` 1024 → 512 (only if Step 5's first token stays within 10%). The frontier and the
   context are the owner's (Global Constraints). Ledger the choice as a ruling.
 - [ ] **Step 2: Write the failing test** in `tests/test_mellum_config.c`, `test_streamed_plan_fits_2_5_gib`: the
@@ -91,6 +96,21 @@ else 2147483648.
 - [ ] **Step 6:** On the iMac, `run_imac.sh cache` into a new `$OUT`. Expected: 2.5 GiB's Metal peak ≤
   4,652,892,160 B, no swap-out growth; first token within 10% of Task 1. If not, rule and stop at 2 GiB.
 - [ ] **Step 7:** Commit test, fix and evidence separately.
+
+### Task 2b: Two streaming fixes the review found (Fable, 2026-10-29, findings 5 and 6)
+
+**Files:** `ds4_metal.m` (the failed-read path: `pending_load_finish`, `prepare_load_buffers`), `ds4.c`
+(`mellum_stream_finish`), tests in `tests/ds4_test.c`.
+
+- [ ] **Step 1: Failing test** `--mellum-stream-read-fault`: a test hook fails one pread task (`tasks[i].ok = 0`)
+  inside a decode load; afterwards the cache's free slab-slot count equals its count before, and a re-sync gives
+  resident logits. Sibling: the same run without the fault, same counts. Expected now: FAIL, slots lost (the comment
+  at `ds4_metal.m:51525` admits it).
+- [ ] **Step 2:** Return the slab slots taken in `prepare_load_buffers` when a read fails. Run the test: PASS.
+- [ ] **Step 3: Failing test** for `mellum_stream_finish`: in the kernel fixture, a dispatch after the stop that
+  rewrites `SELECTED`; the stop must still report the stopped layer's ids. Then read the ids from the save slot (the
+  check kernel saved them) instead of scratch `SELECTED`. PASS; all `--mellum-stream-*` tests on both quants rc 0.
+- [ ] **Step 4:** Commit each red test and each fix separately.
 
 ### Task 3: Screen the synchronous prefetch on the iMac (screen-only patch, no product code)
 
@@ -105,8 +125,12 @@ and the note `…-sync-screen.md`.
   off/on/off/on (128 tokens, 20 s apart), with the stop profile's `DS4_MELLUM_STREAM_PROFILE=1`, reverts, rebuilds
   clean. Dry-run on the M5 first.
 - [ ] **Step 3:** Run on the iMac over SSH and pull the captures back.
-- [ ] **Step 4: The bar.** `avoided = stops_off − stops_on` (per token, mean of the two runs). Pass if
-  `avoided × 6.4 ms ≥ 20 ms`. Also report the measured ms/token change, prefetch accuracy, and wasted reads.
+- [ ] **Step 4: The bar.** Report the measured ms/token change (off minus on), stops avoided per token, prefetch
+  accuracy and wasted experts per token. Project the asynchronous saving as
+  `avoided × (5.5 ms − w) − wasted × r`, where 5.5 ms is an avoided stop's cost from the four-term refit (the stop
+  profile's corrected note), `w` the projected event wait per prefetch (median read span of the prefetch's size minus
+  about 2.0 ms of GPU work before L+1's check, floored at 0) and `r` the measured read time per wasted expert. Pass if
+  the measured change or the projection is at least 20 ms/token. Stops avoided alone decides nothing.
 - [ ] **Step 5:** Commit the screen and its note. **If it fails, skip to Task 7** with a verdict.
 
 ### Task 4: The prefetch op in the driver (model-free)
@@ -138,6 +162,19 @@ and the note `…-sync-screen.md`.
 **Files:** Modify `ds4_metal.m`, `ds4_gpu.h`, `ds4.c` (`mellum_stream_*` callbacks, `mellum_graph_moe`'s streamed
 check); tests in `tests/ds4_test.c` and `tests/test_mellum_kernels.c`.
 
+**Prerequisites in the read machinery** (Fable review, finding 1, confirmed in code): the pread pool refuses a
+second batch while one runs (`ds4_metal.m:13699-13703`), the pending load is one global (`g_stream_expert_pending_load`),
+`begin_selected_load` finishes a non-matching pending load synchronously, and the Mellum protect list holds one
+layer (`ds4_metal.m:15485-15487`). This task first adds a second in-flight record for the prefetch, a pool that
+queues one batch behind the running one and calls a completion function (which signals the event), and a protect
+list for two layers.
+
+**Invariants** (finding 3; today every cache change happens with the GPU idle):
+- every eviction for the prefetch happens at prefetch begin, while the GPU is idle at the stop;
+- L's and L+1's ids stay protected from begin through install; the install never prunes;
+- every address-table and residency write happens before the event is signaled; failure and cancel signal too;
+- `prefetch_drain` runs before `ds4_gpu_discard_commands` on every exit of the driver.
+
 **Interfaces:**
 - Consumes: Task 4's `prefetch` op.
 - Produces, in `ds4_gpu.h`:
@@ -150,6 +187,9 @@ check); tests in `tests/ds4_test.c` and `tests/test_mellum_kernels.c`.
   - `int ds4_gpu_mellum_prefetch_drain(void);` — waits for every prefetch in flight (token end, cancel, failure).
 - Switch: `DS4_MELLUM_STREAM_PREFETCH=1` while screening; read at graph allocation into `g->mellum_prefetch`.
 
+- [ ] **Step 0: Read machinery, test first.** Failing model-free or kernel-fixture tests: a second batch queued
+  while one runs both complete and call their completion function once; a two-layer protect list keeps both layers'
+  entries through a prune. Then implement (its own commits, about 150 product lines each).
 - [ ] **Step 1: Write the failing kernel test** `check_prefetch_event_orders_residency` in
   `tests/test_mellum_kernels.c` (the gate chain fixture): a chain whose add at "layer" 5 waits on an event the host
   signals after writing the address table from a second thread; the chain must not trip at 5. Sibling
@@ -157,8 +197,9 @@ check); tests in `tests/ds4_test.c` and `tests/test_mellum_kernels.c`.
 - [ ] **Step 2: Write the failing model tests** in `tests/ds4_test.c`, `--mellum-stream-prefetch`
   (`DS4_TEST_MELLUM_MODEL`): with `DS4_MELLUM_STREAM_PREFETCH=1`, decode at 6 GiB and at 64 slots equals resident,
   0 differing words, and `prefetch_used > 0`; with a failed prefetch read injected (a hook like
-  `ds4_test_mellum_stream_fail_load`), still 0 differing words, no hang (bounded by the test's own timeout), and
-  `--mellum-stream-faults` passes with prefetch on.
+  `ds4_test_mellum_stream_fail_load`, but failing the read task itself), still 0 differing words, no hang (an
+  `alarm()` in the test), and `--mellum-stream-faults` passes with prefetch on. Forced eviction: at 64 slots, a
+  prefetch whose install must evict while layer L runs still gives 0 differing words.
 - [ ] **Step 3:** Run both. Expected: FAIL (functions missing; then `prefetch_used == 0`).
 - [ ] **Step 4: Implement** in three commits of about 150 product lines: the Metal event and prefetch begin/drain;
   the engine's CPU prediction (layer L+1's F32 router over `MELLUM_S_FFN_NORM`, top-8, as the hack does) and the
