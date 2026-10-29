@@ -874,10 +874,12 @@ static void test_mellum_stream_close_null(void) {
 
 /* S5 grouped prefill (DS4_TEST_MELLUM_MODEL): one run of `n` test tokens with prefill chunk `chunk`, context `ctx`
  * and DS4_MELLUM_STREAM_PREFILL_GROUP `k` (NULL: unset).  n_first > 0 syncs that many tokens first (a warm
- * append); two_sessions syncs the prompt in one session, frees it, and measures a second.  Records the last
+ * append); two_sessions syncs the prompt in one session, frees it, and measures a second; rewind_to > 0 rewinds
+ * the synced session there and syncs the prompt again.  Records the last
  * row's logits (record) or returns how many words differ from them; *loads gets the measured session's loads. */
 static int64_t mellum_group_run(const char *model, const char *k, uint32_t experts, uint64_t bytes, uint32_t chunk,
-                                int ctx, int n_first, int n, bool two_sessions, float *logits, bool record, uint64_t *loads) {
+                                int ctx, int n_first, int n, bool two_sessions, int rewind_to, float *logits, bool record,
+                                uint64_t *loads) {
     char *saved = test_save_env("DS4_MELLUM_STREAM_PREFILL_GROUP");
     if (k) setenv("DS4_MELLUM_STREAM_PREFILL_GROUP", k, 1);
     else unsetenv("DS4_MELLUM_STREAM_PREFILL_GROUP");
@@ -900,7 +902,12 @@ static int64_t mellum_group_run(const char *model, const char *k, uint32_t exper
         ds4_session *s = NULL;
         ok = ds4_session_create(&s, engine, ctx) == 0 && s;
         if (ok && n_first > 0) ok = ds4_session_sync(s, &first, err, sizeof(err)) == 0;
-        ok = ok && ds4_session_sync(s, &prompt, err, sizeof(err)) == 0 && ds4_session_copy_logits(s, got, 98304) == 98304;
+        ok = ok && ds4_session_sync(s, &prompt, err, sizeof(err)) == 0;
+        if (ok && rewind_to > 0) {
+            ds4_session_rewind(s, rewind_to);
+            ok = ds4_session_sync(s, &prompt, err, sizeof(err)) == 0;
+        }
+        ok = ok && ds4_session_copy_logits(s, got, 98304) == 98304;
         if (ok && loads) ok = !streaming ? (*loads = 0, true) : ds4_test_mellum_stream_loads(s, loads);
         if (s) ds4_session_free(s);
     }
@@ -931,30 +938,31 @@ static void test_mellum_stream_group(void) {
     float *ref = malloc(98304u * sizeof(float));
     TEST_ASSERT(ref != NULL);
     if (!ref) return;
-    static const struct { const char *name; const char *k; uint32_t chunk; int ctx, n_first, n; bool two, six_gib; } cases[] = {
-        { "1,281 tokens, chunk 256, K 2 (one-row tail)", "2", 256, 8192, 0, 1281, false, true },
-        { "1,281 tokens, chunk 256, K 2 (one-row tail)", "2", 256, 8192, 0, 1281, false, false },
-        { "1,100 tokens, chunk 256, K 2", "2", 256, 8192, 0, 1100, false, true },
-        { "1,100 tokens, chunk 256, K 2", "2", 256, 8192, 0, 1100, false, false },
-        { "2,200 tokens, chunk 1,024, default K", NULL, 1024, 8192, 0, 2200, false, true },
-        { "2,047 tokens in context 2,048, chunk 256, K 2", "2", 256, 2048, 0, 2047, false, false },
-        { "700 then 1,281 tokens, chunk 256, K 2", "2", 256, 8192, 700, 1281, false, false },
-        { "a second session, 1,100 tokens, chunk 256, K 2", "2", 256, 8192, 0, 1100, true, false },
+    static const struct { const char *name; const char *k; uint32_t chunk; int ctx, n_first, n; bool two, six_gib; int rewind; } cases[] = {
+        { "1,281 tokens, chunk 256, K 2 (one-row tail)", "2", 256, 8192, 0, 1281, false, true, 0 },
+        { "1,281 tokens, chunk 256, K 2 (one-row tail)", "2", 256, 8192, 0, 1281, false, false, 0 },
+        { "1,100 tokens, chunk 256, K 2", "2", 256, 8192, 0, 1100, false, true, 0 },
+        { "1,100 tokens, chunk 256, K 2", "2", 256, 8192, 0, 1100, false, false, 0 },
+        { "2,200 tokens, chunk 1,024, default K", NULL, 1024, 8192, 0, 2200, false, true, 0 },
+        { "2,047 tokens in context 2,048, chunk 256, K 2", "2", 256, 2048, 0, 2047, false, false, 0 },
+        { "700 then 1,281 tokens, chunk 256, K 2", "2", 256, 8192, 700, 1281, false, false, 0 },
+        { "a second session, 1,100 tokens, chunk 256, K 2", "2", 256, 8192, 0, 1100, true, false, 0 },
+        { "1,100 tokens, rewind to 1,000, sync again, chunk 256, K 2", "2", 256, 8192, 0, 1100, false, false, 1000 },
     };
     for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
         TEST_ASSERT(mellum_group_run(model, NULL, 0, 0, cases[i].chunk, cases[i].ctx, cases[i].n_first, cases[i].n, false,
-                                     ref, true, NULL) == 0);
+                                     cases[i].rewind, ref, true, NULL) == 0);
         const int64_t diff = mellum_group_run(model, cases[i].k, cases[i].six_gib ? 0u : 64u, cases[i].six_gib ? 6ull << 30 : 0u,
                                               cases[i].chunk, cases[i].ctx, cases[i].n_first, cases[i].n, cases[i].two,
-                                              ref, false, NULL);
+                                              cases[i].rewind, ref, false, NULL);
         TEST_ASSERT(diff == 0);
         printf("mellum-stream-group: %s, %s: %lld of 98304 last-row logit words differ\n", cases[i].name,
                cases[i].six_gib ? "6 GiB" : "64 slots", (long long)diff);
     }
     uint64_t loads1 = 0, loads2 = 0;
-    TEST_ASSERT(mellum_group_run(model, NULL, 0, 0, 256, 8192, 0, 1100, false, ref, true, NULL) == 0);
-    TEST_ASSERT(mellum_group_run(model, "1", 64, 0, 256, 8192, 0, 1100, false, ref, false, &loads1) == 0);
-    TEST_ASSERT(mellum_group_run(model, "2", 64, 0, 256, 8192, 0, 1100, false, ref, false, &loads2) == 0);
+    TEST_ASSERT(mellum_group_run(model, NULL, 0, 0, 256, 8192, 0, 1100, false, 0, ref, true, NULL) == 0);
+    TEST_ASSERT(mellum_group_run(model, "1", 64, 0, 256, 8192, 0, 1100, false, 0, ref, false, &loads1) == 0);
+    TEST_ASSERT(mellum_group_run(model, "2", 64, 0, 256, 8192, 0, 1100, false, 0, ref, false, &loads2) == 0);
     TEST_ASSERT(loads2 < loads1);
     printf("mellum-stream-group: 1,100 tokens at 64 slots load %llu experts at K 1 and %llu at K 2\n",
            (unsigned long long)loads1, (unsigned long long)loads2);

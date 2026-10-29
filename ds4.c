@@ -61155,6 +61155,77 @@ static bool mellum_graph_forward_tokens(ds4_qwen4_gpu_graph *g, const ds4_model 
 #endif
 }
 
+/* S5 grouped layer-major prefill (streamed Mellum, K > 1).  rows (two or more, at most K x cap_tokens, never
+ * ending in a one-row chunk) at g->pos.. run as consecutive chunks of cap_tokens, every layer over all of the
+ * group's chunks, in order, before the next layer, so a layer's experts load about once per group rather than
+ * once per chunk.  Each (layer, chunk) is the ordinary mellum_graph_layer on that chunk's rows, copied from the
+ * group buffer into HIDDEN and back, at the chunk's own position: its KV, ring and hidden inputs equal the
+ * per-chunk forward's.  The streamed MoE waits on the GPU after every (layer, chunk) router, which keeps the
+ * CPU-written full-attention rows table safe to reuse across a layer's chunks.  logits_out receives the last
+ * row's logits; display, when set, hears a prefill_display event after each layer pass (not a checkpoint). */
+static bool mellum_graph_prefill_group(ds4_qwen4_gpu_graph *g, const ds4_model *m, const ds4_weights *w,
+                                       const int *tokens, uint32_t rows, float *logits_out,
+                                       ds4_session_progress_fn display, void *display_ud,
+                                       int display_base, int display_total) {
+#if !defined(__APPLE__)
+    (void)g; (void)m; (void)w; (void)tokens; (void)rows; (void)logits_out;
+    (void)display; (void)display_ud; (void)display_base; (void)display_total;
+    return false;
+#else
+    const uint32_t cap = g ? g->cap_tokens : 0u, E = DS4_N_EMBD;
+    if (!g || !tokens || !g->mellum_stream || !g->mellum_group_hidden || cap == 0 || rows < 2u ||
+        rows > g->mellum_group_k * cap || g->pos + rows > g->ctx_cap) return false;
+    const uint32_t n_chunk = (rows + cap - 1u) / cap, last = rows - (n_chunk - 1u) * cap;
+    if (last == 1u) return false;   /* a one-row chunk runs on the decode path */
+    mellum_trace_cfg tc;
+    if (!mellum_trace_parse(&tc)) return false;
+    if (g->mellum_capture || tc.prefix) {
+        fprintf(stderr, "ds4: Mellum SSD streaming does not support route capture or tracing\n");
+        return false;
+    }
+    ds4_gpu_tensor *const *s = g->mellum_scratch;
+    ds4_gpu_tensor *hid = g->mellum_group_hidden;
+    const ds4_gpu_mellum_rope rope = mellum_rope_params();
+    const uint32_t pos0 = g->pos;
+    const uint64_t row_bytes = (uint64_t)E * sizeof(float);
+    bool ok = true;
+    for (uint32_t c = 0; c < n_chunk && ok; c++) {
+        const uint32_t r0 = c * cap, T = c + 1u < n_chunk ? cap : last;
+        /* TOKENS is one chunk wide: the previous chunk's embed must have run before it is rewritten */
+        if (ds4_gpu_commands_active() && !ds4_gpu_end_commands()) ok = false;
+        ok = ok && ds4_gpu_tensor_write(s[MELLUM_S_TOKENS], 0, tokens + r0, (uint64_t)T * sizeof(int32_t)) != 0 &&
+             glm_graph_begin_commands_if_needed() &&
+             ds4_gpu_embed_tokens_q8_0_tensor(s[MELLUM_S_HIDDEN], s[MELLUM_S_TOKENS], m->map, m->size,
+                                              w->token_embd->abs_offset, (uint32_t)w->token_embd->dim[1], T, E) != 0 &&
+             ds4_gpu_tensor_copy(hid, r0 * row_bytes, s[MELLUM_S_HIDDEN], 0, T * row_bytes) != 0;
+    }
+    uint32_t full_slot = 0;
+    for (uint32_t il = 0; il < DS4_N_LAYER && ok; il++) {
+        for (uint32_t c = 0; c < n_chunk && ok; c++) {
+            const uint32_t r0 = c * cap, T = c + 1u < n_chunk ? cap : last;
+            ok = glm_graph_begin_commands_if_needed() &&
+                 ds4_gpu_tensor_copy(s[MELLUM_S_HIDDEN], 0, hid, r0 * row_bytes, T * row_bytes) != 0 &&
+                 mellum_graph_layer(g, m, &w->layer[il], il, full_slot, pos0 + r0, T, &rope) &&
+                 ds4_gpu_tensor_copy(hid, r0 * row_bytes, s[MELLUM_S_HIDDEN], 0, T * row_bytes) != 0;
+        }
+        if (!ds4_mellum_layer_is_sliding(il)) full_slot++;
+        if (ok && display) {
+            display(display_ud, "prefill_display", display_base + (int)((uint64_t)rows * (il + 1u) / DS4_N_LAYER),
+                    display_total);
+        }
+    }
+    /* the last chunk's rows are still in HIDDEN: its last row's logits */
+    if (ok && logits_out) {
+        ok = glm_graph_begin_commands_if_needed() && mellum_graph_head(g, m, w, last - 1u) &&
+             ds4_gpu_end_commands() != 0 &&
+             ds4_gpu_tensor_read(g->logits, 0, logits_out, (uint64_t)DS4_N_VOCAB * sizeof(float)) != 0;
+    }
+    if (ds4_gpu_commands_active() && !ds4_gpu_end_commands()) ok = false;
+    if (ok) g->pos += rows;
+    return ok;
+#endif
+}
+
 
 /* host side: embedding rows tiled into R and the PLE n-gram gather */
 static bool qwen4_graph_stage_inputs(ds4_qwen4_gpu_graph *g, const ds4_model *m, const ds4_weights *w,
@@ -78452,12 +78523,23 @@ static int ds4_session_sync_internal(ds4_session *s, const ds4_tokens *prompt, c
             }
             uint32_t chunk = (uint32_t)(prompt->len - i);
             if (chunk > s->qwen4_graph.cap_tokens) chunk = s->qwen4_graph.cap_tokens;
+            /* S5: a streamed Mellum graph with K > 1 takes a group of up to K chunks, one checkpoint */
+            const bool grouped = ds4_model_is_mellum() && s->qwen4_graph.mellum_stream &&
+                                 s->qwen4_graph.mellum_group_k > 1u;
+            if (grouped) {
+                chunk = ds4_mellum_stream_group_rows((uint32_t)(prompt->len - i), s->qwen4_graph.cap_tokens,
+                                                     s->qwen4_graph.mellum_group_k);
+            }
             /* Progress callbacks may persist this frontier, and cancellation
              * may leave it as the live session. Every completed chunk needs
              * its own logits as well as recurrent/KV state. */
             s->checkpoint_valid = false;
-            if (!qwen4_graph_forward_tokens(&s->qwen4_graph, &e->model, &e->weights,
-                                            prompt->v + i, chunk, s->logits, false)) {
+            const bool fok = grouped && chunk > 1u ?
+                mellum_graph_prefill_group(&s->qwen4_graph, &e->model, &e->weights, prompt->v + i, chunk, s->logits,
+                                           s->display_progress, s->display_progress_ud, i, prompt->len) :
+                qwen4_graph_forward_tokens(&s->qwen4_graph, &e->model, &e->weights,
+                                           prompt->v + i, chunk, s->logits, false);
+            if (!fok) {
                 snprintf(err, errlen, "%s prefill failed at token %d", ds4_qwen4_family_name(), i);
                 s->checkpoint_valid = false;
                 prefill_rc = 1;
