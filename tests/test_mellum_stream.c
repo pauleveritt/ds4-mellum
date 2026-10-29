@@ -21,16 +21,16 @@ static int g_checks = 0;
 } while (0)
 
 static void test_slots(void) {
-    CHECK(ds4_mellum_stream_slots(6ull << 30) == 979u, "6 GiB must hold 979 experts (got %u)",
-          ds4_mellum_stream_slots(6ull << 30));
-    CHECK(ds4_mellum_stream_slots(DS4_MELLUM_EXPERT_BYTES - 1u) == 0u, "less than one expert holds none");
-    CHECK(ds4_mellum_stream_slots(0) == 0u, "no budget holds none");
+    CHECK(ds4_mellum_stream_slots(6ull << 30, DS4_MELLUM_Q8_EXPERT_BYTES) == 979u, "6 GiB must hold 979 experts (got %u)",
+          ds4_mellum_stream_slots(6ull << 30, DS4_MELLUM_Q8_EXPERT_BYTES));
+    CHECK(ds4_mellum_stream_slots(DS4_MELLUM_Q8_EXPERT_BYTES - 1u, DS4_MELLUM_Q8_EXPERT_BYTES) == 0u, "less than one expert holds none");
+    CHECK(ds4_mellum_stream_slots(0, DS4_MELLUM_Q8_EXPERT_BYTES) == 0u, "no budget holds none");
 }
 
 static void test_config_refuses_zero_cache(void) {
     char err[256] = "";
     uint32_t slots = 7u;
-    const int rc = ds4_mellum_stream_config(true, 0, &slots, err, sizeof(err));
+    const int rc = ds4_mellum_stream_config(true, 0, DS4_MELLUM_Q8_EXPERT_BYTES, &slots, err, sizeof(err));
     CHECK(rc == -1, "streaming with no cache must be refused (rc %d)", rc);
     CHECK(strstr(err, "--ssd-streaming-cache-experts") != NULL, "the refusal must name the flag (err \"%s\")", err);
 }
@@ -38,7 +38,7 @@ static void test_config_refuses_zero_cache(void) {
 static void test_config_off_has_no_slots(void) {
     char err[256] = "";
     uint32_t slots = 7u;
-    const int rc = ds4_mellum_stream_config(false, 6ull << 30, &slots, err, sizeof(err));
+    const int rc = ds4_mellum_stream_config(false, 6ull << 30, DS4_MELLUM_Q8_EXPERT_BYTES, &slots, err, sizeof(err));
     CHECK(rc == 0 && slots == 0u, "streaming off must configure no slots (rc %d, slots %u)", rc, slots);
 }
 
@@ -47,17 +47,50 @@ static void test_config_off_has_no_slots(void) {
 static void test_config_refuses_fewer_than_a_layer(void) {
     char err[256] = "";
     uint32_t slots = 7u;
-    CHECK(ds4_mellum_stream_config(true, 63u * DS4_MELLUM_EXPERT_BYTES, &slots, err, sizeof(err)) == -1 &&
+    CHECK(ds4_mellum_stream_config(true, 63u * DS4_MELLUM_Q8_EXPERT_BYTES, DS4_MELLUM_Q8_EXPERT_BYTES, &slots, err, sizeof(err)) == -1 &&
           strstr(err, "64") != NULL, "63 slots must be refused, naming 64 (err \"%s\")", err);
-    CHECK(ds4_mellum_stream_config(true, 64u * DS4_MELLUM_EXPERT_BYTES, &slots, err, sizeof(err)) == 0 && slots == 64u,
+    CHECK(ds4_mellum_stream_config(true, 64u * DS4_MELLUM_Q8_EXPERT_BYTES, DS4_MELLUM_Q8_EXPERT_BYTES, &slots, err, sizeof(err)) == 0 && slots == 64u,
           "64 slots must be accepted (slots %u)", slots);
 }
 
 static void test_config_6gb(void) {
     char err[256] = "";
     uint32_t slots = 0u;
-    const int rc = ds4_mellum_stream_config(true, 6ull << 30, &slots, err, sizeof(err));
+    const int rc = ds4_mellum_stream_config(true, 6ull << 30, DS4_MELLUM_Q8_EXPERT_BYTES, &slots, err, sizeof(err));
     CHECK(rc == 0 && slots == 979u, "6GB must configure 979 slots (rc %d, slots %u, err \"%s\")", rc, slots, err);
+}
+
+/* S6: the slot count follows the file's expert type; MXFP4 experts are half Q8_0's size */
+static void test_expert_bytes_by_type(void) {
+    CHECK(ds4_mellum_expert_bytes(8) == 6580224ull && ds4_mellum_expert_bytes(39) == 3290112ull &&
+          ds4_mellum_expert_bytes(12) == 0ull, "expert bytes by GGUF type");
+    CHECK(DS4_MELLUM_Q8_EXPERT_BYTES == 6580224ull && DS4_MELLUM_MXFP4_EXPERT_BYTES == 3290112ull, "the two sizes");
+}
+
+static void test_mxfp4_slots(void) {
+    CHECK(ds4_mellum_stream_slots(6ull << 30, DS4_MELLUM_MXFP4_EXPERT_BYTES) == 1958u, "6 GiB MXFP4 (got %u)",
+          ds4_mellum_stream_slots(6ull << 30, DS4_MELLUM_MXFP4_EXPERT_BYTES));
+    CHECK(ds4_mellum_stream_slots(2684354560ull, DS4_MELLUM_MXFP4_EXPERT_BYTES) == 815u, "2.5 GiB MXFP4 (got %u)",
+          ds4_mellum_stream_slots(2684354560ull, DS4_MELLUM_MXFP4_EXPERT_BYTES));
+    CHECK(ds4_mellum_stream_slots(1ull << 30, 0) == 0u, "unknown type holds none");
+}
+
+static void test_config_mxfp4_minimum(void) {
+    char err[256] = "";
+    uint32_t slots = 7u;
+    CHECK(ds4_mellum_stream_config(true, 63u * DS4_MELLUM_MXFP4_EXPERT_BYTES, DS4_MELLUM_MXFP4_EXPERT_BYTES, &slots,
+                                   err, sizeof(err)) == -1 && strstr(err, "210567168") != NULL,
+          "63 MXFP4 slots must be refused, naming 64 * 3,290,112 = 210567168 bytes (err \"%s\")", err);
+    CHECK(ds4_mellum_stream_config(true, 64u * DS4_MELLUM_MXFP4_EXPERT_BYTES, DS4_MELLUM_MXFP4_EXPERT_BYTES, &slots,
+                                   err, sizeof(err)) == 0 && slots == 64u, "64 MXFP4 slots must be accepted (slots %u)", slots);
+}
+
+static void test_config_refuses_unknown_expert_type(void) {
+    char err[256] = "";
+    uint32_t slots = 7u;
+    const int rc = ds4_mellum_stream_config(true, 6ull << 30, 0, &slots, err, sizeof(err));
+    CHECK(rc == -1 && slots == 0u && strstr(err, "unsupported Mellum expert type") != NULL,
+          "expert_bytes 0 must be refused (rc %d, slots %u, err \"%s\")", rc, slots, err);
 }
 
 /* ---- decode stop/resume: fake ops replay a script of stops and record every call ---- */
@@ -252,6 +285,10 @@ int main(void) {
     test_config_refuses_zero_cache();
     test_config_off_has_no_slots();
     test_config_6gb();
+    test_expert_bytes_by_type();
+    test_mxfp4_slots();
+    test_config_mxfp4_minimum();
+    test_config_refuses_unknown_expert_type();
     test_config_refuses_fewer_than_a_layer();
     test_all_hit_one_finish();
     test_stop_resume_at_experts();
