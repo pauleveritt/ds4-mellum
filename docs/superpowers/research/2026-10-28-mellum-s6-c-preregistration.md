@@ -28,6 +28,16 @@ first):**
 
 **Addendum 2026-10-29 07:23, before any iMac or C6 run:** C6's 27B command is fixed (section C6).
 
+**Note 2026-10-29 08:12, after the first iMac `bringup` and before any rerun:**
+- **The first run failed C1:** `test-mellum` rc 2.
+- **The cause is the machine's Python.** The iMac's `python3` was Apple's Command Line Tools 3.9.6. Nine of
+  `test-mellum`'s Python targets use Python 3.10 features (`dataclass(kw_only=…)`, `X | Y` unions).
+  `make`, the C tests and `test-mellum-kernels` passed.
+- **The M5 reproduces it** under Apple's 3.9.6 (`2026-10-28-mellum-s6-c-evidence/py39-repro-m5/`). Every
+  M5 dry run had used Python 3.14.7.
+- **The kit now requires Python 3.10 or later.** The rerun with it is a new run in its own `$OUT`, reported
+  beside the first. No source, input or pass rule changed.
+
 **Honesty header.**
 - **Fixed in advance:** the inputs, the cache choice rule, and the pass rules.
 - **Measured:** one 8 GB M1 iMac (macOS 27.1), n stated per item.

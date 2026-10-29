@@ -1,0 +1,1370 @@
+python3 -I tests/test_mellum_ssd_replay.py
+EFFFFFFFEEEEEEFFFEEEEEEEEEEEEEEEEEEEE
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_bound_interpretation_and_phase_counterexample)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_ssd_replay.py", line 405, in test_bound_interpretation_and_phase_counterexample
+    trace = load(items)
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_ssd_replay.py", line 67, in load
+    return tool().load_trace(json.dumps(item) for item in items)
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_ssd_replay.py", line 26, in tool
+    spec.loader.exec_module(module)
+  File "<frozen importlib._bootstrap_external>", line 850, in exec_module
+  File "<frozen importlib._bootstrap>", line 228, in _call_with_frames_removed
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_ssd_replay.py", line 23, in <module>
+    @dataclass(frozen=True, kw_only=True)
+TypeError: dataclass() got an unexpected keyword argument 'kw_only'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_cold_then_warm_layer_identity_and_byte_accounting)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_ssd_replay.py", line 192, in test_cold_then_warm_layer_identity_and_byte_accounting
+    trace = load([*records(), *forward(1, [[[1, 0]], [[2, 3]]])])
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_ssd_replay.py", line 67, in load
+    return tool().load_trace(json.dumps(item) for item in items)
+AttributeError: module 'mellum_ssd_replay' has no attribute 'load_trace'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_expert_bytes_override_counts_mxfp4_slots)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_ssd_replay.py", line 681, in test_expert_bytes_override_counts_mxfp4_slots
+    trace = load([header(layers=1, expert_bytes=6_580_224), *forward(0, [[[0, 1]]], phase="prefill")])
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_ssd_replay.py", line 67, in load
+    return tool().load_trace(json.dumps(item) for item in items)
+AttributeError: module 'mellum_ssd_replay' has no attribute 'load_trace'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_expert_bytes_override_must_be_a_positive_int)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_ssd_replay.py", line 695, in test_expert_bytes_override_must_be_a_positive_int
+    trace = load([header(layers=1), *forward(0, [[[0, 1]]], phase="prefill")])
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_ssd_replay.py", line 67, in load
+    return tool().load_trace(json.dumps(item) for item in items)
+AttributeError: module 'mellum_ssd_replay' has no attribute 'load_trace'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_fractional_mellum_budget_and_empty_decode_distribution)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_ssd_replay.py", line 265, in test_fractional_mellum_budget_and_empty_decode_distribution
+    trace = load([
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_ssd_replay.py", line 67, in load
+    return tool().load_trace(json.dumps(item) for item in items)
+AttributeError: module 'mellum_ssd_replay' has no attribute 'load_trace'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_group_pinning_and_router_order_independence)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_ssd_replay.py", line 211, in test_group_pinning_and_router_order_independence
+    report = tool().replay(single_layer(groups), 20, "lru")
+AttributeError: module 'mellum_ssd_replay' has no attribute 'replay'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_header_requires_provenance_and_valid_geometry)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_ssd_replay.py", line 103, in test_header_requires_provenance_and_valid_geometry
+    load(items)
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_ssd_replay.py", line 67, in load
+    return tool().load_trace(json.dumps(item) for item in items)
+AttributeError: module 'mellum_ssd_replay' has no attribute 'load_trace'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_measured_trace_requires_mellum_geometry)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_ssd_replay.py", line 125, in test_measured_trace_requires_mellum_geometry
+    load(items)
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_ssd_replay.py", line 67, in load
+    return tool().load_trace(json.dumps(item) for item in items)
+AttributeError: module 'mellum_ssd_replay' has no attribute 'load_trace'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_nested_json_exponent_overflow_is_rejected)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_ssd_replay.py", line 597, in test_nested_json_exponent_overflow_is_rejected
+    tool().load_trace([raw, *(json.dumps(item) for item in records()[1:])])
+AttributeError: module 'mellum_ssd_replay' has no attribute 'load_trace'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_no_override_report_is_unchanged)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_ssd_replay.py", line 689, in test_no_override_report_is_unchanged
+    trace = load([header(layers=1, expert_bytes=6_580_224), *forward(0, [[[0, 1]]], phase="prefill")])
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_ssd_replay.py", line 67, in load
+    return tool().load_trace(json.dumps(item) for item in items)
+AttributeError: module 'mellum_ssd_replay' has no attribute 'load_trace'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_oversized_group_and_invalid_capacity_fail_for_both_policies)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_ssd_replay.py", line 251, in test_oversized_group_and_invalid_capacity_fail_for_both_policies
+    trace = single_layer(([0, 1],))
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_ssd_replay.py", line 185, in single_layer
+    return load([
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_ssd_replay.py", line 67, in load
+    return tool().load_trace(json.dumps(item) for item in items)
+AttributeError: module 'mellum_ssd_replay' has no attribute 'load_trace'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_prefill_union_exceeds_capacity_even_when_each_row_fits)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_ssd_replay.py", line 444, in test_prefill_union_exceeds_capacity_even_when_each_row_fits
+    trace = load([header(layers=1, experts=3),
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_ssd_replay.py", line 67, in load
+    return tool().load_trace(json.dumps(item) for item in items)
+AttributeError: module 'mellum_ssd_replay' has no attribute 'load_trace'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_prefill_union_is_counted_once_and_excluded_from_decode_distribution)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_ssd_replay.py", line 218, in test_prefill_union_is_counted_once_and_excluded_from_decode_distribution
+    trace = load([
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_ssd_replay.py", line 67, in load
+    return tool().load_trace(json.dumps(item) for item in items)
+AttributeError: module 'mellum_ssd_replay' has no attribute 'load_trace'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_preserves_routes_and_nonzero_start)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_ssd_replay.py", line 82, in test_preserves_routes_and_nonzero_start
+    trace = load([header(), *forward(0, [[[1, 0]], [[2, 3]]], position=42)])
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_ssd_replay.py", line 67, in load
+    return tool().load_trace(json.dumps(item) for item in items)
+AttributeError: module 'mellum_ssd_replay' has no attribute 'load_trace'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_rejects_bad_rows_and_integer_types)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_ssd_replay.py", line 140, in test_rejects_bad_rows_and_integer_types
+    load(items)
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_ssd_replay.py", line 67, in load
+    return tool().load_trace(json.dumps(item) for item in items)
+AttributeError: module 'mellum_ssd_replay' has no attribute 'load_trace'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_rejects_gaps_and_non_decode_shapes)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_ssd_replay.py", line 166, in test_rejects_gaps_and_non_decode_shapes
+    load(items)
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_ssd_replay.py", line 67, in load
+    return tool().load_trace(json.dumps(item) for item in items)
+AttributeError: module 'mellum_ssd_replay' has no attribute 'load_trace'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_rejects_incomplete_or_inconsistent_forwards)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_ssd_replay.py", line 145, in test_rejects_incomplete_or_inconsistent_forwards
+    load(records()[:2])
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_ssd_replay.py", line 67, in load
+    return tool().load_trace(json.dumps(item) for item in items)
+AttributeError: module 'mellum_ssd_replay' has no attribute 'load_trace'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_rejects_non_objects_bad_json_and_duplicate_keys)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_ssd_replay.py", line 177, in test_rejects_non_objects_bad_json_and_duplicate_keys
+    tool().load_trace([text])
+AttributeError: module 'mellum_ssd_replay' has no attribute 'load_trace'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_relaxed_bound_can_bypass_and_is_not_a_grouped_optimum)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_ssd_replay.py", line 315, in test_relaxed_bound_can_bypass_and_is_not_a_grouped_optimum
+    report = tool().replay(single_layer(([0], [1], [0])), 10, "relaxed-optimal")
+AttributeError: module 'mellum_ssd_replay' has no attribute 'replay'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_relaxed_optimal_matches_exhaustive_search_and_never_exceeds_lru)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_ssd_replay.py", line 298, in test_relaxed_optimal_matches_exhaustive_search_and_never_exceeds_lru
+    trace = single_layer(tuple([expert] for expert in sequence))
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_ssd_replay.py", line 185, in single_layer
+    return load([
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_ssd_replay.py", line 67, in load
+    return tool().load_trace(json.dumps(item) for item in items)
+AttributeError: module 'mellum_ssd_replay' has no attribute 'load_trace'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_report_identity_without_raw_input)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_ssd_replay.py", line 613, in test_report_identity_without_raw_input
+    trace = load([metadata, *forward(0, routes)])
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_ssd_replay.py", line 67, in load
+    return tool().load_trace(json.dumps(item) for item in items)
+AttributeError: module 'mellum_ssd_replay' has no attribute 'load_trace'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_segments_retain_cache_and_preserve_post_append_recovery)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_ssd_replay.py", line 233, in test_segments_retain_cache_and_preserve_post_append_recovery
+    trace = load([
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_ssd_replay.py", line 67, in load
+    return tool().load_trace(json.dumps(item) for item in items)
+AttributeError: module 'mellum_ssd_replay' has no attribute 'load_trace'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_sorted_bound_excludes_flexible_group_order)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_ssd_replay.py", line 435, in test_sorted_bound_excludes_flexible_group_order
+    trace = single_layer([[0, 2], [1, 2], [0, 1]])
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_ssd_replay.py", line 185, in single_layer
+    return load([
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_ssd_replay.py", line 67, in load
+    return tool().load_trace(json.dumps(item) for item in items)
+AttributeError: module 'mellum_ssd_replay' has no attribute 'load_trace'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_sweep_preserves_provenance_and_labels_unmodeled_memory)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_ssd_replay.py", line 327, in test_sweep_preserves_provenance_and_labels_unmodeled_memory
+    trace = single_layer(([0], [0]))
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_ssd_replay.py", line 185, in single_layer
+    return load([
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_ssd_replay.py", line 67, in load
+    return tool().load_trace(json.dumps(item) for item in items)
+AttributeError: module 'mellum_ssd_replay' has no attribute 'load_trace'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_v2_capture_extent_and_execution_checks)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_ssd_replay.py", line 562, in test_v2_capture_extent_and_execution_checks
+    assert len(load(items).requests) == 4
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_ssd_replay.py", line 67, in load
+    return tool().load_trace(json.dumps(item) for item in items)
+AttributeError: module 'mellum_ssd_replay' has no attribute 'load_trace'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_v2_manifest_round_trip_and_v1_compatibility)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_ssd_replay.py", line 533, in test_v2_manifest_round_trip_and_v1_compatibility
+    assert tool().run_sweep(load(records()), [40])["trace"] == header()
+AttributeError: module 'mellum_ssd_replay' has no attribute 'run_sweep'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_valid_multiphase_forward_sequence)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_ssd_replay.py", line 89, in test_valid_multiphase_forward_sequence
+    trace = load([
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_ssd_replay.py", line 67, in load
+    return tool().load_trace(json.dumps(item) for item in items)
+AttributeError: module 'mellum_ssd_replay' has no attribute 'load_trace'
+
+======================================================================
+FAIL: unittest.case.FunctionTestCase (test_cli_default_sweep_is_one_provenance_labeled_json_document)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_ssd_replay.py", line 349, in test_cli_default_sweep_is_one_provenance_labeled_json_document
+    assert result.returncode == 0, result.stderr
+AssertionError: Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_ssd_replay.py", line 23, in <module>
+    @dataclass(frozen=True, kw_only=True)
+TypeError: dataclass() got an unexpected keyword argument 'kw_only'
+
+
+======================================================================
+FAIL: unittest.case.FunctionTestCase (test_cli_errors_never_publish_partial_results_or_tracebacks)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_ssd_replay.py", line 385, in test_cli_errors_never_publish_partial_results_or_tracebacks
+    assert "Traceback" not in result.stderr, result.stderr
+AssertionError: Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_ssd_replay.py", line 23, in <module>
+    @dataclass(frozen=True, kw_only=True)
+TypeError: dataclass() got an unexpected keyword argument 'kw_only'
+
+
+======================================================================
+FAIL: unittest.case.FunctionTestCase (test_cli_expert_bytes_reaches_every_result_and_labels_routing)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_ssd_replay.py", line 707, in test_cli_expert_bytes_reaches_every_result_and_labels_routing
+    assert result.returncode == 0, result.stderr
+AssertionError: Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_ssd_replay.py", line 23, in <module>
+    @dataclass(frozen=True, kw_only=True)
+TypeError: dataclass() got an unexpected keyword argument 'kw_only'
+
+
+======================================================================
+FAIL: unittest.case.FunctionTestCase (test_cli_fractional_gib_is_floored_exactly_to_bytes)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_ssd_replay.py", line 362, in test_cli_fractional_gib_is_floored_exactly_to_bytes
+    assert result.returncode == 0, result.stderr
+AssertionError: Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_ssd_replay.py", line 23, in <module>
+    @dataclass(frozen=True, kw_only=True)
+TypeError: dataclass() got an unexpected keyword argument 'kw_only'
+
+
+======================================================================
+FAIL: unittest.case.FunctionTestCase (test_cli_hashes_exact_bytes_and_preserves_manifest)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_ssd_replay.py", line 643, in test_cli_hashes_exact_bytes_and_preserves_manifest
+    assert result.returncode == 0, result.stderr
+AssertionError: Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_ssd_replay.py", line 23, in <module>
+    @dataclass(frozen=True, kw_only=True)
+TypeError: dataclass() got an unexpected keyword argument 'kw_only'
+
+
+======================================================================
+FAIL: unittest.case.FunctionTestCase (test_cli_invalid_utf8_emits_no_report)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_ssd_replay.py", line 660, in test_cli_invalid_utf8_emits_no_report
+    assert result.stderr and "Traceback" not in result.stderr
+AssertionError
+
+======================================================================
+FAIL: unittest.case.FunctionTestCase (test_cli_preserves_unicode_separators_inside_json_strings)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_ssd_replay.py", line 674, in test_cli_preserves_unicode_separators_inside_json_strings
+    assert result.returncode == 0, (version, hex(ord(char)), result.stderr)
+AssertionError: (1, '0x2028', 'Traceback (most recent call last):\n  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_ssd_replay.py", line 23, in <module>\n    @dataclass(frozen=True, kw_only=True)\nTypeError: dataclass() got an unexpected keyword argument \'kw_only\'\n')
+
+======================================================================
+FAIL: unittest.case.FunctionTestCase (test_manifest_preserves_extensions)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_ssd_replay.py", line 479, in test_manifest_preserves_extensions
+    assert hasattr(tool(), "validate_capture_manifest"), "capture manifest validation is missing"
+AssertionError: capture manifest validation is missing
+
+======================================================================
+FAIL: unittest.case.FunctionTestCase (test_manifest_rejects_missing_wrong_and_inconsistent_fields)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_ssd_replay.py", line 487, in test_manifest_rejects_missing_wrong_and_inconsistent_fields
+    assert hasattr(tool(), "validate_capture_manifest"), "capture manifest validation is missing"
+AssertionError: capture manifest validation is missing
+
+======================================================================
+FAIL: unittest.case.FunctionTestCase (test_measured_mellum_provenance_is_preserved_by_cli)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_ssd_replay.py", line 393, in test_measured_mellum_provenance_is_preserved_by_cli
+    assert result.returncode == 0, result.stderr
+AssertionError: Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_ssd_replay.py", line 23, in <module>
+    @dataclass(frozen=True, kw_only=True)
+TypeError: dataclass() got an unexpected keyword argument 'kw_only'
+
+
+----------------------------------------------------------------------
+Ran 37 tests in 2.656s
+
+FAILED (failures=10, errors=27)
+make: *** [test-mellum-ssd-replay] Error 1
+./tests/test_mellum_routes
+ok layout
+ok frames
+ok finish and short writes
+python3 -I tests/test_mellum_routes_to_trace.py
+FEEEEEEEEEEE
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_completed_metadata_derives_and_preserves_evidence)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_routes_to_trace.py", line 216, in test_completed_metadata_derives_and_preserves_evidence
+    result = tool().complete_metadata(data, consume(spool())[1], {11: "fixture-exact", 12: "unused"}, {11: 1})
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_routes_to_trace.py", line 27, in tool
+    spec.loader.exec_module(module)
+  File "<frozen importlib._bootstrap_external>", line 850, in exec_module
+  File "<frozen importlib._bootstrap>", line 228, in _call_with_frames_removed
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_routes_to_trace.py", line 26, in <module>
+    @dataclass(frozen=True, kw_only=True)
+TypeError: dataclass() got an unexpected keyword argument 'kw_only'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_completed_metadata_rejects_computed_conflicts)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_routes_to_trace.py", line 234, in test_completed_metadata_rejects_computed_conflicts
+    complete = completed_metadata()
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_routes_to_trace.py", line 209, in completed_metadata
+    summary = consume(spool())[1]
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_routes_to_trace.py", line 56, in consume
+    reader = tool().SpoolReader(io.BytesIO(data))
+AttributeError: module 'mellum_routes_to_trace' has no attribute 'SpoolReader'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_completed_metadata_requires_s1_contract)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_routes_to_trace.py", line 265, in test_completed_metadata_requires_s1_contract
+    tool().complete_metadata(broken, consume(spool())[1], {11: "fixture-exact"}, {11: 1})
+AttributeError: module 'mellum_routes_to_trace' has no attribute 'complete_metadata'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_export_failures_leave_no_published_or_temporary_artifact)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_routes_to_trace.py", line 329, in test_export_failures_leave_no_published_or_temporary_artifact
+    tool().export_trace(source, metadata, output)
+AttributeError: module 'mellum_routes_to_trace' has no attribute 'export_trace'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_export_never_overwrites_existing_or_raced_in_output)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_routes_to_trace.py", line 363, in test_export_never_overwrites_existing_or_raced_in_output
+    tool().export_trace(source, metadata, output)
+AttributeError: module 'mellum_routes_to_trace' has no attribute 'export_trace'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_export_reads_source_once_with_bounded_requests)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_routes_to_trace.py", line 384, in test_export_reads_source_once_with_bounded_requests
+    tool().export_trace(source, metadata, output)
+AttributeError: module 'mellum_routes_to_trace' has no attribute 'export_trace'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_export_round_trips_phases_unicode_and_evidence)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_routes_to_trace.py", line 291, in test_export_round_trips_phases_unicode_and_evidence
+    tool().export_trace(source, metadata, output)
+AttributeError: module 'mellum_routes_to_trace' has no attribute 'export_trace'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_metadata_limits_catalogs_and_unicode)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_routes_to_trace.py", line 180, in test_metadata_limits_catalogs_and_unicode
+    header, segments, profiles = read_metadata_bytes(raw + b" " * (2**20 - len(raw)))
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_routes_to_trace.py", line 174, in read_metadata_bytes
+    return tool().read_metadata(path)
+AttributeError: module 'mellum_routes_to_trace' has no attribute 'read_metadata'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_reader_bounds_lengths_before_payload_reads)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_routes_to_trace.py", line 128, in test_reader_bounds_lengths_before_payload_reads
+    reader = tool().SpoolReader(BoundedStream(broken))
+AttributeError: module 'mellum_routes_to_trace' has no attribute 'SpoolReader'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_reader_preserves_order_and_derives_identities)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_routes_to_trace.py", line 66, in test_reader_preserves_order_and_derives_identities
+    reader = tool().SpoolReader(io.BytesIO(data))
+AttributeError: module 'mellum_routes_to_trace' has no attribute 'SpoolReader'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_reader_rejects_all_truncated_prefixes_and_corruption)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_routes_to_trace.py", line 94, in test_reader_rejects_all_truncated_prefixes_and_corruption
+    consume(data[:end])
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_routes_to_trace.py", line 56, in consume
+    reader = tool().SpoolReader(io.BytesIO(data))
+AttributeError: module 'mellum_routes_to_trace' has no attribute 'SpoolReader'
+
+======================================================================
+FAIL: unittest.case.FunctionTestCase (test_c_writer_export_cli_replay_and_clean_errors)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_routes_to_trace.py", line 397, in test_c_writer_export_cli_replay_and_clean_errors
+    assert result.returncode == 0, result.stderr
+AssertionError: Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_routes_to_trace.py", line 26, in <module>
+    @dataclass(frozen=True, kw_only=True)
+TypeError: dataclass() got an unexpected keyword argument 'kw_only'
+
+
+----------------------------------------------------------------------
+Ran 12 tests in 0.181s
+
+FAILED (failures=1, errors=11)
+make: *** [test-mellum-routes] Error 1
+./tests/test_mellum_profile
+Mellum profile set checks: PASS
+./tests/test_mellum_capture_state
+Mellum capture operation checks: PASS
+python3 -I tests/test_mellum_capture_state_export.py
+EEE
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_aborted_controller_fixture_cannot_be_published)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_capture_state_export.py", line 57, in test_aborted_controller_fixture_cannot_be_published
+    HELPERS["consume"](source.read_bytes())
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_routes_to_trace.py", line 56, in consume
+    reader = tool().SpoolReader(io.BytesIO(data))
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_routes_to_trace.py", line 27, in tool
+    spec.loader.exec_module(module)
+  File "<frozen importlib._bootstrap_external>", line 850, in exec_module
+  File "<frozen importlib._bootstrap>", line 228, in _call_with_frames_removed
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_routes_to_trace.py", line 26, in <module>
+    @dataclass(frozen=True, kw_only=True)
+TypeError: dataclass() got an unexpected keyword argument 'kw_only'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_completed_controller_fixture_exports_with_exact_labels_and_profiles)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_capture_state_export.py", line 26, in test_completed_controller_fixture_exports_with_exact_labels_and_profiles
+    frames, summary = HELPERS["consume"](data)
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_routes_to_trace.py", line 56, in consume
+    reader = tool().SpoolReader(io.BytesIO(data))
+AttributeError: module 'mellum_routes_to_trace' has no attribute 'SpoolReader'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_reference_comparison_preserves_routes_and_labels_but_ignores_profile_ids)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_capture_state_export.py", line 75, in test_reference_comparison_preserves_routes_and_labels_but_ignores_profile_ids
+    assert compare(reference, owned), "profile ID differences must not erase an otherwise equal route comparison"
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/mellum_routes_compare.py", line 16, in compare_spools
+    reader = sys.modules[name].SpoolReader
+AttributeError: module 'mellum_routes_to_trace' has no attribute 'SpoolReader'
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.061s
+
+FAILED (errors=3)
+make: *** [test-mellum-capture-state] Error 1
+./tests/test_mellum_capture_api
+Mellum capture API boundary checks: PASS
+./tests/test_mellum_observer
+Mellum encoding observer checks: PASS
+python3 -I tests/test_mellum_capture_build.py
+...
+----------------------------------------------------------------------
+Ran 3 tests in 0.986s
+
+OK
+./tests/test_mellum_capture_receipt
+Mellum capture receipt checks: PASS
+python3 -I tests/test_mellum_capture_publish.py
+EE.EEEEEEE.
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_git_redirection_cannot_hide_tracked_source_mutation)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_capture_publish.py", line 317, in test_git_redirection_cannot_hide_tracked_source_mutation
+    with publication(mutate) as (publisher, arguments, calls):
+  File "/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/contextlib.py", line 117, in __enter__
+    return next(self.gen)
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_capture_publish.py", line 109, in publication
+    publisher = module('mellum_capture_publish')
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_capture_publish.py", line 33, in module
+    spec.loader.exec_module(result)
+  File "<frozen importlib._bootstrap_external>", line 850, in exec_module
+  File "<frozen importlib._bootstrap>", line 228, in _call_with_frames_removed
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_capture_publish.py", line 20, in <module>
+    metadata_tools = identity.sibling('mellum_capture_metadata')
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_capture_identity.py", line 17, in sibling
+    spec.loader.exec_module(module)
+  File "<frozen importlib._bootstrap_external>", line 850, in exec_module
+  File "<frozen importlib._bootstrap>", line 228, in _call_with_frames_removed
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_capture_metadata.py", line 73, in <module>
+    def read_profiles(path: Path, catalog: Path | None = None) -> dict[str, str]:
+TypeError: unsupported operand type(s) for |: 'type' and 'NoneType'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_incomplete_or_noncanonical_profiles_never_publish)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_capture_publish.py", line 307, in test_incomplete_or_noncanonical_profiles_never_publish
+    with publication(mutate) as (publisher, arguments, calls):
+  File "/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/contextlib.py", line 117, in __enter__
+    return next(self.gen)
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_capture_publish.py", line 150, in publication
+    with patch.object(publisher, '_run', run), patch.dict(os.environ, {'PATH': os.environ['PATH']}, clear=True):
+  File "/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/unittest/mock.py", line 1405, in __enter__
+    original, local = self.get_original()
+  File "/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/unittest/mock.py", line 1378, in get_original
+    raise AttributeError(
+AttributeError: <module 'mellum_capture_publish' from '/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_capture_publish.py'> does not have the attribute '_run'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_native_receipt_and_catalog_bounds)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_capture_publish.py", line 261, in test_native_receipt_and_catalog_bounds
+    exporter = module('mellum_routes_to_trace')
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_capture_publish.py", line 33, in module
+    spec.loader.exec_module(result)
+  File "<frozen importlib._bootstrap_external>", line 850, in exec_module
+  File "<frozen importlib._bootstrap>", line 228, in _call_with_frames_removed
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_routes_to_trace.py", line 26, in <module>
+    @dataclass(frozen=True, kw_only=True)
+TypeError: dataclass() got an unexpected keyword argument 'kw_only'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_primary_makefile_selection_is_explicit_and_source_changes_rejected)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_capture_publish.py", line 332, in test_primary_makefile_selection_is_explicit_and_source_changes_rejected
+    with publication(mutate) as (publisher, arguments, calls):
+  File "/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/contextlib.py", line 117, in __enter__
+    return next(self.gen)
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_capture_publish.py", line 150, in publication
+    with patch.object(publisher, '_run', run), patch.dict(os.environ, {'PATH': os.environ['PATH']}, clear=True):
+  File "/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/unittest/mock.py", line 1405, in __enter__
+    original, local = self.get_original()
+  File "/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/unittest/mock.py", line 1378, in get_original
+    raise AttributeError(
+AttributeError: <module 'mellum_capture_publish' from '/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_capture_publish.py'> does not have the attribute '_run'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_publication_derives_identity_and_observed_profiles)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_capture_publish.py", line 158, in test_publication_derives_identity_and_observed_profiles
+    with publication() as (publisher, arguments, calls):
+  File "/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/contextlib.py", line 117, in __enter__
+    return next(self.gen)
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_capture_publish.py", line 150, in publication
+    with patch.object(publisher, '_run', run), patch.dict(os.environ, {'PATH': os.environ['PATH']}, clear=True):
+  File "/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/unittest/mock.py", line 1405, in __enter__
+    original, local = self.get_original()
+  File "/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/unittest/mock.py", line 1378, in get_original
+    raise AttributeError(
+AttributeError: <module 'mellum_capture_publish' from '/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_capture_publish.py'> does not have the attribute '_run'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_publication_preserves_existing_output_and_rejects_controls_early)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_capture_publish.py", line 222, in test_publication_preserves_existing_output_and_rejects_controls_early
+    with publication() as (publisher, arguments, calls):
+  File "/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/contextlib.py", line 117, in __enter__
+    return next(self.gen)
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_capture_publish.py", line 150, in publication
+    with patch.object(publisher, '_run', run), patch.dict(os.environ, {'PATH': os.environ['PATH']}, clear=True):
+  File "/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/unittest/mock.py", line 1405, in __enter__
+    original, local = self.get_original()
+  File "/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/unittest/mock.py", line 1378, in get_original
+    raise AttributeError(
+AttributeError: <module 'mellum_capture_publish' from '/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_capture_publish.py'> does not have the attribute '_run'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_publication_rejects_partial_changed_or_conflicting_evidence)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_capture_publish.py", line 198, in test_publication_rejects_partial_changed_or_conflicting_evidence
+    with publication(change) as (publisher, arguments, calls):
+  File "/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/contextlib.py", line 117, in __enter__
+    return next(self.gen)
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_capture_publish.py", line 150, in publication
+    with patch.object(publisher, '_run', run), patch.dict(os.environ, {'PATH': os.environ['PATH']}, clear=True):
+  File "/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/unittest/mock.py", line 1405, in __enter__
+    original, local = self.get_original()
+  File "/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/unittest/mock.py", line 1378, in get_original
+    raise AttributeError(
+AttributeError: <module 'mellum_capture_publish' from '/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_capture_publish.py'> does not have the attribute '_run'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_publication_requires_a_rebuilt_binary)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_capture_publish.py", line 286, in test_publication_requires_a_rebuilt_binary
+    with publication() as (publisher, arguments, calls):
+  File "/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/contextlib.py", line 117, in __enter__
+    return next(self.gen)
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_capture_publish.py", line 150, in publication
+    with patch.object(publisher, '_run', run), patch.dict(os.environ, {'PATH': os.environ['PATH']}, clear=True):
+  File "/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/unittest/mock.py", line 1405, in __enter__
+    original, local = self.get_original()
+  File "/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/unittest/mock.py", line 1378, in get_original
+    raise AttributeError(
+AttributeError: <module 'mellum_capture_publish' from '/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_capture_publish.py'> does not have the attribute '_run'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_publisher_rejects_wrong_input_tokens_or_schedule_even_when_reference_agrees)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_capture_publish.py", line 249, in test_publisher_rejects_wrong_input_tokens_or_schedule_even_when_reference_agrees
+    with publication(mutate) as (publisher, arguments, calls):
+  File "/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/contextlib.py", line 117, in __enter__
+    return next(self.gen)
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_capture_publish.py", line 150, in publication
+    with patch.object(publisher, '_run', run), patch.dict(os.environ, {'PATH': os.environ['PATH']}, clear=True):
+  File "/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/unittest/mock.py", line 1405, in __enter__
+    original, local = self.get_original()
+  File "/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/unittest/mock.py", line 1378, in get_original
+    raise AttributeError(
+AttributeError: <module 'mellum_capture_publish' from '/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_capture_publish.py'> does not have the attribute '_run'
+
+----------------------------------------------------------------------
+Ran 11 tests in 0.878s
+
+FAILED (errors=9)
+make: *** [test-mellum-capture-publish] Error 1
+python3 -I tests/test_mellum_artifact.py
+....
+----------------------------------------------------------------------
+Ran 4 tests in 0.008s
+
+OK
+python3 -I tests/test_mellum_workload_bundle.py
+.......
+----------------------------------------------------------------------
+Ran 7 tests in 2.551s
+
+OK
+./tests/test_mellum_read_plan
+native range plan checks: PASS
+./tests/test_mellum_read_io
+complete range I/O and cache control checks: PASS
+./tests/test_mellum_read_run
+worker content, timing and join checks: PASS
+python3 -I tests/test_mellum_read_bench.py
+..
+----------------------------------------------------------------------
+Ran 2 tests in 0.174s
+
+OK
+./tests/test_mellum_read_gate
+bounded gate tokens, EINTR, EOF and deadlines: PASS
+python3 -I tests/test_mellum_read_observed.py
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.283s
+
+OK
+python3 -I tests/test_mellum_device_observer.py
+...........
+----------------------------------------------------------------------
+Ran 11 tests in 0.271s
+
+OK
+python3 -I tests/test_mellum_device_classify.py
+....
+----------------------------------------------------------------------
+Ran 4 tests in 0.007s
+
+OK
+python3 -I tests/test_mellum_observe_manifest.py
+EEEE
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_new_manifest_has_four_uniform_cells_and_exact_caps)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_observe_manifest.py", line 31, in test_new_manifest_has_four_uniform_cells_and_exact_caps
+    api=module()
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_observe_manifest.py", line 16, in module
+    return load('observe_manifest_test',path)
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_observe_manifest.py", line 12, in load
+    spec=importlib.util.spec_from_file_location(name,path);api=importlib.util.module_from_spec(spec);spec.loader.exec_module(api);return api
+  File "<frozen importlib._bootstrap_external>", line 850, in exec_module
+  File "<frozen importlib._bootstrap>", line 228, in _call_with_frames_removed
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_observe_manifest.py", line 7, in <module>
+    common=identity.sibling('mellum_storage_common')
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_capture_identity.py", line 17, in sibling
+    spec.loader.exec_module(module)
+  File "<frozen importlib._bootstrap_external>", line 850, in exec_module
+  File "<frozen importlib._bootstrap>", line 228, in _call_with_frames_removed
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_storage_common.py", line 81, in <module>
+    def hash_stream(source: BinaryIO, length: int | None = None) -> str:
+TypeError: unsupported operand type(s) for |: 'type' and 'NoneType'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_escaping_plan_or_forged_jobs_refused)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_observe_manifest.py", line 45, in test_escaping_plan_or_forged_jobs_refused
+    api=module()
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_observe_manifest.py", line 16, in module
+    return load('observe_manifest_test',path)
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_observe_manifest.py", line 12, in load
+    spec=importlib.util.spec_from_file_location(name,path);api=importlib.util.module_from_spec(spec);spec.loader.exec_module(api);return api
+  File "<frozen importlib._bootstrap_external>", line 850, in exec_module
+  File "<frozen importlib._bootstrap>", line 228, in _call_with_frames_removed
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_observe_manifest.py", line 8, in <module>
+    batches=identity.sibling('mellum_read_batch')
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_capture_identity.py", line 17, in sibling
+    spec.loader.exec_module(module)
+  File "<frozen importlib._bootstrap_external>", line 850, in exec_module
+  File "<frozen importlib._bootstrap>", line 228, in _call_with_frames_removed
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_read_batch.py", line 16, in <module>
+    index_tools = identity.sibling('mellum_expert_index')
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_capture_identity.py", line 17, in sibling
+    spec.loader.exec_module(module)
+  File "<frozen importlib._bootstrap_external>", line 850, in exec_module
+  File "<frozen importlib._bootstrap>", line 228, in _call_with_frames_removed
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_expert_index.py", line 8, in <module>
+    gguf = identity.sibling('mellum_gguf')
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_capture_identity.py", line 17, in sibling
+    spec.loader.exec_module(module)
+  File "<frozen importlib._bootstrap_external>", line 850, in exec_module
+  File "<frozen importlib._bootstrap>", line 228, in _call_with_frames_removed
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_gguf.py", line 14, in <module>
+    @dataclass(frozen=True, kw_only=True)
+TypeError: dataclass() got an unexpected keyword argument 'kw_only'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_forecast_covers_pre_and_post_checks_before_payload_read)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_observe_manifest.py", line 53, in test_forecast_covers_pre_and_post_checks_before_payload_read
+    api=module()
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_observe_manifest.py", line 16, in module
+    return load('observe_manifest_test',path)
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_observe_manifest.py", line 12, in load
+    spec=importlib.util.spec_from_file_location(name,path);api=importlib.util.module_from_spec(spec);spec.loader.exec_module(api);return api
+  File "<frozen importlib._bootstrap_external>", line 850, in exec_module
+  File "<frozen importlib._bootstrap>", line 228, in _call_with_frames_removed
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_observe_manifest.py", line 11, in <module>
+    plans=identity.sibling('mellum_read_plan')
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_capture_identity.py", line 17, in sibling
+    spec.loader.exec_module(module)
+  File "<frozen importlib._bootstrap_external>", line 850, in exec_module
+  File "<frozen importlib._bootstrap>", line 228, in _call_with_frames_removed
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_read_plan.py", line 13, in <module>
+    replay = identity.sibling('mellum_ssd_replay')
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_capture_identity.py", line 17, in sibling
+    spec.loader.exec_module(module)
+  File "<frozen importlib._bootstrap_external>", line 850, in exec_module
+  File "<frozen importlib._bootstrap>", line 228, in _call_with_frames_removed
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_ssd_replay.py", line 23, in <module>
+    @dataclass(frozen=True, kw_only=True)
+TypeError: dataclass() got an unexpected keyword argument 'kw_only'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_source_reads_participate_in_strict_budget)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_observe_manifest.py", line 73, in test_source_reads_participate_in_strict_budget
+    with api.common.read_budget(65535):
+AttributeError: module 'mellum_storage_common' has no attribute 'read_budget'
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.036s
+
+FAILED (errors=4)
+make: *** [test-mellum-device-observation] Error 1
+./tests/test_mellum_stage
+aligned staging slots and validation: PASS
+python3 -I tests/test_mellum_stage.py
+...
+----------------------------------------------------------------------
+Ran 3 tests in 0.191s
+
+OK
+python3 -I tests/test_mellum_service_plan.py
+EEE
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_frozen_cells_have_exact_slot_order_and_totals)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_service_plan.py", line 38, in test_frozen_cells_have_exact_slot_order_and_totals
+    api=module()
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_service_plan.py", line 14, in module
+    def module():return load('service_plan_test',ROOT/'tools/mellum_service_plan.py')
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_service_plan.py", line 12, in load
+    spec=importlib.util.spec_from_file_location(name,path);api=importlib.util.module_from_spec(spec);spec.loader.exec_module(api);return api
+  File "<frozen importlib._bootstrap_external>", line 850, in exec_module
+  File "<frozen importlib._bootstrap>", line 228, in _call_with_frames_removed
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_service_plan.py", line 7, in <module>
+    base=identity.sibling('mellum_observe_manifest')
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_capture_identity.py", line 17, in sibling
+    spec.loader.exec_module(module)
+  File "<frozen importlib._bootstrap_external>", line 850, in exec_module
+  File "<frozen importlib._bootstrap>", line 228, in _call_with_frames_removed
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_observe_manifest.py", line 7, in <module>
+    common=identity.sibling('mellum_storage_common')
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_capture_identity.py", line 17, in sibling
+    spec.loader.exec_module(module)
+  File "<frozen importlib._bootstrap_external>", line 850, in exec_module
+  File "<frozen importlib._bootstrap>", line 228, in _call_with_frames_removed
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_storage_common.py", line 81, in <module>
+    def hash_stream(source: BinaryIO, length: int | None = None) -> str:
+TypeError: unsupported operand type(s) for |: 'type' and 'NoneType'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_prepare_and_verify_are_metadata_only)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_service_plan.py", line 55, in test_prepare_and_verify_are_metadata_only
+    api=module()
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_service_plan.py", line 14, in module
+    def module():return load('service_plan_test',ROOT/'tools/mellum_service_plan.py')
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_service_plan.py", line 12, in load
+    spec=importlib.util.spec_from_file_location(name,path);api=importlib.util.module_from_spec(spec);spec.loader.exec_module(api);return api
+  File "<frozen importlib._bootstrap_external>", line 850, in exec_module
+  File "<frozen importlib._bootstrap>", line 228, in _call_with_frames_removed
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_service_plan.py", line 8, in <module>
+    common=base.common
+AttributeError: module 'mellum_observe_manifest' has no attribute 'common'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_changed_manifest_or_forecast_refuses)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_service_plan.py", line 74, in test_changed_manifest_or_forecast_refuses
+    api=module()
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_service_plan.py", line 14, in module
+    def module():return load('service_plan_test',ROOT/'tools/mellum_service_plan.py')
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_service_plan.py", line 12, in load
+    spec=importlib.util.spec_from_file_location(name,path);api=importlib.util.module_from_spec(spec);spec.loader.exec_module(api);return api
+  File "<frozen importlib._bootstrap_external>", line 850, in exec_module
+  File "<frozen importlib._bootstrap>", line 228, in _call_with_frames_removed
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_service_plan.py", line 8, in <module>
+    common=base.common
+AttributeError: module 'mellum_observe_manifest' has no attribute 'common'
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.014s
+
+FAILED (errors=3)
+make: *** [test-mellum-service] Error 1
+./tests/test_mellum_stream
+56 checks, 0 failures
+./tests/test_mellum_moe_ref
+11 checks, 0 failures
+python3 -I tests/test_mellum_replay_request.py
+/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/unittest/case.py:1371: ResourceWarning: unclosed <socket.socket fd=4, family=AddressFamily.AF_INET, type=SocketKind.SOCK_STREAM, proto=0, laddr=('127.0.0.1', 59799)>
+  self._testFunc()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+./Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/unittest/case.py:1371: ResourceWarning: unclosed <socket.socket fd=4, family=AddressFamily.AF_INET, type=SocketKind.SOCK_STREAM, proto=0, laddr=('127.0.0.1', 59801)>
+  self._testFunc()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+.
+----------------------------------------------------------------------
+Ran 2 tests in 1.363s
+
+OK
+./tests/test_mellum_trace_stream
+4 checks, 0 failures
+python3 -I tests/test_mellum_logits_agree.py
+......
+----------------------------------------------------------------------
+Ran 6 tests in 0.553s
+
+OK
+python3 -I tests/test_mellum_s4_measure.py
+.......E...
+======================================================================
+ERROR: test_expert_bytes_come_from_the_model (__main__.Regression)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_s4_measure.py", line 137, in test_expert_bytes_come_from_the_model
+    self.assertEqual(m.expert_bytes_for(path), want)
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_s4_measure.py", line 29, in expert_bytes_for
+    spec.loader.exec_module(index)
+  File "<frozen importlib._bootstrap_external>", line 850, in exec_module
+  File "<frozen importlib._bootstrap>", line 228, in _call_with_frames_removed
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_expert_index.py", line 8, in <module>
+    gguf = identity.sibling('mellum_gguf')
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_capture_identity.py", line 17, in sibling
+    spec.loader.exec_module(module)
+  File "<frozen importlib._bootstrap_external>", line 850, in exec_module
+  File "<frozen importlib._bootstrap>", line 228, in _call_with_frames_removed
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_gguf.py", line 14, in <module>
+    @dataclass(frozen=True, kw_only=True)
+TypeError: dataclass() got an unexpected keyword argument 'kw_only'
+
+----------------------------------------------------------------------
+Ran 11 tests in 0.116s
+
+FAILED (errors=1)
+make: *** [test-mellum-s4-measure] Error 1
+./tests/test_mellum_generate_io
+generated bounded I/O: PASS
+python3 -I tests/test_mellum_generated_inputs.py
+EEEEEEE
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_exact_prompt_hashes_all_files_without_lock_body_or_padding)
+test_exact_prompt_hashes_all_files_without_lock_body_or_padding
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_generated_inputs.py", line 154, in run
+    with patch.dict(os.environ,env,clear=True):function()
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_generated_inputs.py", line 31, in test_exact_prompt_hashes_all_files_without_lock_body_or_padding
+    api=module()
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_generated_inputs.py", line 14, in module
+    spec=importlib.util.spec_from_file_location('generated_inputs_test',path);m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+  File "<frozen importlib._bootstrap_external>", line 850, in exec_module
+  File "<frozen importlib._bootstrap>", line 228, in _call_with_frames_removed
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_generated_inputs.py", line 10, in <module>
+    common=identity.sibling('mellum_storage_common')
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_capture_identity.py", line 17, in sibling
+    spec.loader.exec_module(module)
+  File "<frozen importlib._bootstrap_external>", line 850, in exec_module
+  File "<frozen importlib._bootstrap>", line 228, in _call_with_frames_removed
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_storage_common.py", line 81, in <module>
+    def hash_stream(source: BinaryIO, length: int | None = None) -> str:
+TypeError: unsupported operand type(s) for |: 'type' and 'NoneType'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_prepared_inputs_bind_policy_and_preserve_native_failure)
+test_prepared_inputs_bind_policy_and_preserve_native_failure
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_generated_inputs.py", line 154, in run
+    with patch.dict(os.environ,env,clear=True):function()
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_generated_inputs.py", line 48, in test_prepared_inputs_bind_policy_and_preserve_native_failure
+    api=module()
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_generated_inputs.py", line 14, in module
+    spec=importlib.util.spec_from_file_location('generated_inputs_test',path);m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+  File "<frozen importlib._bootstrap_external>", line 850, in exec_module
+  File "<frozen importlib._bootstrap>", line 228, in _call_with_frames_removed
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_generated_inputs.py", line 11, in <module>
+    bindings=identity.sibling('mellum_read_batch')
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_capture_identity.py", line 17, in sibling
+    spec.loader.exec_module(module)
+  File "<frozen importlib._bootstrap_external>", line 850, in exec_module
+  File "<frozen importlib._bootstrap>", line 228, in _call_with_frames_removed
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_read_batch.py", line 16, in <module>
+    index_tools = identity.sibling('mellum_expert_index')
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_capture_identity.py", line 17, in sibling
+    spec.loader.exec_module(module)
+  File "<frozen importlib._bootstrap_external>", line 850, in exec_module
+  File "<frozen importlib._bootstrap>", line 228, in _call_with_frames_removed
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_expert_index.py", line 8, in <module>
+    gguf = identity.sibling('mellum_gguf')
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_capture_identity.py", line 17, in sibling
+    spec.loader.exec_module(module)
+  File "<frozen importlib._bootstrap_external>", line 850, in exec_module
+  File "<frozen importlib._bootstrap>", line 228, in _call_with_frames_removed
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_gguf.py", line 14, in <module>
+    @dataclass(frozen=True, kw_only=True)
+TypeError: dataclass() got an unexpected keyword argument 'kw_only'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_prepare_rejects_inherited_controls_before_creating_output)
+test_prepare_rejects_inherited_controls_before_creating_output
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_generated_inputs.py", line 154, in run
+    with patch.dict(os.environ,env,clear=True):function()
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_generated_inputs.py", line 75, in test_prepare_rejects_inherited_controls_before_creating_output
+    api=module()
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_generated_inputs.py", line 14, in module
+    spec=importlib.util.spec_from_file_location('generated_inputs_test',path);m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+  File "<frozen importlib._bootstrap_external>", line 850, in exec_module
+  File "<frozen importlib._bootstrap>", line 228, in _call_with_frames_removed
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_generated_inputs.py", line 12, in <module>
+    host=identity.sibling('mellum_observe_batch')
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_capture_identity.py", line 17, in sibling
+    spec.loader.exec_module(module)
+  File "<frozen importlib._bootstrap_external>", line 850, in exec_module
+  File "<frozen importlib._bootstrap>", line 228, in _call_with_frames_removed
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_observe_batch.py", line 11, in <module>
+    manifest=identity.sibling('mellum_observe_manifest')
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_capture_identity.py", line 17, in sibling
+    spec.loader.exec_module(module)
+  File "<frozen importlib._bootstrap_external>", line 850, in exec_module
+  File "<frozen importlib._bootstrap>", line 228, in _call_with_frames_removed
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_observe_manifest.py", line 11, in <module>
+    plans=identity.sibling('mellum_read_plan')
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_capture_identity.py", line 17, in sibling
+    spec.loader.exec_module(module)
+  File "<frozen importlib._bootstrap_external>", line 850, in exec_module
+  File "<frozen importlib._bootstrap>", line 228, in _call_with_frames_removed
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_read_plan.py", line 13, in <module>
+    replay = identity.sibling('mellum_ssd_replay')
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_capture_identity.py", line 17, in sibling
+    spec.loader.exec_module(module)
+  File "<frozen importlib._bootstrap_external>", line 850, in exec_module
+  File "<frozen importlib._bootstrap>", line 228, in _call_with_frames_removed
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_ssd_replay.py", line 23, in <module>
+    @dataclass(frozen=True, kw_only=True)
+TypeError: dataclass() got an unexpected keyword argument 'kw_only'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_forced_build_freezes_both_binaries_and_preparation_preserves_receipt)
+test_forced_build_freezes_both_binaries_and_preparation_preserves_receipt
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_generated_inputs.py", line 154, in run
+    with patch.dict(os.environ,env,clear=True):function()
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_generated_inputs.py", line 86, in test_forced_build_freezes_both_binaries_and_preparation_preserves_receipt
+    api=module()
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_generated_inputs.py", line 14, in module
+    spec=importlib.util.spec_from_file_location('generated_inputs_test',path);m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+  File "<frozen importlib._bootstrap_external>", line 850, in exec_module
+  File "<frozen importlib._bootstrap>", line 228, in _call_with_frames_removed
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_generated_inputs.py", line 13, in <module>
+    observer=host.observer
+AttributeError: module 'mellum_observe_batch' has no attribute 'observer'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_same_size_model_substitution_refuses_before_native_inspect)
+test_same_size_model_substitution_refuses_before_native_inspect
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_generated_inputs.py", line 154, in run
+    with patch.dict(os.environ,env,clear=True):function()
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_generated_inputs.py", line 104, in test_same_size_model_substitution_refuses_before_native_inspect
+    api=module()
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_generated_inputs.py", line 14, in module
+    spec=importlib.util.spec_from_file_location('generated_inputs_test',path);m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+  File "<frozen importlib._bootstrap_external>", line 850, in exec_module
+  File "<frozen importlib._bootstrap>", line 228, in _call_with_frames_removed
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_generated_inputs.py", line 13, in <module>
+    observer=host.observer
+AttributeError: module 'mellum_observe_batch' has no attribute 'observer'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_cpu_inspect_and_build_commands_must_fit_frozen_cutoff)
+test_cpu_inspect_and_build_commands_must_fit_frozen_cutoff
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_generated_inputs.py", line 154, in run
+    with patch.dict(os.environ,env,clear=True):function()
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_generated_inputs.py", line 116, in test_cpu_inspect_and_build_commands_must_fit_frozen_cutoff
+    api=module()
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_generated_inputs.py", line 14, in module
+    spec=importlib.util.spec_from_file_location('generated_inputs_test',path);m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+  File "<frozen importlib._bootstrap_external>", line 850, in exec_module
+  File "<frozen importlib._bootstrap>", line 228, in _call_with_frames_removed
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_generated_inputs.py", line 13, in <module>
+    observer=host.observer
+AttributeError: module 'mellum_observe_batch' has no attribute 'observer'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_owner_window_of_2026_10_28_ends_2200z_for_cpu_and_gpu)
+test_owner_window_of_2026_10_28_ends_2200z_for_cpu_and_gpu
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_generated_inputs.py", line 154, in run
+    with patch.dict(os.environ,env,clear=True):function()
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_generated_inputs.py", line 136, in test_owner_window_of_2026_10_28_ends_2200z_for_cpu_and_gpu
+    api=module()
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_generated_inputs.py", line 14, in module
+    spec=importlib.util.spec_from_file_location('generated_inputs_test',path);m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+  File "<frozen importlib._bootstrap_external>", line 850, in exec_module
+  File "<frozen importlib._bootstrap>", line 228, in _call_with_frames_removed
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_generated_inputs.py", line 13, in <module>
+    observer=host.observer
+AttributeError: module 'mellum_observe_batch' has no attribute 'observer'
+
+----------------------------------------------------------------------
+Ran 7 tests in 0.041s
+
+FAILED (errors=7)
+make: *** [test-mellum-generated-inputs] Error 1
+python3 -I tests/test_mellum_generated_publish.py
+EEEEEEEEE
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_every_frame_matches_history_operations_and_cap)
+test_every_frame_matches_history_operations_and_cap
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_generated_publish.py", line 212, in run
+    with patch.dict(os.environ,env,clear=True):function()
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_generated_publish.py", line 31, in test_every_frame_matches_history_operations_and_cap
+    api=module()
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_generated_publish.py", line 14, in module
+    m=load('generated_publish',ROOT/'tools/mellum_generated_publish.py')
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_generated_publish.py", line 11, in load
+    spec=importlib.util.spec_from_file_location(name,path);module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module);return module
+  File "<frozen importlib._bootstrap_external>", line 850, in exec_module
+  File "<frozen importlib._bootstrap>", line 228, in _call_with_frames_removed
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_generated_publish.py", line 10, in <module>
+    inputs=identity.sibling('mellum_generated_inputs')
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_capture_identity.py", line 17, in sibling
+    spec.loader.exec_module(module)
+  File "<frozen importlib._bootstrap_external>", line 850, in exec_module
+  File "<frozen importlib._bootstrap>", line 228, in _call_with_frames_removed
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_generated_inputs.py", line 10, in <module>
+    common=identity.sibling('mellum_storage_common')
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_capture_identity.py", line 17, in sibling
+    spec.loader.exec_module(module)
+  File "<frozen importlib._bootstrap_external>", line 850, in exec_module
+  File "<frozen importlib._bootstrap>", line 228, in _call_with_frames_removed
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_storage_common.py", line 81, in <module>
+    def hash_stream(source: BinaryIO, length: int | None = None) -> str:
+TypeError: unsupported operand type(s) for |: 'type' and 'NoneType'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_failure_is_reserved_retained_and_cannot_retry)
+test_failure_is_reserved_retained_and_cannot_retry
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_generated_publish.py", line 212, in run
+    with patch.dict(os.environ,env,clear=True):function()
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_generated_publish.py", line 45, in test_failure_is_reserved_retained_and_cannot_retry
+    api=module()
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_generated_publish.py", line 14, in module
+    m=load('generated_publish',ROOT/'tools/mellum_generated_publish.py')
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_generated_publish.py", line 11, in load
+    spec=importlib.util.spec_from_file_location(name,path);module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module);return module
+  File "<frozen importlib._bootstrap_external>", line 850, in exec_module
+  File "<frozen importlib._bootstrap>", line 228, in _call_with_frames_removed
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_generated_publish.py", line 11, in <module>
+    common=inputs.common
+AttributeError: module 'mellum_generated_inputs' has no attribute 'common'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_busy_and_deadline_refuse_before_reservation)
+test_busy_and_deadline_refuse_before_reservation
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_generated_publish.py", line 212, in run
+    with patch.dict(os.environ,env,clear=True):function()
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_generated_publish.py", line 67, in test_busy_and_deadline_refuse_before_reservation
+    api=module()
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_generated_publish.py", line 14, in module
+    m=load('generated_publish',ROOT/'tools/mellum_generated_publish.py')
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_generated_publish.py", line 11, in load
+    spec=importlib.util.spec_from_file_location(name,path);module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module);return module
+  File "<frozen importlib._bootstrap_external>", line 850, in exec_module
+  File "<frozen importlib._bootstrap>", line 228, in _call_with_frames_removed
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_generated_publish.py", line 11, in <module>
+    common=inputs.common
+AttributeError: module 'mellum_generated_inputs' has no attribute 'common'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_validated_export_requires_parity_exact_native_inputs_and_complete_tape)
+test_validated_export_requires_parity_exact_native_inputs_and_complete_tape
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_generated_publish.py", line 212, in run
+    with patch.dict(os.environ,env,clear=True):function()
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_generated_publish.py", line 102, in test_validated_export_requires_parity_exact_native_inputs_and_complete_tape
+    api=module();validation=api.identity.sibling('mellum_generated_validation')
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_generated_publish.py", line 14, in module
+    m=load('generated_publish',ROOT/'tools/mellum_generated_publish.py')
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_generated_publish.py", line 11, in load
+    spec=importlib.util.spec_from_file_location(name,path);module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module);return module
+  File "<frozen importlib._bootstrap_external>", line 850, in exec_module
+  File "<frozen importlib._bootstrap>", line 228, in _call_with_frames_removed
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_generated_publish.py", line 11, in <module>
+    common=inputs.common
+AttributeError: module 'mellum_generated_inputs' has no attribute 'common'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_validation_serializes_real_host_metadata_command_bytes)
+test_validation_serializes_real_host_metadata_command_bytes
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_generated_publish.py", line 212, in run
+    with patch.dict(os.environ,env,clear=True):function()
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_generated_publish.py", line 132, in test_validation_serializes_real_host_metadata_command_bytes
+    api=module();validation=api.identity.sibling('mellum_generated_validation')
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_generated_publish.py", line 14, in module
+    m=load('generated_publish',ROOT/'tools/mellum_generated_publish.py')
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_generated_publish.py", line 11, in load
+    spec=importlib.util.spec_from_file_location(name,path);module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module);return module
+  File "<frozen importlib._bootstrap_external>", line 850, in exec_module
+  File "<frozen importlib._bootstrap>", line 228, in _call_with_frames_removed
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_generated_publish.py", line 11, in <module>
+    common=inputs.common
+AttributeError: module 'mellum_generated_inputs' has no attribute 'common'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_gpu_binary_and_forced_build_receipt_are_bound_before_launch)
+test_gpu_binary_and_forced_build_receipt_are_bound_before_launch
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_generated_publish.py", line 212, in run
+    with patch.dict(os.environ,env,clear=True):function()
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_generated_publish.py", line 144, in test_gpu_binary_and_forced_build_receipt_are_bound_before_launch
+    api=module()
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_generated_publish.py", line 14, in module
+    m=load('generated_publish',ROOT/'tools/mellum_generated_publish.py')
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_generated_publish.py", line 11, in load
+    spec=importlib.util.spec_from_file_location(name,path);module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module);return module
+  File "<frozen importlib._bootstrap_external>", line 850, in exec_module
+  File "<frozen importlib._bootstrap>", line 228, in _call_with_frames_removed
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_generated_publish.py", line 11, in <module>
+    common=inputs.common
+AttributeError: module 'mellum_generated_inputs' has no attribute 'common'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_closing_identity_gate_runs_after_validation_and_prevents_publication)
+test_closing_identity_gate_runs_after_validation_and_prevents_publication
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_generated_publish.py", line 212, in run
+    with patch.dict(os.environ,env,clear=True):function()
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_generated_publish.py", line 163, in test_closing_identity_gate_runs_after_validation_and_prevents_publication
+    api=module();validation=api.identity.sibling('mellum_generated_validation')
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_generated_publish.py", line 14, in module
+    m=load('generated_publish',ROOT/'tools/mellum_generated_publish.py')
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_generated_publish.py", line 11, in load
+    spec=importlib.util.spec_from_file_location(name,path);module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module);return module
+  File "<frozen importlib._bootstrap_external>", line 850, in exec_module
+  File "<frozen importlib._bootstrap>", line 228, in _call_with_frames_removed
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_generated_publish.py", line 11, in <module>
+    common=inputs.common
+AttributeError: module 'mellum_generated_inputs' has no attribute 'common'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_report_digests_remain_valid_after_publication_links_change_ctime)
+test_report_digests_remain_valid_after_publication_links_change_ctime
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_generated_publish.py", line 212, in run
+    with patch.dict(os.environ,env,clear=True):function()
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_generated_publish.py", line 176, in test_report_digests_remain_valid_after_publication_links_change_ctime
+    api=module();validation=api.identity.sibling('mellum_generated_validation')
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_generated_publish.py", line 14, in module
+    m=load('generated_publish',ROOT/'tools/mellum_generated_publish.py')
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_generated_publish.py", line 11, in load
+    spec=importlib.util.spec_from_file_location(name,path);module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module);return module
+  File "<frozen importlib._bootstrap_external>", line 850, in exec_module
+  File "<frozen importlib._bootstrap>", line 228, in _call_with_frames_removed
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_generated_publish.py", line 11, in <module>
+    common=inputs.common
+AttributeError: module 'mellum_generated_inputs' has no attribute 'common'
+
+======================================================================
+ERROR: unittest.case.FunctionTestCase (test_success_publishes_nested_native_recreation_without_losing_raw)
+test_success_publishes_nested_native_recreation_without_losing_raw
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_generated_publish.py", line 212, in run
+    with patch.dict(os.environ,env,clear=True):function()
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_generated_publish.py", line 190, in test_success_publishes_nested_native_recreation_without_losing_raw
+    api=module()
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_generated_publish.py", line 14, in module
+    m=load('generated_publish',ROOT/'tools/mellum_generated_publish.py')
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tests/test_mellum_generated_publish.py", line 11, in load
+    spec=importlib.util.spec_from_file_location(name,path);module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module);return module
+  File "<frozen importlib._bootstrap_external>", line 850, in exec_module
+  File "<frozen importlib._bootstrap>", line 228, in _call_with_frames_removed
+  File "/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-8gb-q4/tools/mellum_generated_publish.py", line 11, in <module>
+    common=inputs.common
+AttributeError: module 'mellum_generated_inputs' has no attribute 'common'
+
+----------------------------------------------------------------------
+Ran 9 tests in 0.025s
+
+FAILED (errors=9)
+make: *** [test-mellum-generated-publish] Error 1
+./tests/test_mellum_generate_driver
+generated evidence-close failed: operation-failed; 
+generated response0 failed: protocol-stop; 
+generated response0 failed: operation-failed; fixture backend eval failed
+generated completion-receipt failed: operation-failed; 
+native driver close/protocol/backend failure boundaries: PASS (tiny retained fixtures /tmp/mellum-gen-driver-4eMUEy)
+./tests/test_mellum_generate_prepare
+inspect-only native template preparation: PASS (sparse fixture only, /tmp/mellum-gen-prepare-Phu7Yh)
+make: Target `test-mellum' not remade because of errors.

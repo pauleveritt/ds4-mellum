@@ -8,3 +8,6 @@ docs/superpowers/research/2026-10-28-mellum-s6-b-evidence/** -whitespace
 # Streamed decode screen: captured profiles and the screened patches, kept byte for byte (binding rule 5).
 docs/superpowers/research/2026-10-29-mellum-stream-decode-screen/** -whitespace
 docs/superpowers/research/2026-10-29-mellum-stream-decode-ab/** -whitespace
+
+# S6 phase C: the M5 reproduction of the iMac's Python 3.9 test log, kept byte for byte (binding rule 5).
+docs/superpowers/research/2026-10-28-mellum-s6-c-evidence/py39-repro-m5/** -whitespace

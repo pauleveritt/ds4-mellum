@@ -19,6 +19,9 @@ The rules are in [the preregistration](../2026-10-28-mellum-s6-c-preregistration
    - copy `docs/superpowers/research/2026-10-28-mellum-s6-c-evidence/raw/m5-decode-resident.mx.*` to the
      same path in the clone;
    - in that directory, run `shasum -a 256 -c ../m5-reference-sha256.txt`. Every line must say OK.
+5. **Python 3.10 or later as `python3`.** Apple's Command Line Tools ship 3.9.6, which fails `test-mellum`
+   (the preregistration's note of 2026-10-29 08:12). For example, install python.org's macOS installer and
+   put it first: `export PATH=/Library/Frameworks/Python.framework/Versions/3.14/bin:/usr/bin:/bin:/usr/sbin:/sbin`.
 
 ## Stages, in order (from the clone's root)
 
