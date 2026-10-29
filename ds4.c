@@ -89552,6 +89552,30 @@ bool ds4_test_mellum_stream_fail_load(ds4_session *s, uint64_t nth) {
     return true;
 }
 
+/* For tests/ds4_test.c --mellum-stream-read-fault: fail the nth expert read from now (0: never), and count the
+ * expert cache's slab slots (free, held, handed out). */
+bool ds4_test_mellum_stream_fail_read(ds4_session *s, uint64_t nth) {
+    if (!s || !ds4_session_is_qwen4(s) || !s->qwen4_graph.mellum_stream) return false;
+#if defined(__APPLE__)
+    ds4_gpu_test_stream_fail_read(nth);
+    return true;
+#else
+    (void)nth;
+    return false;
+#endif
+}
+
+bool ds4_test_mellum_stream_slots(ds4_session *s, uint32_t *free_slots, uint32_t *held_slots, uint32_t *handed_out) {
+    if (!s || !ds4_session_is_qwen4(s) || !s->qwen4_graph.mellum_stream) return false;
+#if defined(__APPLE__)
+    ds4_gpu_test_stream_slots(free_slots, held_slots, handed_out);
+    return true;
+#else
+    (void)free_slots; (void)held_slots; (void)handed_out;
+    return false;
+#endif
+}
+
 /* For tests/ds4_test.c --mellum-stream-identity and tools/mellum_s4_measure: experts read into slots. */
 bool ds4_test_mellum_stream_loads(ds4_session *s, uint64_t *loads) {
     if (!s || !loads || !ds4_session_is_qwen4(s) || !s->qwen4_graph.mellum_stream) return false;

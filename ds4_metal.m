@@ -13494,6 +13494,10 @@ static uint32_t ds4_gpu_stream_expert_pread_thread_count(uint32_t n_tasks) {
     return threads;
 }
 
+/* Tests (ds4_gpu_test_stream_fail_read): the nth expert read from the last arming fails (0: never). */
+static uint64_t g_stream_expert_test_fail_read_at;
+static uint64_t g_stream_expert_test_read_count;
+
 static int ds4_gpu_stream_expert_pread_into(
         uint64_t  offset,
         uint64_t  len,
@@ -13502,6 +13506,11 @@ static int ds4_gpu_stream_expert_pread_into(
         double   *ms_out) {
     if (read_bytes) *read_bytes = 0;
     if (ms_out) *ms_out = 0.0;
+    if (g_stream_expert_test_fail_read_at &&
+        __atomic_add_fetch(&g_stream_expert_test_read_count, 1, __ATOMIC_RELAXED) ==
+            g_stream_expert_test_fail_read_at) {
+        return 0;
+    }
     if (g_model_fd < 0 ||
         !dst ||
         len == 0 ||
@@ -14312,6 +14321,25 @@ static int ds4_gpu_stream_expert_alloc_slab_slot(
                                                    gate_inner,
                                                    up_inner,
                                                    down_inner);
+}
+
+void ds4_gpu_test_stream_fail_read(uint64_t nth) {
+    __atomic_store_n(&g_stream_expert_test_read_count, 0, __ATOMIC_RELAXED);
+    __atomic_store_n(&g_stream_expert_test_fail_read_at, nth, __ATOMIC_RELAXED);
+}
+
+void ds4_gpu_test_stream_slots(uint32_t *free_slots, uint32_t *held_slots, uint32_t *handed_out) {
+    uint32_t held = 0, handed = 0;
+    for (uint32_t il = 0; il < DS4_METAL_STREAM_EXPERT_CACHE_MAX_LAYER; il++) {
+        for (uint32_t e = 0; e < DS4_METAL_STREAM_EXPERT_CACHE_MAX_EXPERT; e++) {
+            const ds4_gpu_stream_expert_cache_entry *x = &g_stream_expert_cache[il][e];
+            held += x->valid && x->slab_backed;
+        }
+    }
+    for (uint32_t i = 0; i < g_stream_expert_cache_slab_count; i++) handed += g_stream_expert_cache_slab_slots_used[i];
+    if (free_slots) *free_slots = g_stream_expert_cache_free_slot_count;
+    if (held_slots) *held_slots = held;
+    if (handed_out) *handed_out = handed;
 }
 
 static uint64_t ds4_gpu_stream_expert_buffer_object_count(

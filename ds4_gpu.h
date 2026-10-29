@@ -3886,6 +3886,10 @@ int ds4_gpu_mellum_stream_load(const ds4_gpu_stream_expert_table *t, const int32
  * whole load itself, counted in *n_loaded, so every slab a stop fills exists before the resumed pass is encoded. */
 int ds4_gpu_mellum_stream_load_begin(const ds4_gpu_stream_expert_table *t, const int32_t *ids, uint32_t n,
                                      uint32_t *n_loaded);
+/* Tests (tests/ds4_test.c --mellum-stream-read-fault): fail the nth expert read from now (0: never); count the
+ * expert cache's slab slots on the free list, held by resident entries, and handed out since startup. */
+void ds4_gpu_test_stream_fail_read(uint64_t nth);
+void ds4_gpu_test_stream_slots(uint32_t *free_slots, uint32_t *held_slots, uint32_t *handed_out);
 int ds4_gpu_mellum_stream_check_tensor(ds4_gpu_tensor *gate, const ds4_gpu_tensor *selected,
                                        const ds4_gpu_tensor *weights, const ds4_gpu_tensor *attn_res,
                                        const ds4_gpu_tensor *ffn_norm, ds4_gpu_tensor *save,
