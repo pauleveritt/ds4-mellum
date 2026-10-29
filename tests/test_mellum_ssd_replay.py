@@ -677,6 +677,43 @@ def test_cli_preserves_unicode_separators_inside_json_strings():
             assert report["evidence"]["trace_sha256"] == hashlib.sha256(raw).hexdigest()
 
 
+def test_expert_bytes_override_counts_mxfp4_slots():
+    trace = load([header(layers=1, expert_bytes=6_580_224), *forward(0, [[[0, 1]]], phase="prefill")])
+    report = tool().replay(trace, 3 * 2**30, "lru", expert_bytes=3_290_112)
+    assert report["cache"]["slots"] == 979
+    assert report["cache"]["effective_bytes"] == 3_221_019_648
+    assert report["expert_bytes"] == {"value": 3_290_112, "source": "override"}
+
+
+def test_no_override_report_is_unchanged():
+    trace = load([header(layers=1, expert_bytes=6_580_224), *forward(0, [[[0, 1]]], phase="prefill")])
+    plain = tool().replay(trace, 3 * 2**30, "lru")
+    assert plain["cache"]["slots"] == 489 and "expert_bytes" not in plain
+
+
+def test_expert_bytes_override_must_be_a_positive_int():
+    trace = load([header(layers=1), *forward(0, [[[0, 1]]], phase="prefill")])
+    for bad in (0, -1, True, 2.5):
+        try:
+            tool().replay(trace, 100, "lru", expert_bytes=bad)
+        except ValueError as exc:
+            assert "expert_bytes" in str(exc)
+        else:
+            raise AssertionError(f"expert_bytes {bad!r} accepted")
+
+
+def test_cli_expert_bytes_reaches_every_result_and_labels_routing():
+    result = cli(records(), "--cache-gib", "0.5", "1", "--expert-bytes", "3290112")
+    assert result.returncode == 0, result.stderr
+    report = json.loads(result.stdout)
+    assert len(report["results"]) == 4
+    assert all(r["expert_bytes"] == {"value": 3_290_112, "source": "override"} for r in report["results"])
+    assert report["assumptions"]["routing"] == "unchanged by quantization (expert_bytes override)"
+    plain = json.loads(cli(records(), "--cache-gib", "0.5").stdout)
+    assert "routing" not in plain["assumptions"]
+    assert all("expert_bytes" not in r for r in plain["results"])
+
+
 def load_tests(loader, tests, pattern):
     return unittest.TestSuite(
         unittest.FunctionTestCase(value)
