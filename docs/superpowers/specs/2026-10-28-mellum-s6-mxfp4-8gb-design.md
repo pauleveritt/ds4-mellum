@@ -1,7 +1,7 @@
 # S6 Mellum on an 8 GB Mac with MXFP4 experts
 
 Date: 2026-10-28. Branch `research/mellum-8gb-q4`, based on
-`codex/mellum-ssd-replay` at `3af0a3f`. Owner decisions are marked
+`codex/mellum-ssd-replay` at `3af0a3f`, rebased onto its tip `1500320` (S5 grouped prefill) on 2026-10-28. Owner decisions are marked
 **(owner)**. Everything else is the designer's call and may be revisited in
 planning.
 

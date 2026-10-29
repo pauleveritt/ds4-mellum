@@ -187,6 +187,6 @@ CHECK(ds4_mellum_stream_slots(1ull << 30, 0) == 0u, "unknown type holds none");
 
   Each item names its pass condition and what it decides. Then add "What would falsify this" and "Risks". Commit: `docs: preregister S6 phase B`.
 
-- [ ] **Step 2: Run the CPU gate.** `make test-mellum` (the model-free suite; take the lock as in Global Constraints if needed), then `python3 -I tests/test_mellum_ssd_replay.py`, then `git diff --check 3af0a3f..HEAD`. All pass; record the counts.
+- [ ] **Step 2: Run the CPU gate.** `make test-mellum` (the model-free suite; take the lock as in Global Constraints if needed), then `python3 -I tests/test_mellum_ssd_replay.py`, then `git diff --check 1500320..HEAD`. All pass; record the counts.
 
 - [ ] **Step 3: Update `ROADMAP.md` S6**, at most 6 added lines: phase A done, with the commit range, the MXFP4 curve's 2.5 GiB LRU figure with its `n`, and "B waits for the S4 merge and a free GPU". Commit: `docs: S6 phase A complete, CPU only`.
