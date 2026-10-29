@@ -152,3 +152,5 @@ __pycache__/
 /tests/test_mellum_generate_driver
 /tests/test_mellum_generate_prepare
 /tools/mellum_s4_measure
+/tools/mellum_llama_logits
+/tests/test_mellum_moe_ref
