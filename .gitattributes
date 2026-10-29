@@ -22,3 +22,6 @@ docs/superpowers/research/2026-10-29-mellum-imac-stop-profile/profile.patch -whi
 
 # S6 phase D sync screen: the patch and captures kept byte for byte (binding rule 5).
 docs/superpowers/research/2026-10-29-mellum-s6-d-sync-screen/** -whitespace
+
+# S6 phase D: the iMac captures kept byte for byte (binding rule 5).
+docs/superpowers/research/2026-10-29-mellum-s6-d-evidence/** -whitespace

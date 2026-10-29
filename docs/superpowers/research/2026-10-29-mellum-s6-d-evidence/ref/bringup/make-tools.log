@@ -1,0 +1,6 @@
+make: `tools/mellum_metal_limit' is up to date.
+cc -O3 -ffast-math -g -mcpu=native -Wall -Wextra -std=c99 -I. -o tools/mellum_s4_measure tools/mellum_s4_measure.c ds4_help.o ds4.o ds4_image.o ds4_distributed.o ds4_tp.o ds4_ssd.o ds4_metal.o ds4_layer_pack.o ds4_engram.o ds4_mellum_routes.o ds4_mellum_profile.o ds4_mellum_capture_state.o ds4_mellum_observer.o ds4_mellum_stream.o -lm -pthread -framework Foundation -framework Metal
+cc -O3 -g -mcpu=native -Wall -Wextra -std=c99 -I. -c -o tests/mellum_trace.o tests/mellum_trace.c
+cc -O3 -ffast-math -g -mcpu=native -Wall -Wextra -std=c99 -o tests/mellum_trace tests/mellum_trace.o ds4.o ds4_image.o ds4_distributed.o ds4_tp.o ds4_ssd.o ds4_metal.o ds4_layer_pack.o ds4_engram.o ds4_mellum_routes.o ds4_mellum_profile.o ds4_mellum_capture_state.o ds4_mellum_observer.o ds4_mellum_stream.o -lm -pthread -framework Foundation -framework Metal
+cc -O3 -ffast-math -g -mcpu=native -Wall -Wextra -std=c99 -Wno-unused-function -c -o ds4_test.o tests/ds4_test.c
+cc -O3 -ffast-math -g -mcpu=native -Wall -Wextra -std=c99 -o ds4_test ds4_test.o ds4_help.o ds4_kvstore.o rax.o ds4.o ds4_image.o ds4_distributed.o ds4_tp.o ds4_ssd.o ds4_metal.o ds4_layer_pack.o ds4_engram.o ds4_mellum_routes.o ds4_mellum_profile.o ds4_mellum_capture_state.o ds4_mellum_observer.o ds4_mellum_stream.o -lm -pthread -framework Foundation -framework Metal

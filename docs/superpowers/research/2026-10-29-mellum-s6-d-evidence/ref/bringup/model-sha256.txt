@@ -1,0 +1,1 @@
+cf09584a30423f6f80b0c9fe2f42e152520dabf08fecd1cad641ce21a7588166  /Users/pauleveritt/models/Mellum2.1-12B-A2.5B-Thinking-MXFP4_MOE.gguf
