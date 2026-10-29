@@ -35,6 +35,10 @@ def tensor_bytes(dims: tuple[int, ...], kind: int) -> int:
         if dims[0] % 32:
             raise ValueError('Q8 row must contain complete blocks')
         size = dims[0] // 32 * 34
+    elif kind == 39:   # MXFP4: one E8M0 byte and 16 nibble bytes per 32 values (S6)
+        if dims[0] % 32:
+            raise ValueError('MXFP4 row must contain complete blocks')
+        size = dims[0] // 32 * 17
     elif kind in (0, 1):
         size = dims[0] * (4 if kind == 0 else 2)
     else:

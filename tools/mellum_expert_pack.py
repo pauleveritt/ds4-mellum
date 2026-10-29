@@ -69,10 +69,9 @@ def verify_copy(source: BinaryIO, destination: BinaryIO, original_entries: list[
 
 def validate_packed(value: dict) -> dict:
     try:
-        if common.integer(value['schema_version']) != 1 or value['kind'] != 'packed-experts' or value['geometry'] != index_tools.GEOMETRY:
+        if common.integer(value['schema_version']) != 1 or value['kind'] != 'packed-experts':
             raise ValueError('unsupported packed manifest')
-        for key, number in index_tools.GEOMETRY.items():
-            common.integer(value['geometry'][key], number, number)
+        expert_bytes = 3 * index_tools.part_for(value['geometry'])   # Q8_0 or MXFP4 (S6)
         payload = value['payload']
         if payload['path'] != 'experts.bin' or len(value['experts']) != 1792:
             raise ValueError('invalid packed path/count')
@@ -87,7 +86,7 @@ def validate_packed(value: dict) -> dict:
                 raise ValueError('one contiguous range required')
             span = entry['ranges'][0]
             common.integer(span['offset'], offset, offset)
-            offset += common.integer(span['bytes'], 6580224, 6580224)
+            offset += common.integer(span['bytes'], expert_bytes, expert_bytes)
             if common.digest(entry['source_sha256']) != common.digest(entry['packed_sha256']):
                 raise ValueError('expert copy digests differ')
         common.integer(payload['bytes'], offset, offset)
