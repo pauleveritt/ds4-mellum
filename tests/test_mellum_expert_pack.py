@@ -38,6 +38,31 @@ def rejected():
         raise AssertionError('invalid copy/packing accepted')
 
 
+def packed_manifest(expert_bytes):
+    digest = 'a' * 64
+    experts = [dict(layer=i // 64, expert=i % 64, source_sha256=digest, packed_sha256=digest,
+                    ranges=[dict(role='packed', offset=i * expert_bytes, bytes=expert_bytes)]) for i in range(1792)]
+    return dict(schema_version=1, kind='packed-experts',
+                geometry=dict(layers=28, experts_per_layer=64, expert_bytes=expert_bytes),
+                payload=dict(path='experts.bin', bytes=1792 * expert_bytes, sha256='b' * 64),
+                index=dict(sha256='c' * 64), model=dict(sha256='d' * 64), experts=experts)
+
+
+def test_packed_manifest_validates_at_q8_and_mxfp4_sizes():
+    api = module()
+    assert api.validate_packed(packed_manifest(6580224))['geometry']['expert_bytes'] == 6580224
+    assert api.validate_packed(packed_manifest(3290112))['geometry']['expert_bytes'] == 3290112
+    wrong = packed_manifest(3290112)
+    wrong['geometry']['expert_bytes'] = 6580224      # MXFP4 spans under a Q8_0 geometry
+    for bad in (wrong, packed_manifest(1000)):
+        try:
+            api.validate_packed(bad)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError('a packed manifest of the wrong size was accepted')
+
+
 def test_copy_noncontiguous_roles_preserves_exact_bytes():
     api = module()
     source, destination = io.BytesIO(b'abcdefghijklmnopqrstuvwxyz'), io.BytesIO()
