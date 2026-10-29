@@ -1752,6 +1752,18 @@ test-mellum: test-mellum-moe-ref
 clean-mellum-moe-ref:
 	rm -f tests/test_mellum_moe_ref tests/test_mellum_moe_ref.o
 clean: clean-mellum-moe-ref
+# S6: the agreement report between two traced runs (CPU only, in test-mellum), and the llama.cpp logits driver
+# (built only on request: it links Homebrew's libllama; `make test-mellum-llama-logits` also checks its usage errors)
+LLAMA_PREFIX ?= $(shell brew --prefix llama.cpp 2>/dev/null)
+GGML_PREFIX ?= $(shell brew --prefix ggml 2>/dev/null)
+tools/mellum_llama_logits: tools/mellum_llama_logits.c
+	$(CC) -std=c11 -O2 -Wall -Wextra -Werror -I$(LLAMA_PREFIX)/include -I$(GGML_PREFIX)/include $< \
+		-L$(LLAMA_PREFIX)/lib -Wl,-rpath,$(LLAMA_PREFIX)/lib -lllama -o $@
+.PHONY: test-mellum-logits-agree test-mellum-llama-logits
+test-mellum-logits-agree:
+	python3 -I tests/test_mellum_logits_agree.py
+test-mellum: test-mellum-logits-agree
+test-mellum-llama-logits: tools/mellum_llama_logits test-mellum-logits-agree
 # S4 measurement driver: built here, run only with the model (tests/test_mellum_s4_driver.py)
 test-mellum: tools/mellum_s4_measure
 .PHONY: test-mellum-s4-measure
