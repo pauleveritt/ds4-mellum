@@ -43,4 +43,16 @@ int ds4_mellum_stream_decode(const ds4_mellum_stream_ops *ops, uint32_t n_layer,
  * the count, or UINT32_MAX for an id outside 0..63. */
 uint32_t ds4_mellum_stream_unique(const int32_t *selected, uint32_t rows, uint32_t top_k, int32_t out[64]);
 
+/* S5 grouped layer-major prefill: a streamed sync runs its suffix in groups of K chunks, every layer over
+ * the group's chunks before the next layer.  K comes from DS4_MELLUM_STREAM_PREFILL_GROUP. */
+#define DS4_MELLUM_STREAM_GROUP_DEFAULT 8u
+#define DS4_MELLUM_STREAM_GROUP_MAX 64u
+
+/* K from the setting's text: NULL gives the default; a decimal 1..64 gives itself; anything else 0 (refuse). */
+uint32_t ds4_mellum_stream_prefill_group(const char *env);
+
+/* Rows for the next group: min(k * cap, remaining), minus the last row when that would take the whole
+ * suffix and end in a one-row chunk (a one-row chunk runs on the decode path); 0 when any argument is 0. */
+uint32_t ds4_mellum_stream_group_rows(uint32_t remaining, uint32_t cap, uint32_t k);
+
 #endif

@@ -1,6 +1,7 @@
 #include "ds4_mellum_stream.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 
 uint32_t ds4_mellum_stream_slots(uint64_t cache_bytes) {
     const uint64_t slots = cache_bytes / DS4_MELLUM_EXPERT_BYTES;
@@ -72,4 +73,20 @@ uint32_t ds4_mellum_stream_unique(const int32_t *selected, uint32_t rows, uint32
     uint32_t n = 0;
     for (int32_t e = 0; e < 64; e++) if (seen & (1ull << e)) out[n++] = e;
     return n;
+}
+
+uint32_t ds4_mellum_stream_prefill_group(const char *env) {
+    if (!env) return DS4_MELLUM_STREAM_GROUP_DEFAULT;
+    if (env[0] < '0' || env[0] > '9') return 0;
+    char *end = NULL;
+    const unsigned long k = strtoul(env, &end, 10);
+    return *end == 0 && k >= 1ul && k <= DS4_MELLUM_STREAM_GROUP_MAX ? (uint32_t)k : 0u;
+}
+
+uint32_t ds4_mellum_stream_group_rows(uint32_t remaining, uint32_t cap, uint32_t k) {
+    if (!remaining || !cap || !k) return 0;
+    const uint64_t most = (uint64_t)k * cap;
+    uint32_t rows = most < remaining ? (uint32_t)most : remaining;
+    if (rows == remaining && rows > 1u && rows % cap == 1u) rows--;
+    return rows;
 }
