@@ -1,0 +1,556 @@
+python3 -I tests/test_mellum_ssd_replay.py
+.....................................
+----------------------------------------------------------------------
+Ran 37 tests in 1.651s
+
+OK
+cc -O3 -g -mcpu=native -Wall -Wextra -std=c11 -I. -o tests/test_mellum_routes tests/test_mellum_routes.c ds4_mellum_routes.c
+./tests/test_mellum_routes
+ok layout
+ok frames
+ok finish and short writes
+python3 -I tests/test_mellum_routes_to_trace.py
+............
+----------------------------------------------------------------------
+Ran 12 tests in 0.783s
+
+OK
+cc -O3 -g -mcpu=native -Wall -Wextra -std=c99 -I. -o tests/test_mellum_profile tests/test_mellum_profile.c ds4_mellum_profile.c
+./tests/test_mellum_profile
+Mellum profile set checks: PASS
+cc -O3 -g -mcpu=native -Wall -Wextra -std=c99 -I. -o tests/test_mellum_capture_state tests/test_mellum_capture_state.c ds4_mellum_capture_state.c ds4_mellum_profile.c ds4_mellum_routes.c
+./tests/test_mellum_capture_state
+Mellum capture operation checks: PASS
+python3 -I tests/test_mellum_capture_state_export.py
+...
+----------------------------------------------------------------------
+Ran 3 tests in 0.031s
+
+OK
+cc -O3 -g -mcpu=native -Wall -Wextra -std=c99 -Wno-unused-function -DDS4_NO_GPU -I. -o tests/test_mellum_capture_api tests/test_mellum_capture_api.c ds4_image.o ds4_distributed.o ds4_tp.o ds4_ssd.o ds4_layer_pack.o ds4_mellum_routes.o ds4_mellum_profile.o ds4_mellum_capture_state.o ds4_mellum_observer.o ds4_mellum_stream.o -lm -pthread
+./tests/test_mellum_capture_api
+Mellum capture API boundary checks: PASS
+cc -O3 -g -mcpu=native -Wall -Wextra -std=c99 -I. -o tests/test_mellum_observer tests/test_mellum_observer.c ds4_mellum_observer.c ds4_mellum_profile.c
+./tests/test_mellum_observer
+Mellum encoding observer checks: PASS
+python3 -I tests/test_mellum_capture_build.py
+...
+----------------------------------------------------------------------
+Ran 3 tests in 0.067s
+
+OK
+cc -O3 -g -mcpu=native -Wall -Wextra -std=c99 -I. -o tests/test_mellum_capture_receipt tests/test_mellum_capture_receipt.c
+./tests/test_mellum_capture_receipt
+Mellum capture receipt checks: PASS
+python3 -I tests/test_mellum_capture_publish.py
+...........
+----------------------------------------------------------------------
+Ran 11 tests in 3.720s
+
+OK
+python3 -I tests/test_mellum_artifact.py
+....
+----------------------------------------------------------------------
+Ran 4 tests in 0.006s
+
+OK
+python3 -I tests/test_mellum_workload_bundle.py
+.......
+----------------------------------------------------------------------
+Ran 7 tests in 2.915s
+
+OK
+cc -std=c99 -O2 -D_POSIX_C_SOURCE=200809L -D_DARWIN_C_SOURCE -Wall -Wextra -Werror -pthread -include tests/mellum_read_faults.h tests/test_mellum_read_plan.c tools/mellum_read_plan.c -o tests/test_mellum_read_plan
+./tests/test_mellum_read_plan
+native range plan checks: PASS
+cc -std=c99 -O2 -D_POSIX_C_SOURCE=200809L -D_DARWIN_C_SOURCE -Wall -Wextra -Werror -pthread -include tests/mellum_read_io_faults.h tests/test_mellum_read_io.c tools/mellum_read_io.c -o tests/test_mellum_read_io
+./tests/test_mellum_read_io
+complete range I/O and cache control checks: PASS
+cc -std=c99 -O2 -D_POSIX_C_SOURCE=200809L -D_DARWIN_C_SOURCE -Wall -Wextra -Werror -pthread -include tests/mellum_read_run_faults.h tests/test_mellum_read_run.c tools/mellum_read_run.c tools/mellum_read_io.c -o tests/test_mellum_read_run
+./tests/test_mellum_read_run
+worker content, timing and join checks: PASS
+cc -std=c99 -O2 -D_POSIX_C_SOURCE=200809L -D_DARWIN_C_SOURCE -Wall -Wextra -Werror -pthread tools/mellum_read_bench.c tools/mellum_read_plan.c tools/mellum_read_io.c tools/mellum_read_run.c tools/mellum_read_gate.c -o tools/mellum_read_bench
+cc -std=c99 -O2 -D_POSIX_C_SOURCE=200809L -D_DARWIN_C_SOURCE -Wall -Wextra -Werror -pthread -include tests/mellum_read_bench_faults.h tools/mellum_read_bench.c tools/mellum_read_plan.c tools/mellum_read_io.c tools/mellum_read_run.c tools/mellum_read_gate.c tests/mellum_read_bench_faults.c -o tests/mellum_read_bench_fault
+python3 -I tests/test_mellum_read_bench.py
+..
+----------------------------------------------------------------------
+Ran 2 tests in 0.145s
+
+OK
+cc -std=c99 -O2 -D_POSIX_C_SOURCE=200809L -D_DARWIN_C_SOURCE -Wall -Wextra -Werror -pthread -include tests/mellum_read_gate_faults.h tests/test_mellum_read_gate.c tools/mellum_read_gate.c -o tests/test_mellum_read_gate
+./tests/test_mellum_read_gate
+bounded gate tokens, EINTR, EOF and deadlines: PASS
+python3 -I tests/test_mellum_read_observed.py
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.197s
+
+OK
+python3 -I tests/test_mellum_device_observer.py
+...........
+----------------------------------------------------------------------
+Ran 11 tests in 0.213s
+
+OK
+python3 -I tests/test_mellum_device_classify.py
+....
+----------------------------------------------------------------------
+Ran 4 tests in 0.007s
+
+OK
+python3 -I tests/test_mellum_observe_manifest.py
+....
+----------------------------------------------------------------------
+Ran 4 tests in 0.585s
+
+OK
+python3 -I tests/test_mellum_observe_process.py
+......
+----------------------------------------------------------------------
+Ran 6 tests in 0.112s
+
+OK
+python3 -I tests/test_mellum_observe_batch.py
+............
+----------------------------------------------------------------------
+Ran 12 tests in 8.040s
+
+OK
+cc -std=c99 -O2 -D_POSIX_C_SOURCE=200809L -D_DARWIN_C_SOURCE -Wall -Wextra -Werror -pthread tests/test_mellum_stage.c tools/mellum_stage_io.c tools/mellum_read_io.c -o tests/test_mellum_stage
+cc -std=c99 -O2 -D_POSIX_C_SOURCE=200809L -D_DARWIN_C_SOURCE -Wall -Wextra -Werror -pthread tools/mellum_stage_bench.c tools/mellum_stage_io.c tools/mellum_read_plan.c tools/mellum_read_io.c -o tools/mellum_stage_bench
+cc -std=c99 -O2 -D_POSIX_C_SOURCE=200809L -D_DARWIN_C_SOURCE -Wall -Wextra -Werror -pthread -include tests/mellum_stage_faults.h tools/mellum_stage_bench.c tools/mellum_stage_io.c tools/mellum_read_plan.c tools/mellum_read_io.c tests/mellum_stage_faults.c -o tests/mellum_stage_fault
+./tests/test_mellum_stage
+aligned staging slots and validation: PASS
+python3 -I tests/test_mellum_stage.py
+...
+----------------------------------------------------------------------
+Ran 3 tests in 0.153s
+
+OK
+python3 -I tests/test_mellum_service_plan.py
+...
+----------------------------------------------------------------------
+Ran 3 tests in 1.528s
+
+OK
+python3 -I tests/test_mellum_service_verify.py
+..
+----------------------------------------------------------------------
+Ran 2 tests in 0.008s
+
+OK
+python3 -I tests/test_mellum_service_run.py
+.......
+----------------------------------------------------------------------
+Ran 7 tests in 24.043s
+
+OK
+python3 -I tests/test_mellum_gguf_reader.py
+....
+----------------------------------------------------------------------
+Ran 4 tests in 0.002s
+
+OK
+python3 -I tests/test_mellum_expert_index.py
+.............
+----------------------------------------------------------------------
+Ran 13 tests in 0.148s
+
+OK
+python3 -I tests/test_mellum_expert_pack.py
+.......
+----------------------------------------------------------------------
+Ran 7 tests in 0.206s
+
+OK
+python3 -I tests/test_mellum_read_plan.py
+.....
+----------------------------------------------------------------------
+Ran 5 tests in 0.047s
+
+OK
+python3 -I tests/test_mellum_read_batch.py
+..........
+----------------------------------------------------------------------
+Ran 10 tests in 3.464s
+
+OK
+cc -std=c99 -O2 -Wall -Wextra -Werror -I. tests/test_mellum_stream.c ds4_mellum_stream.c -o tests/test_mellum_stream
+./tests/test_mellum_stream
+56 checks, 0 failures
+cc -O3 -g -mcpu=native -Wall -Wextra -std=c99 -Wno-unused-function -DDS4_NO_GPU -I. -c -o tests/test_mellum_moe_ref.o tests/test_mellum_moe_ref.c
+cc -O3 -g -mcpu=native -Wall -Wextra -std=c99 -o tests/test_mellum_moe_ref tests/test_mellum_moe_ref.o ds4_image.o ds4_distributed.o ds4_tp.o ds4_ssd.o ds4_layer_pack.o ds4_mellum_routes.o ds4_mellum_profile.o ds4_mellum_capture_state.o ds4_mellum_observer.o ds4_mellum_stream.o -lm -pthread
+./tests/test_mellum_moe_ref
+11 checks, 0 failures
+python3 -I tests/test_mellum_replay_request.py
+/opt/homebrew/Cellar/python@3.14/3.14.10/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/case.py:1562: ResourceWarning: unclosed <socket.socket fd=3, family=2, type=1, proto=0, laddr=('127.0.0.1', 49739)>
+  self._testFunc()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+./opt/homebrew/Cellar/python@3.14/3.14.10/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/case.py:1562: ResourceWarning: unclosed <socket.socket fd=3, family=2, type=1, proto=0, laddr=('127.0.0.1', 49741)>
+  self._testFunc()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+.
+----------------------------------------------------------------------
+Ran 2 tests in 1.397s
+
+OK
+cc -std=c99 -O2 -Wall -Wextra -Werror -Wno-unused-function -Itests tests/test_mellum_trace_stream.c -o tests/test_mellum_trace_stream
+./tests/test_mellum_trace_stream
+4 checks, 0 failures
+python3 -I tests/test_mellum_logits_agree.py
+......
+----------------------------------------------------------------------
+Ran 6 tests in 0.150s
+
+OK
+skip: tools/mellum_llama_logits not built
+python3 -I tests/test_mellum_s4_measure.py
+...........
+----------------------------------------------------------------------
+Ran 11 tests in 0.169s
+
+OK
+cc -std=c99 -O2 -D_POSIX_C_SOURCE=200809L -D_DARWIN_C_SOURCE -Wall -Wextra -Werror tests/test_mellum_generate_io.c tools/mellum_generate_io.c -o tests/test_mellum_generate_io
+./tests/test_mellum_generate_io
+generated bounded I/O: PASS
+python3 -I tests/test_mellum_generated_inputs.py
+.......
+----------------------------------------------------------------------
+Ran 7 tests in 0.966s
+
+OK
+cc -std=c99 -O2 -D_POSIX_C_SOURCE=200809L -D_DARWIN_C_SOURCE -Wall -Wextra -Werror tests/test_mellum_generate_loop.c tools/mellum_generate_loop.c -o tests/test_mellum_generate_loop
+cc -O3 -g -mcpu=native -Wall -Wextra -std=c99 -DDS4_NO_GPU -I. -c tools/mellum_generate_inspect.c -o tools/mellum_generate_inspect.o
+In file included from tools/mellum_generate_inspect.c:7:
+tools/../ds4.c:471:13: warning: unused function 'ds4_backend_supports_streaming_auto_cache' [-Wunused-function]
+  471 | static bool ds4_backend_supports_streaming_auto_cache(ds4_backend backend) {
+      |             ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tools/../ds4.c:481:13: warning: unused function 'ds4_backend_supports_glm_streaming_full_layers' [-Wunused-function]
+  481 | static bool ds4_backend_supports_glm_streaming_full_layers(ds4_backend backend) {
+      |             ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tools/../ds4.c:500:20: warning: unused function 'glm_graph_env_value' [-Wunused-function]
+  500 | static const char *glm_graph_env_value(const char *rocm_name,
+      |                    ^~~~~~~~~~~~~~~~~~~
+tools/../ds4.c:1071:20: warning: unused function 'ds4_qwen4_family_name' [-Wunused-function]
+ 1071 | static const char *ds4_qwen4_family_name(void) {
+      |                    ^~~~~~~~~~~~~~~~~~~~~
+tools/../ds4.c:1764:13: warning: unused function 'ds4_expert_profile_record' [-Wunused-function]
+ 1764 | static void ds4_expert_profile_record(
+      |             ^~~~~~~~~~~~~~~~~~~~~~~~~
+tools/../ds4.c:2047:13: warning: unused function 'sleep_sec' [-Wunused-function]
+ 2047 | static void sleep_sec(double sec) {
+      |             ^~~~~~~~~
+tools/../ds4.c:2999:13: warning: unused function 'ds4_dspark_rocm_gfx1151_fast_path' [-Wunused-function]
+ 2999 | static bool ds4_dspark_rocm_gfx1151_fast_path(void) {
+      |             ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tools/../ds4.c:5244:13: warning: unused function 'ds4_streaming_prefill_headroom_bytes' [-Wunused-function]
+ 5244 | static bool ds4_streaming_prefill_headroom_bytes(
+      |             ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tools/../ds4.c:5295:17: warning: unused function 'ds4_streaming_cache_experts_for_byte_budget' [-Wunused-function]
+ 5295 | static uint32_t ds4_streaming_cache_experts_for_byte_budget(
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tools/../ds4.c:5375:17: warning: unused function 'ds4_mul_sat_u64' [-Wunused-function]
+ 5375 | static uint64_t ds4_mul_sat_u64(uint64_t a, uint64_t b) {
+      |                 ^~~~~~~~~~~~~~~
+tools/../ds4.c:5879:33: warning: unused function 'weights_first_bound_layer' [-Wunused-function]
+ 5879 | static const ds4_layer_weights *weights_first_bound_layer(const ds4_weights *w) {
+      |                                 ^~~~~~~~~~~~~~~~~~~~~~~~~
+tools/../ds4.c:8734:13: warning: unused function 'glm_stream_decode_expert_cache_ready' [-Wunused-function]
+ 8734 | static bool glm_stream_decode_expert_cache_ready(
+      |             ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tools/../ds4.c:8779:13: warning: unused function 'weights_model_map_decode_static_supported' [-Wunused-function]
+ 8779 | static bool weights_model_map_decode_static_supported(const ds4_weights *w) {
+      |             ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tools/../ds4.c:16695:13: warning: unused function 'layer_glm_attention_prefill_f32_ref' [-Wunused-function]
+ 16695 | static void layer_glm_attention_prefill_f32_ref(
+       |             ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tools/../ds4.c:17222:13: warning: unused function 'forward_glm_first_token_cpu_f32_ref' [-Wunused-function]
+ 17222 | static void forward_glm_first_token_cpu_f32_ref(
+       |             ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tools/../ds4.c:17245:13: warning: unused function 'output_logits_glm_one_f32_ref' [-Wunused-function]
+ 17245 | static void output_logits_glm_one_f32_ref(
+       |             ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tools/../ds4.c:43873:17: warning: unused function 'glm_graph_streaming_active_model_bytes' [-Wunused-function]
+ 43873 | static uint64_t glm_graph_streaming_active_model_bytes(
+       |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tools/../ds4.c:43876:17: warning: unused function 'ds4_engine_streaming_transient_guard_bytes' [-Wunused-function]
+ 43876 | static uint64_t ds4_engine_streaming_transient_guard_bytes(
+       |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tools/../ds4.c:45918:13: warning: unused function 'sample_build_probabilities' [-Wunused-function]
+ 45918 | static bool sample_build_probabilities(
+       |             ^~~~~~~~~~~~~~~~~~~~~~~~~~
+tools/../ds4.c:46048:12: warning: unused function 'sample_probabilities' [-Wunused-function]
+ 46048 | static int sample_probabilities(const float *probs, uint32_t n_vocab,
+       |            ^~~~~~~~~~~~~~~~~~~~
+tools/../ds4.c:46726:17: warning: unused function 'glm_graph_host_memory_bytes' [-Wunused-function]
+ 46726 | static uint64_t glm_graph_host_memory_bytes(void) {
+       |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+tools/../ds4.c:67877:12: warning: unused function 'glm_metal_compare_f32' [-Wunused-function]
+ 67877 | static int glm_metal_compare_f32(
+       |            ^~~~~~~~~~~~~~~~~~~~~
+tools/../ds4.c:67905:12: warning: unused function 'glm_metal_compare_i32_list' [-Wunused-function]
+ 67905 | static int glm_metal_compare_i32_list(
+       |            ^~~~~~~~~~~~~~~~~~~~~~~~~~
+tools/../ds4.c:70815:13: warning: unused function 'ds4_engine_configure_streaming_auto_cache' [-Wunused-function]
+ 70815 | static bool ds4_engine_configure_streaming_auto_cache(ds4_engine *e, int ctx_size) {
+       |             ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tools/../ds4.c:71046:17: warning: unused function 'ds4_glm_streaming_supported_resident_prefix_layers' [-Wunused-function]
+ 71046 | static uint32_t ds4_glm_streaming_supported_resident_prefix_layers(
+       |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tools/../ds4.c:71074:13: warning: unused function 'ds4_glm_streaming_resident_prefix_bytes' [-Wunused-function]
+ 71074 | static bool ds4_glm_streaming_resident_prefix_bytes(
+       |             ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tools/../ds4.c:71105:13: warning: unused function 'ds4_engine_configure_streaming_cache_budget' [-Wunused-function]
+ 71105 | static bool ds4_engine_configure_streaming_cache_budget(ds4_engine *e) {
+       |             ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tools/../ds4.c:71392:13: warning: unused function 'ds4_glm_streaming_runtime_decode_map_bytes' [-Wunused-function]
+ 71392 | static bool ds4_glm_streaming_runtime_decode_map_bytes(
+       |             ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tools/../ds4.c:71410:13: warning: unused function 'ds4_engine_fit_glm_streaming_budget' [-Wunused-function]
+ 71410 | static void ds4_engine_fit_glm_streaming_budget(
+       |             ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tools/../ds4.c:71601:13: warning: unused function 'ds4_engine_glm_streaming_memory_guard' [-Wunused-function]
+ 71601 | static bool ds4_engine_glm_streaming_memory_guard(
+       |             ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tools/../ds4.c:71652:13: warning: unused function 'ds4_engine_preload_pro_q4_expert_tables' [-Wunused-function]
+ 71652 | static bool ds4_engine_preload_pro_q4_expert_tables(
+       |             ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tools/../ds4.c:71745:13: warning: unused function 'model_warm_weights_sharded' [-Wunused-function]
+ 71745 | static void model_warm_weights_sharded(const ds4_model *m,
+       |             ^~~~~~~~~~~~~~~~~~~~~~~~~~
+tools/../ds4.c:73328:12: warning: unused function 'engine_install_dspark_support_cache' [-Wunused-function]
+ 73328 | static int engine_install_dspark_support_cache(ds4_engine *e);
+       |            ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tools/../ds4.c:73329:12: warning: unused function 'engine_install_gpu_placement' [-Wunused-function]
+ 73329 | static int engine_install_gpu_placement(ds4_engine *e);
+       |            ^~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tools/../ds4.c:76725:13: warning: unused function 'ds4_session_cancelled_cb' [-Wunused-function]
+ 76725 | static bool ds4_session_cancelled_cb(void *ud) {
+       |             ^~~~~~~~~~~~~~~~~~~~~~~~
+tools/../ds4.c:78233:13: warning: unused function 'ds4_session_vision_range_overlaps' [-Wunused-function]
+ 78233 | static bool ds4_session_vision_range_overlaps(
+       |             ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tools/../ds4.c:87619:12: warning: unused function 'ds4_sessions_eval_batch_cuda' [-Wunused-function]
+ 87619 | static int ds4_sessions_eval_batch_cuda(ds4_decode_item *items, int count,
+       |            ^~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tools/../ds4.c:87751:12: warning: unused function 'ds4_sessions_eval_batch_with_prefill_cuda' [-Wunused-function]
+ 87751 | static int ds4_sessions_eval_batch_with_prefill_cuda(
+       |            ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+38 warnings generated.
+cc -O3 -g -mcpu=native -Wall -Wextra -std=c99 -DDS4_NO_GPU -I. tools/mellum_generate.c tools/mellum_generate_io.c tools/mellum_generate_inspect.o ds4_image.o ds4_distributed.o ds4_tp.o ds4_ssd.o ds4_layer_pack.o ds4_mellum_routes.o ds4_mellum_profile.o ds4_mellum_capture_state.o ds4_mellum_observer.o ds4_mellum_stream.o -lm -pthread -o tools/mellum_generate_cpu
+./tests/test_mellum_generate_loop
+generated loop/parity boundaries: PASS
+python3 -I tests/test_mellum_generated_publish.py
+.........
+----------------------------------------------------------------------
+Ran 9 tests in 0.267s
+
+OK
+python3 -I tests/test_mellum_generated_analysis.py
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.021s
+
+OK
+cc -std=c99 -O2 -D_POSIX_C_SOURCE=200809L -D_DARWIN_C_SOURCE -Wall -Wextra -Werror -include tests/mellum_generate_driver_fault.h -c tools/mellum_generate_driver.c -o tests/mellum_generate_driver_fault.o
+cc -std=c99 -O2 -D_POSIX_C_SOURCE=200809L -D_DARWIN_C_SOURCE -Wall -Wextra -Werror tests/test_mellum_generate_driver.c tests/mellum_generate_driver_fault.o tools/mellum_generate_loop.c tools/mellum_generate_io.c -o tests/test_mellum_generate_driver
+./tests/test_mellum_generate_driver
+generated evidence-close failed: operation-failed; 
+generated response0 failed: protocol-stop; 
+generated response0 failed: operation-failed; fixture backend eval failed
+generated completion-receipt failed: operation-failed; 
+native driver close/protocol/backend failure boundaries: PASS (tiny retained fixtures /tmp/mellum-gen-driver-yThxuZ)
+cc -O3 -g -mcpu=native -Wall -Wextra -std=c99 -DDS4_NO_GPU -I. -c tests/test_mellum_generate_prepare.c -o tests/test_mellum_generate_prepare.o
+In file included from tests/test_mellum_generate_prepare.c:2:
+In file included from tests/../tools/mellum_generate_inspect.c:7:
+tests/../tools/../ds4.c:471:13: warning: unused function 'ds4_backend_supports_streaming_auto_cache' [-Wunused-function]
+  471 | static bool ds4_backend_supports_streaming_auto_cache(ds4_backend backend) {
+      |             ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tests/../tools/../ds4.c:481:13: warning: unused function 'ds4_backend_supports_glm_streaming_full_layers' [-Wunused-function]
+  481 | static bool ds4_backend_supports_glm_streaming_full_layers(ds4_backend backend) {
+      |             ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tests/../tools/../ds4.c:500:20: warning: unused function 'glm_graph_env_value' [-Wunused-function]
+  500 | static const char *glm_graph_env_value(const char *rocm_name,
+      |                    ^~~~~~~~~~~~~~~~~~~
+tests/../tools/../ds4.c:1071:20: warning: unused function 'ds4_qwen4_family_name' [-Wunused-function]
+ 1071 | static const char *ds4_qwen4_family_name(void) {
+      |                    ^~~~~~~~~~~~~~~~~~~~~
+tests/../tools/../ds4.c:1764:13: warning: unused function 'ds4_expert_profile_record' [-Wunused-function]
+ 1764 | static void ds4_expert_profile_record(
+      |             ^~~~~~~~~~~~~~~~~~~~~~~~~
+tests/../tools/../ds4.c:2047:13: warning: unused function 'sleep_sec' [-Wunused-function]
+ 2047 | static void sleep_sec(double sec) {
+      |             ^~~~~~~~~
+tests/../tools/../ds4.c:2999:13: warning: unused function 'ds4_dspark_rocm_gfx1151_fast_path' [-Wunused-function]
+ 2999 | static bool ds4_dspark_rocm_gfx1151_fast_path(void) {
+      |             ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tests/../tools/../ds4.c:5244:13: warning: unused function 'ds4_streaming_prefill_headroom_bytes' [-Wunused-function]
+ 5244 | static bool ds4_streaming_prefill_headroom_bytes(
+      |             ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tests/../tools/../ds4.c:5295:17: warning: unused function 'ds4_streaming_cache_experts_for_byte_budget' [-Wunused-function]
+ 5295 | static uint32_t ds4_streaming_cache_experts_for_byte_budget(
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tests/../tools/../ds4.c:5375:17: warning: unused function 'ds4_mul_sat_u64' [-Wunused-function]
+ 5375 | static uint64_t ds4_mul_sat_u64(uint64_t a, uint64_t b) {
+      |                 ^~~~~~~~~~~~~~~
+tests/../tools/../ds4.c:5879:33: warning: unused function 'weights_first_bound_layer' [-Wunused-function]
+ 5879 | static const ds4_layer_weights *weights_first_bound_layer(const ds4_weights *w) {
+      |                                 ^~~~~~~~~~~~~~~~~~~~~~~~~
+tests/../tools/../ds4.c:8734:13: warning: unused function 'glm_stream_decode_expert_cache_ready' [-Wunused-function]
+ 8734 | static bool glm_stream_decode_expert_cache_ready(
+      |             ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tests/../tools/../ds4.c:8779:13: warning: unused function 'weights_model_map_decode_static_supported' [-Wunused-function]
+ 8779 | static bool weights_model_map_decode_static_supported(const ds4_weights *w) {
+      |             ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tests/../tools/../ds4.c:16695:13: warning: unused function 'layer_glm_attention_prefill_f32_ref' [-Wunused-function]
+ 16695 | static void layer_glm_attention_prefill_f32_ref(
+       |             ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tests/../tools/../ds4.c:17222:13: warning: unused function 'forward_glm_first_token_cpu_f32_ref' [-Wunused-function]
+ 17222 | static void forward_glm_first_token_cpu_f32_ref(
+       |             ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tests/../tools/../ds4.c:17245:13: warning: unused function 'output_logits_glm_one_f32_ref' [-Wunused-function]
+ 17245 | static void output_logits_glm_one_f32_ref(
+       |             ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tests/../tools/../ds4.c:43873:17: warning: unused function 'glm_graph_streaming_active_model_bytes' [-Wunused-function]
+ 43873 | static uint64_t glm_graph_streaming_active_model_bytes(
+       |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tests/../tools/../ds4.c:43876:17: warning: unused function 'ds4_engine_streaming_transient_guard_bytes' [-Wunused-function]
+ 43876 | static uint64_t ds4_engine_streaming_transient_guard_bytes(
+       |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tests/../tools/../ds4.c:45918:13: warning: unused function 'sample_build_probabilities' [-Wunused-function]
+ 45918 | static bool sample_build_probabilities(
+       |             ^~~~~~~~~~~~~~~~~~~~~~~~~~
+tests/../tools/../ds4.c:46048:12: warning: unused function 'sample_probabilities' [-Wunused-function]
+ 46048 | static int sample_probabilities(const float *probs, uint32_t n_vocab,
+       |            ^~~~~~~~~~~~~~~~~~~~
+tests/../tools/../ds4.c:46726:17: warning: unused function 'glm_graph_host_memory_bytes' [-Wunused-function]
+ 46726 | static uint64_t glm_graph_host_memory_bytes(void) {
+       |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+tests/../tools/../ds4.c:67877:12: warning: unused function 'glm_metal_compare_f32' [-Wunused-function]
+ 67877 | static int glm_metal_compare_f32(
+       |            ^~~~~~~~~~~~~~~~~~~~~
+tests/../tools/../ds4.c:67905:12: warning: unused function 'glm_metal_compare_i32_list' [-Wunused-function]
+ 67905 | static int glm_metal_compare_i32_list(
+       |            ^~~~~~~~~~~~~~~~~~~~~~~~~~
+tests/../tools/../ds4.c:70815:13: warning: unused function 'ds4_engine_configure_streaming_auto_cache' [-Wunused-function]
+ 70815 | static bool ds4_engine_configure_streaming_auto_cache(ds4_engine *e, int ctx_size) {
+       |             ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tests/../tools/../ds4.c:71046:17: warning: unused function 'ds4_glm_streaming_supported_resident_prefix_layers' [-Wunused-function]
+ 71046 | static uint32_t ds4_glm_streaming_supported_resident_prefix_layers(
+       |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tests/../tools/../ds4.c:71074:13: warning: unused function 'ds4_glm_streaming_resident_prefix_bytes' [-Wunused-function]
+ 71074 | static bool ds4_glm_streaming_resident_prefix_bytes(
+       |             ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tests/../tools/../ds4.c:71105:13: warning: unused function 'ds4_engine_configure_streaming_cache_budget' [-Wunused-function]
+ 71105 | static bool ds4_engine_configure_streaming_cache_budget(ds4_engine *e) {
+       |             ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tests/../tools/../ds4.c:71392:13: warning: unused function 'ds4_glm_streaming_runtime_decode_map_bytes' [-Wunused-function]
+ 71392 | static bool ds4_glm_streaming_runtime_decode_map_bytes(
+       |             ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tests/../tools/../ds4.c:71410:13: warning: unused function 'ds4_engine_fit_glm_streaming_budget' [-Wunused-function]
+ 71410 | static void ds4_engine_fit_glm_streaming_budget(
+       |             ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tests/../tools/../ds4.c:71601:13: warning: unused function 'ds4_engine_glm_streaming_memory_guard' [-Wunused-function]
+ 71601 | static bool ds4_engine_glm_streaming_memory_guard(
+       |             ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tests/../tools/../ds4.c:71652:13: warning: unused function 'ds4_engine_preload_pro_q4_expert_tables' [-Wunused-function]
+ 71652 | static bool ds4_engine_preload_pro_q4_expert_tables(
+       |             ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tests/../tools/../ds4.c:71745:13: warning: unused function 'model_warm_weights_sharded' [-Wunused-function]
+ 71745 | static void model_warm_weights_sharded(const ds4_model *m,
+       |             ^~~~~~~~~~~~~~~~~~~~~~~~~~
+tests/../tools/../ds4.c:73328:12: warning: unused function 'engine_install_dspark_support_cache' [-Wunused-function]
+ 73328 | static int engine_install_dspark_support_cache(ds4_engine *e);
+       |            ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tests/../tools/../ds4.c:73329:12: warning: unused function 'engine_install_gpu_placement' [-Wunused-function]
+ 73329 | static int engine_install_gpu_placement(ds4_engine *e);
+       |            ^~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tests/../tools/../ds4.c:76725:13: warning: unused function 'ds4_session_cancelled_cb' [-Wunused-function]
+ 76725 | static bool ds4_session_cancelled_cb(void *ud) {
+       |             ^~~~~~~~~~~~~~~~~~~~~~~~
+tests/../tools/../ds4.c:78233:13: warning: unused function 'ds4_session_vision_range_overlaps' [-Wunused-function]
+ 78233 | static bool ds4_session_vision_range_overlaps(
+       |             ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tests/../tools/../ds4.c:87619:12: warning: unused function 'ds4_sessions_eval_batch_cuda' [-Wunused-function]
+ 87619 | static int ds4_sessions_eval_batch_cuda(ds4_decode_item *items, int count,
+       |            ^~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tests/../tools/../ds4.c:87751:12: warning: unused function 'ds4_sessions_eval_batch_with_prefill_cuda' [-Wunused-function]
+ 87751 | static int ds4_sessions_eval_batch_with_prefill_cuda(
+       |            ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+38 warnings generated.
+cc -O3 -g -mcpu=native -Wall -Wextra -std=c99 -I. tests/test_mellum_generate_prepare.o tools/mellum_generate_io.c ds4_image.o ds4_distributed.o ds4_tp.o ds4_ssd.o ds4_layer_pack.o ds4_mellum_routes.o ds4_mellum_profile.o ds4_mellum_capture_state.o ds4_mellum_observer.o ds4_mellum_stream.o -lm -pthread -o tests/test_mellum_generate_prepare
+./tests/test_mellum_generate_prepare
+inspect-only native template preparation: PASS (sparse fixture only, /tmp/mellum-gen-prepare-zM0Iqj)
+./tests/test_mellum_config
+ok   variant: mellum is its own variant in the QWEN4_EXP family
+ok   good key set: shape, sliding pattern, predicates, stale state reset, binding
+ok   qwen4exp predicates unchanged
+ok   accepted: the real key set
+ok   refused: pattern with one entry flipped     names mellum.attention.sliding_window_pattern
+ok   refused: pattern of length 27               names mellum.attention.sliding_window_pattern
+ok   refused: pattern of length 29               names mellum.attention.sliding_window_pattern
+ok   refused: no pattern                         names mellum.attention.sliding_window_pattern
+ok   refused: rope.scaling.type not yarn         names mellum.rope.scaling.type
+ok   refused: no rope.freq_base_swa              names mellum.rope.freq_base_swa
+ok   refused: expert_count 128                   names mellum.expert_count
+ok   refused: expert_used_count 10               names mellum.expert_used_count
+ok   refused: key_length 256                     names mellum.attention.key_length
+ok   refused: head_count 16                      names mellum.attention.head_count=32
+ok   refused: head_count_kv 8                    names mellum.attention.head_count_kv=4
+ok   refused: embedding_length 2336              names mellum.embedding_length: must be a multiple of 128
+ok   refused: sliding_window 512                 names mellum.attention.sliding_window=1024
+ok   refused: yarn factor 8                      names mellum.rope.scaling.factor
+ok   refused: yarn_attn_factor 1.0               names mellum.rope.scaling.yarn_attn_factor
+ok   refused: original context 4096              names mellum.rope.scaling.original_context_length
+ok   refused: a shared-expert tensor present     names ffn_gate_inp_shexp
+ok   refused: ffn_down_exps not Q8_0             names ffn_down_exps
+ok   refused: ffn_up_exps not Q8_0               names ffn_up_exps
+ok   accepted: all experts MXFP4
+ok   refused: one layer MXFP4, the rest Q8_0     names blk.2.ffn_gate_exps
+ok   refused: MXFP4 down beside Q8_0 gate/up     names blk.2.ffn_down_exps
+ok   refused: no output_norm                     names output_norm.weight
+ok   refused: no attn_q_norm in layer 5          names blk.5.attn_q_norm.weight
+ok   refused: attn_q of the wrong width          names blk.5.attn_q.weight
+ok   open: CPU backend refused, naming Mellum
+ok   open: CUDA backend refused, naming Mellum
+ok   open: inspect-only open succeeds
+ok   open: steering refused for Mellum by name; the same open without it reaches the backend gate
+ok   plan == sum of the allocator's requests == the dims, at 4 contexts x chunk {1024, 1}
+ok   plan scales with cap_tokens; 28 K + 28 V + 21 tags + 22 scratch + logits
+ok   chunk 4096 (env, host argument, engine open) used as 1024 with one line; 512 and 1024 untouched
+ok   the clamp line is per engine (two opens, two lines)
+ok   full attention scratch: rows table 7 x cap x 64 B, partials min(cap, 64) rows (448 KiB and 65.0 MiB at 1,024)
+ok   memory plan: Mellum and qwen4exp both print a plan line
+ok   vocab refused: no token_type array            names tokenizer.ggml.token_type
+ok   vocab refused: token_type one entry short     names tokenizer.ggml.token_type
+ok   vocab refused: token_type stored as uint32    names tokenizer.ggml.token_type
+ok   vocab refused: <|im_start|> absent            names <|im_start|>
+ok   vocab refused: <|im_end|> absent              names <|im_end|>
+ok   Mellum (tiny vocabulary): stop classes and stops (literal sets, every id, both think modes)
+ok   Mellum: an unnamed CONTROL token (<zzz>) is protocol, the named markers are not
+ok   qwen4exp (tiny vocabulary): eos EOS, <|endoftext|> EOS-alt, <think> none, is_stop unchanged
+ok   chat (tiny vocabulary): prefix arms, no effort turn, tool turn, imported history; Flash Next keeps its prefix, tool text and imported history
+ok   sampling: Mellum (1.0, top_k 0, 1.0, 0.0); Flash Next and GLM the generic defaults
+ok   session payload and snapshot: Mellum refused by name at every entry; Flash Next unchanged
+skip real model: DS4_TEST_MELLUM_MODEL unset
+test-mellum-config: ok
+./tests/test_mellum_tokenizer
+ok   30 cases: pieces equal the reference pre-tokenizer's
+ok   invalid UTF-8 is tiled, never dropped
+skip ids: DS4_TEST_MELLUM_MODEL unset
+test-mellum-tokenizer: ok
+./tests/test_mellum_frontends_cli
+ok   sampling defaults: Mellum (1.0, 1.0, min_p 0) from the engine; Flash Next and GLM unchanged
+./tests/test_mellum_frontends_agent
+ok   agent: Mellum gets the Hermes syntax and is still refused by name; Flash Next keeps its syntax
+ok   sampling defaults: Mellum (1.0, 1.0, min_p 0) from the engine; Flash Next and GLM unchanged
+ok   agent: compaction resume reopens <think> for Mellum; Flash Next's prefix unchanged
+./tests/test_mellum_frontends_server
+ok   server: Mellum named and refused by name, Flash Next keeps its id and syntax
+ok   server sampling: Mellum's defaults from the engine in both think modes; others unchanged
+python3 -I tests/test_mellum_logits_compare.py
+..............
+----------------------------------------------------------------------
+Ran 14 tests in 0.672s
+
+OK

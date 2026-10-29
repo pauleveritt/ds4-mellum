@@ -1,0 +1,11 @@
+# Phase C background load: ten Safari tabs, one per line (tools/mellum_background_load.sh)
+https://docs.python.org/3/library/functions.html
+https://docs.python.org/3/library/stdtypes.html
+https://docs.python.org/3/library/pathlib.html
+https://docs.python.org/3/library/dataclasses.html
+https://docs.python.org/3/library/typing.html
+https://docs.python.org/3/library/unittest.html
+https://docs.python.org/3/tutorial/classes.html
+https://docs.python.org/3/howto/logging.html
+https://peps.python.org/pep-0008/
+https://en.wikipedia.org/wiki/Hash_table

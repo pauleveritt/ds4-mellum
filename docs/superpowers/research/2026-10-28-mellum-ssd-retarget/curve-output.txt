@@ -1,0 +1,16 @@
+lru              2 GiB loads/token  98.96 MB/token  651.2
+lru              3 GiB loads/token  56.54 MB/token  372.1
+lru              4 GiB loads/token  34.72 MB/token  228.4
+lru              5 GiB loads/token  21.02 MB/token  138.3
+lru              6 GiB loads/token  12.62 MB/token   83.0
+lru              7 GiB loads/token   7.13 MB/token   46.9
+lru              8 GiB loads/token   3.50 MB/token   23.0
+lru             10 GiB loads/token   0.31 MB/token    2.0
+relaxed-optimal  2 GiB loads/token  44.78 MB/token  294.7
+relaxed-optimal  3 GiB loads/token  25.10 MB/token  165.2
+relaxed-optimal  4 GiB loads/token  14.53 MB/token   95.6
+relaxed-optimal  5 GiB loads/token   8.47 MB/token   55.7
+relaxed-optimal  6 GiB loads/token   4.79 MB/token   31.5
+relaxed-optimal  7 GiB loads/token   2.50 MB/token   16.5
+relaxed-optimal  8 GiB loads/token   1.15 MB/token    7.6
+relaxed-optimal 10 GiB loads/token   0.08 MB/token    0.5

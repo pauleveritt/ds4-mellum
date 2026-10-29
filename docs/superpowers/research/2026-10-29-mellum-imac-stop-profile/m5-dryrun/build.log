@@ -1,0 +1,2 @@
+cc -O3 -ffast-math -g -mcpu=native -Wall -Wextra -std=c99 -c -o ds4.o ds4.c
+cc -O3 -ffast-math -g -mcpu=native -Wall -Wextra -std=c99 -I. -o tools/mellum_s4_measure tools/mellum_s4_measure.c ds4_help.o ds4.o ds4_image.o ds4_distributed.o ds4_tp.o ds4_ssd.o ds4_metal.o ds4_layer_pack.o ds4_engram.o ds4_mellum_routes.o ds4_mellum_profile.o ds4_mellum_capture_state.o ds4_mellum_observer.o ds4_mellum_stream.o -lm -pthread -framework Foundation -framework Metal

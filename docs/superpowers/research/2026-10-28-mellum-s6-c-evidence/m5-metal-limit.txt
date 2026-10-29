@@ -1,0 +1,9 @@
+name: Apple M5 Max
+recommendedMaxWorkingSetSize: 115448725504
+hasUnifiedMemory: 1
+maxBufferLength: 86586540032
+supportsFamily Apple7: 1
+supportsFamily Apple8: 1
+supportsFamily Apple9: 1
+supportsFamily Metal4: 1
+newMTL4CommandQueue: 1

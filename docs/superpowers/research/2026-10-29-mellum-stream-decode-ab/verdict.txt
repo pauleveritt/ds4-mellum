@@ -1,0 +1,14 @@
+A1           40.66 ms/token (24.6 t/s)  ttft 1.59 s  loads/tok 22.62  stops/tok 15.05  metal peak 4.37 GiB
+B1           25.27 ms/token (39.6 t/s)  ttft 1.59 s  loads/tok 22.62  stops/tok 15.05  metal peak 4.37 GiB
+B2           25.36 ms/token (39.4 t/s)  ttft 1.60 s  loads/tok 22.62  stops/tok 15.05  metal peak 4.37 GiB
+A2           45.59 ms/token (21.9 t/s)  ttft 1.60 s  loads/tok 22.62  stops/tok 15.05  metal peak 4.37 GiB
+A3           43.52 ms/token (23.0 t/s)  ttft 1.60 s  loads/tok 22.62  stops/tok 15.05  metal peak 4.37 GiB
+B3           25.19 ms/token (39.7 t/s)  ttft 1.60 s  loads/tok 22.62  stops/tok 15.05  metal peak 4.37 GiB
+B-resident    7.01 ms/token (142.7 t/s)  ttft 0.95 s  loads/tok 0.00  stops/tok 0.00  metal peak 7.29 GiB
+A-3g         30.84 ms/token (32.4 t/s)  ttft 1.21 s  loads/tok 14.26  stops/tok 10.55  metal peak 4.88 GiB
+B-3g         18.92 ms/token (52.8 t/s)  ttft 1.63 s  loads/tok 14.26  stops/tok 10.55  metal peak 4.88 GiB
+arm A median 43.52 ms (40.66-45.59), n=3
+arm B median 25.27 ms (25.19-25.36), n=3
+ids equal to A1: {'A1': True, 'B1': True, 'B2': True, 'A2': True, 'A3': True, 'B3': True, 'B-resident': True, 'A-3g': True, 'B-3g': True}
+rule 1 (identity, every A and B run at 2.5 GiB): PASS
+rule 2 (B <= 0.85 A): B/A = 0.581 -> PASS

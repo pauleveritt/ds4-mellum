@@ -142,6 +142,20 @@ static bool check_file(const char *prefix, unsigned pos, const char *what, uint6
     return true;
 }
 
+/* MELLUM_TRACE_SESSION_AT: the session's current logits (the last forward's last row) as <prefix>.p<pos> */
+static bool write_session_logits(ds4_session *s, const char *prefix, int pos) {
+    float *v = malloc((size_t)VOCAB * sizeof(float));
+    char path[4096];
+    snprintf(path, sizeof(path), "%s.p%d.logits.f32", prefix, pos);
+    FILE *f = NULL;
+    const bool ok = v && ds4_session_copy_logits(s, v, VOCAB) == VOCAB && (f = fopen(path, "wb")) != NULL &&
+                    fwrite(v, sizeof(float), VOCAB, f) == VOCAB;
+    if (f && fclose(f) != 0) { free(v); return false; }
+    if (!ok) fprintf(stderr, "mellum_trace: cannot write %s\n", path);
+    free(v);
+    return ok;
+}
+
 /* finite logits files at every listed position are the run's evidence the logits are real */
 static bool report_logits(const char *prefix, unsigned pos) {
     char path[4096];
@@ -209,6 +223,28 @@ int main(int argc, char **argv) {
         /* an untraced run: the prefix only names the session logits file; the engine must not see it */
         unsetenv("DS4_MELLUM_TRACE");
     }
+    /* MELLUM_TRACE_SESSION_AT (S6): in an untraced run, the session's logits after the forward that ends at each
+     * listed position, written as <prefix>.p<pos>.logits.f32 by the driver (ds4_session_copy_logits), not by the
+     * engine's trace; so a streamed run, which the engine will not trace, still gives per-position logits.
+     * Positions inside the first sync are not reachable; prefill:N with N <= the first position, or decode. */
+    const char *session_at = getenv("MELLUM_TRACE_SESSION_AT");
+    unsigned spos[MAX_AT];
+    int n_spos = 0;
+    if (session_at && session_at[0]) {
+        n_spos = parse_positions(session_at, spos);
+        if (!prefix || (at && at[0]) || n_spos <= 0) {
+            fprintf(stderr, "mellum_trace: MELLUM_TRACE_SESSION_AT needs DS4_MELLUM_TRACE=<prefix>, no "
+                            "DS4_MELLUM_TRACE_AT, and a list of at most %d positions\n", MAX_AT);
+            return 2;
+        }
+        for (int i = 0; i < n_spos; i++) {
+            if (spos[i] >= (unsigned)toks.len || spos[i] + 1u < (unsigned)n_sync) {
+                fprintf(stderr, "mellum_trace: session position %u is outside tokens %d..%d of %s\n", spos[i],
+                        n_sync - 1, toks.len - 1, argv[2]);
+                return 2;
+            }
+        }
+    }
     if (prefix && at && at[0]) {
         n_pos = parse_positions(at, pos);
         if (n_pos <= 0) {
@@ -257,6 +293,15 @@ int main(int argc, char **argv) {
         fprintf(stderr, "mellum_trace: MELLUM_TRACE_CONTEXT must be decimal and >= tokens + 64\n");
         return 2;
     }
+    uint64_t stream_bytes = 0;
+    if (mellum_trace_stream_bytes(getenv("MELLUM_TRACE_STREAM_BYTES"), &stream_bytes) != 0) {
+        fprintf(stderr, "mellum_trace: MELLUM_TRACE_STREAM_BYTES must be a decimal byte count of at least 1\n");
+        return 2;
+    }
+    if (stream_bytes) {   /* S6: streamed experts, as on an 8 GB Mac */
+        opt.ssd_streaming = true;
+        opt.ssd_streaming_cache_bytes = stream_bytes;
+    }
     ds4_engine *e = NULL;
     if (ds4_engine_open(&e, &opt) != 0) {
         fprintf(stderr, "mellum_trace: cannot open %s\n", argv[1]);
@@ -279,10 +324,14 @@ int main(int argc, char **argv) {
             fprintf(stderr, "mellum_trace: sync failed: %s\n", err);
             rc = 1;
         }
-        for (int i = n_sync; rc == 0 && i < toks.len; i++) {
-            if (ds4_session_eval(s, toks.v[i], err, sizeof(err)) != 0) {
+        for (int i = n_sync - 1; rc == 0 && i < toks.len; i++) {
+            if (i >= n_sync && ds4_session_eval(s, toks.v[i], err, sizeof(err)) != 0) {
                 fprintf(stderr, "mellum_trace: eval of token %d (position %d) failed: %s\n", toks.v[i], i, err);
                 rc = 1;
+            }
+            for (int k = 0; rc == 0 && k < n_spos; k++) {
+                if (spos[k] != (unsigned)i) continue;
+                if (!write_session_logits(s, prefix, i)) rc = 1;
             }
         }
         const double secs = now_sec() - t0;

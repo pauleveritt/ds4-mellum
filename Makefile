@@ -70,6 +70,12 @@ DS4_LINK_LIBS ?= $(CUDA_LDLIBS)
 METAL_LDLIBS := $(LDLIBS)
 endif
 
+# Native diagnostic helpers are GPU-free; unsupported builds keep linkable APIs.
+MELLUM_CAPTURE_OBJS = ds4_mellum_routes.o ds4_mellum_profile.o ds4_mellum_capture_state.o ds4_mellum_observer.o ds4_mellum_stream.o
+MELLUM_CAPTURE_HEADERS = ds4_mellum_capture.h ds4_mellum_capture_state.h ds4_mellum_observer.h ds4_mellum_profile.h ds4_mellum_routes.h
+override CORE_OBJS := $(filter-out $(MELLUM_CAPTURE_OBJS),$(CORE_OBJS)) $(MELLUM_CAPTURE_OBJS)
+override CPU_CORE_OBJS := $(filter-out $(MELLUM_CAPTURE_OBJS),$(CPU_CORE_OBJS)) $(MELLUM_CAPTURE_OBJS)
+
 .PHONY: all help clean test test-rocm test-glm53-kda-rocm test-metal-session-batch test-mxfp4-cuda test-mxfp4-rocm test-cuda-session-batch test-cuda-mixed-batch dspark-acceptance dspark-verify-depth mtp-verify-depth cpu cuda cuda-spark cuda-generic cuda-regression strix-halo rocm
 
 ifeq ($(UNAME_S),Darwin)
@@ -90,6 +96,8 @@ help:
 	@echo "  make test-mxfp4-metal  Check the MXFP4 half LUT, then run Metal MXFP4 exactness tests"
 	@echo "  make test-qwen4-kernels  Run the Qwen3.8 Metal kernel tests"
 	@echo "  make test-mellum      Run the Mellum 2.1 model-free tests"
+	@echo "  make test-mellum-routes  Run CPU-only native route capture/export tests"
+	@echo "  make test-mellum-ssd-replay  Run CPU-only synthetic expert-cache replay tests"
 	@echo "  make test-mellum-kernels  Run the Mellum 2.1 Metal kernel tests (macOS)"
 	@echo "  make test-qwen4-q2       Check exact low-bit decode and prefill tile parity"
 	@echo "  make test-qwen4-vision  Compare the Qwen3.8 vision tower with HF (set DS4_QWEN4_SNAPSHOT, DS4_QWEN4_MMPROJ, DS4_QWEN4_IMAGE)"
@@ -160,7 +168,7 @@ session-concurrency-bench: speed-bench/session_concurrency_bench
 tests/test_mxfp4_metal.o: tests/test_mxfp4_metal.c ds4_gpu.h
 	$(CC) $(CFLAGS) -I. -c -o $@ $<
 
-tests/test_mxfp4_metal: tests/test_mxfp4_metal.o ds4_metal.o ds4_image.o
+tests/test_mxfp4_metal: tests/test_mxfp4_metal.o ds4_metal.o ds4_image.o ds4_mellum_observer.o ds4_mellum_profile.o
 	$(CC) $(CFLAGS) -o $@ $^ $(METAL_LDLIBS)
 
 check-mxfp4-half-lut:
@@ -748,7 +756,7 @@ test-qwen4-cuda: tests/test_qwen4_cuda
 	./tests/test_qwen4_cuda
 endif
 
-ds4.o: ds4.c ds4.h ds4_mellum_unicode.inc ds4_ssd.h ds4_distributed.h ds4_gpu.h ds4_gpu_copy.h ds4_gpu_tp.h ds4_deepseek41_gpu.h ds4_deepseek41_dspark.h ds4_linux_memory.h ds4_engram.h
+ds4.o: ds4.c ds4.h ds4_mellum_capture.h ds4_mellum_unicode.inc ds4_ssd.h ds4_distributed.h ds4_gpu.h ds4_gpu_copy.h ds4_gpu_tp.h ds4_deepseek41_gpu.h ds4_deepseek41_dspark.h ds4_linux_memory.h ds4_engram.h
 	$(CC) $(CFLAGS) -c -o $@ ds4.c
 
 ds4_image.o: ds4_image.c ds4_image.h third_party/iris/jpeg.h third_party/iris/png.h
@@ -814,7 +822,7 @@ rax.o: rax.c rax.h rax_malloc.h
 linenoise.o: linenoise.c linenoise.h
 	$(CC) $(CFLAGS) -c -o $@ linenoise.c
 
-ds4_cpu.o: ds4.c ds4.h ds4_mellum_unicode.inc ds4_ssd.h ds4_distributed.h ds4_gpu.h ds4_gpu_tp.h
+ds4_cpu.o: ds4.c ds4.h ds4_mellum_capture.h ds4_mellum_unicode.inc ds4_ssd.h ds4_distributed.h ds4_gpu.h ds4_gpu_tp.h
 	$(CC) $(CFLAGS) -Wno-unused-function -DDS4_NO_GPU -c -o $@ ds4.c
 
 ds4_cli_cpu.o: ds4_cli.c ds4.h ds4_ssd.h ds4_distributed.h ds4_help.h ds4_prompt_prefix.h linenoise.h
@@ -835,7 +843,7 @@ ds4_eval_cpu.o: ds4_eval.c ds4_eval_cases.h ds4.h ds4_ssd.h ds4_distributed.h ds
 ds4_agent_cpu.o: ds4_agent.c ds4.h ds4_json.h ds4_ssd.h ds4_distributed.h ds4_help.h ds4_prompt_prefix.h ds4_kvstore.h ds4_web.h linenoise.h
 	$(CC) $(CFLAGS) -DDS4_NO_GPU -c -o $@ ds4_agent.c
 
-ds4_metal.o: ds4_metal.m ds4.h ds4_gpu.h ds4_gpu_tp.h ds4_deepseek41_gpu.h ds4_image.h $(METAL_SRCS)
+ds4_metal.o: ds4_metal.m ds4_mellum_observer.h ds4.h ds4_gpu.h ds4_gpu_tp.h ds4_deepseek41_gpu.h ds4_image.h $(METAL_SRCS)
 	$(CC) $(OBJCFLAGS) -c -o $@ ds4_metal.m
 
 tests/test_glm53_kda.o: tests/test_glm53_kda.c ds4_gpu.h
@@ -874,7 +882,7 @@ tests/test_image_decode: tests/test_image_decode.o ds4_image.o
 	$(CC) $(CFLAGS) -o $@ $^ -lm
 
 ifeq ($(UNAME_S),Darwin)
-$(GLM53_KDA_TEST): tests/test_glm53_kda.o ds4_metal.o ds4_image.o
+$(GLM53_KDA_TEST): tests/test_glm53_kda.o ds4_metal.o ds4_image.o ds4_mellum_observer.o ds4_mellum_profile.o
 	$(CC) $(CFLAGS) -o $@ $^ $(METAL_LDLIBS)
 else
 $(GLM53_KDA_TEST): tests/test_glm53_kda.o ds4_cuda.o ds4_image.o $(MMQ_OBJS)
@@ -889,14 +897,14 @@ ifeq ($(UNAME_S),Darwin)
 tests/test_qwen4_kernels.o: tests/test_qwen4_kernels.c ds4_gpu.h ds4.h
 	$(CC) $(CFLAGS) -I. -c -o $@ tests/test_qwen4_kernels.c
 
-$(QWEN4_KERNEL_TEST): tests/test_qwen4_kernels.o ds4_metal.o ds4_image.o
+$(QWEN4_KERNEL_TEST): tests/test_qwen4_kernels.o ds4_metal.o ds4_image.o ds4_mellum_observer.o ds4_mellum_profile.o
 	$(CC) $(CFLAGS) -o $@ $^ $(METAL_LDLIBS)
 
 # Mellum's model-free Metal kernel tests: no model, no session.
 tests/test_mellum_kernels.o: tests/test_mellum_kernels.c tests/mellum_moe_ref.inc ds4_gpu.h ds4.h
 	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -I. -c -o $@ tests/test_mellum_kernels.c
 
-$(MELLUM_KERNEL_TEST): tests/test_mellum_kernels.o ds4_metal.o ds4_image.o
+$(MELLUM_KERNEL_TEST): tests/test_mellum_kernels.o ds4_metal.o ds4_image.o ds4_mellum_observer.o ds4_mellum_profile.o
 	$(CC) $(CFLAGS) -o $@ $^ $(METAL_LDLIBS)
 
 .PHONY: test-mellum-kernels
@@ -987,7 +995,7 @@ tests/test_glm_attention.o: tests/test_glm_attention.c ds4.h ds4_gpu.h ds4_linux
 	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -I. -c -o $@ $<
 
 ifeq ($(UNAME_S),Darwin)
-tests/test_glm_attention: tests/test_glm_attention.o ds4_metal.o ds4_image.o
+tests/test_glm_attention: tests/test_glm_attention.o ds4_metal.o ds4_image.o ds4_mellum_observer.o ds4_mellum_profile.o
 	$(CC) $(CFLAGS) -o $@ $^ $(METAL_LDLIBS)
 else
 tests/test_glm_attention: tests/test_glm_attention.o ds4_cuda.o ds4_image.o $(MMQ_OBJS)
@@ -1077,9 +1085,26 @@ tests/test_mellum_frontends_server.o: tests/test_mellum_frontends.c ds4.c ds4_se
 tests/test_mellum_frontends_cli tests/test_mellum_frontends_agent tests/test_mellum_frontends_server: %: %.o $(MELLUM_FRONTEND_OBJS)
 	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -o $@ $^ $(LDLIBS)
 
+tests/test_mellum_routes: tests/test_mellum_routes.c ds4_mellum_routes.c ds4_mellum_routes.h
+	$(CC) $(QUALITY_CFLAGS) -I. -o $@ tests/test_mellum_routes.c ds4_mellum_routes.c
+
+.PHONY: test-mellum-routes-c
+test-mellum-routes-c: tests/test_mellum_routes
+	./tests/test_mellum_routes
+
+.PHONY: test-mellum-routes
+test-mellum-routes: test-mellum-routes-c
+	python3 -I tests/test_mellum_routes_to_trace.py
+
+.PHONY: test-mellum-ssd-replay
+test-mellum-ssd-replay:
+	python3 -I tests/test_mellum_ssd_replay.py
+
 .PHONY: test-mellum
 test-mellum: tests/test_mellum_config tests/test_mellum_tokenizer tests/test_mellum_frontends_cli \
-		tests/test_mellum_frontends_agent tests/test_mellum_frontends_server
+		tests/test_mellum_frontends_agent tests/test_mellum_frontends_server test-mellum-ssd-replay test-mellum-routes \
+		test-mellum-profile test-mellum-capture-state test-mellum-capture-api test-mellum-observer test-mellum-capture-build \
+		test-mellum-capture-receipt test-mellum-capture-publish
 	./tests/test_mellum_config
 	./tests/test_mellum_tokenizer
 	./tests/test_mellum_frontends_cli
@@ -1325,6 +1350,8 @@ test-cuda-mixed-batch: tests/test_cuda_mixed_batch
 	DS4_TEST_MODEL="$(DS4_TEST_MODEL)" ./tests/test_cuda_mixed_batch
 endif
 
+tools/mellum_s4_measure: tools/mellum_s4_measure.c ds4.h ds4_help.o $(CORE_OBJS)
+	$(CC) $(CFLAGS) -I. -o $@ tools/mellum_s4_measure.c ds4_help.o $(CORE_OBJS) $(METAL_LDLIBS)
 ds4_test: ds4_test.o ds4_help.o ds4_kvstore.o rax.o $(CORE_OBJS)
 ifeq ($(UNAME_S),Darwin)
 	$(CC) $(CFLAGS) -o $@ ds4_test.o ds4_help.o ds4_kvstore.o rax.o $(CORE_OBJS) $(METAL_LDLIBS)
@@ -1497,3 +1524,327 @@ gguf-tools/quality-testing/score_official_verify.o: gguf-tools/quality-testing/s
 
 gguf-tools/quality-testing/score_official_verify: gguf-tools/quality-testing/score_official_verify.o ds4_verify_test_hooks.o $(filter-out ds4.o,$(CORE_OBJS)) rax.o ds4_gpu_args.o
 	$(if $(filter Darwin,$(UNAME_S)),$(CC) $(CFLAGS),$(DS4_LINK)) -o $@ $^ $(if $(filter Darwin,$(UNAME_S)),$(METAL_LDLIBS),$(DS4_LINK_LIBS))
+
+# Isolated GPU route proof: engine hooks are compiled only into this test.
+tests/mellum_routes_gpu.o: tests/mellum_routes_gpu.c tests/mellum_trace.c tests/mellum_trace_context.h tests/mellum_capture_receipt.h ds4.c ds4.h ds4_gpu.h ds4_mellum_routes.h
+	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -I. -c -o $@ $<
+
+tests/mellum_routes_gpu: tests/mellum_routes_gpu.o $(filter-out ds4.o,$(CORE_OBJS))
+	$(CC) $(CFLAGS) -I. -o $@ $^ $(METAL_LDLIBS)
+
+.PHONY: test-mellum-routes-gpu
+test-mellum-routes-gpu: tests/mellum_routes_gpu
+	./tests/test_mellum_routes_gpu.sh
+
+# Allocation faults at C/Metal API boundaries, not physical driver OOM.
+ifeq ($(UNAME_S),Darwin)
+tests/test_metal_tensor_lifetime.o: tests/test_metal_tensor_lifetime.m ds4_gpu.h
+	$(CC) $(OBJCFLAGS) -I. -c -o $@ $<
+
+tests/test_metal_tensor_lifetime: tests/test_metal_tensor_lifetime.o $(CORE_OBJS)
+	$(CC) $(CFLAGS) -o $@ $^ $(METAL_LDLIBS)
+
+.PHONY: test-metal-tensor-lifetime
+test-metal-tensor-lifetime: tests/test_metal_tensor_lifetime
+	./tests/test_metal_tensor_lifetime
+
+tests/mellum_capture_failures_gpu.o: tests/mellum_capture_failures_gpu.c ds4.c ds4.h ds4_gpu.h $(MELLUM_CAPTURE_HEADERS) ds4_mellum_unicode.inc ds4_ssd.h ds4_distributed.h ds4_gpu_copy.h ds4_gpu_tp.h ds4_deepseek41_gpu.h ds4_deepseek41_dspark.h ds4_linux_memory.h ds4_engram.h
+	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -I. -c -o $@ $<
+
+tests/mellum_capture_failures_gpu: tests/mellum_capture_failures_gpu.o $(filter-out ds4.o,$(CORE_OBJS))
+	$(CC) $(CFLAGS) -I. -o $@ $^ $(METAL_LDLIBS)
+
+.PHONY: test-mellum-capture-failures-gpu
+test-mellum-capture-failures-gpu: tests/mellum_capture_failures_gpu
+	@if [ -n "$$DS4_TEST_MELLUM_MODEL" ]; then \
+		./tests/mellum_capture_failures_gpu "$$DS4_TEST_MELLUM_MODEL"; \
+	else echo 'SKIP Mellum live capture failures: set DS4_TEST_MELLUM_MODEL'; fi
+else
+.PHONY: test-metal-tensor-lifetime
+test-metal-tensor-lifetime:
+	@echo 'SKIP Metal tensor lifetime: macOS Metal required'
+
+.PHONY: test-mellum-capture-failures-gpu
+test-mellum-capture-failures-gpu:
+	@echo 'SKIP Mellum live capture failures: macOS Metal required'
+endif
+
+# GPU-free recorder metadata core, explicitly C99.
+tests/test_mellum_profile: tests/test_mellum_profile.c ds4_mellum_profile.c ds4_mellum_profile.h
+	$(CC) $(filter-out -std=%,$(QUALITY_CFLAGS)) -std=c99 -I. -o $@ tests/test_mellum_profile.c ds4_mellum_profile.c
+
+.PHONY: test-mellum-profile
+test-mellum-profile: tests/test_mellum_profile
+	./tests/test_mellum_profile
+
+tests/test_mellum_capture_state: tests/test_mellum_capture_state.c ds4_mellum_capture_state.c ds4_mellum_capture_state.h ds4_mellum_profile.c ds4_mellum_profile.h ds4_mellum_routes.c ds4_mellum_routes.h
+	$(CC) $(filter-out -std=%,$(QUALITY_CFLAGS)) -std=c99 -I. -o $@ tests/test_mellum_capture_state.c ds4_mellum_capture_state.c ds4_mellum_profile.c ds4_mellum_routes.c
+
+.PHONY: test-mellum-capture-state
+test-mellum-capture-state: tests/test_mellum_capture_state
+	./tests/test_mellum_capture_state
+	python3 -I tests/test_mellum_capture_state_export.py
+
+# Link the public unsupported-platform contract against the actual CPU engine.
+tests/test_mellum_capture_api: tests/test_mellum_capture_api.c ds4.c $(MELLUM_CAPTURE_HEADERS) $(filter-out ds4_cpu.o,$(CPU_CORE_OBJS))
+	$(CC) $(filter-out -std=% -ffast-math,$(CFLAGS)) -std=c99 -Wno-unused-function -DDS4_NO_GPU -I. -o $@ tests/test_mellum_capture_api.c $(filter-out ds4_cpu.o,$(CPU_CORE_OBJS)) $(LDLIBS)
+
+.PHONY: test-mellum-capture-api
+test-mellum-capture-api: tests/test_mellum_capture_api
+	./tests/test_mellum_capture_api
+
+# Bookkeeping only; supplied events do not prove actual Metal observation.
+tests/test_mellum_observer: ds4_mellum_kernels.inc tests/test_mellum_observer.c ds4_mellum_observer.c ds4_mellum_observer.h ds4_mellum_profile.c ds4_mellum_profile.h
+	$(CC) $(filter-out -std=%,$(QUALITY_CFLAGS)) -std=c99 -I. -o $@ tests/test_mellum_observer.c ds4_mellum_observer.c ds4_mellum_profile.c
+
+.PHONY: test-mellum-observer
+test-mellum-observer: tests/test_mellum_observer
+	./tests/test_mellum_observer
+
+ds4_mellum_routes.o: ds4_mellum_routes.c ds4_mellum_routes.h
+ds4_mellum_profile.o: ds4_mellum_profile.c ds4_mellum_profile.h
+ds4_mellum_capture_state.o: ds4_mellum_capture_state.c $(MELLUM_CAPTURE_HEADERS)
+ds4_mellum_observer.o: ds4_mellum_observer.c ds4_mellum_observer.h ds4_mellum_profile.h ds4_mellum_kernels.inc
+ds4.o ds4_cpu.o tests/mellum_routes_gpu.o: $(MELLUM_CAPTURE_HEADERS)
+
+
+.PHONY: test-mellum-capture-build
+test-mellum-capture-build:
+	python3 -I tests/test_mellum_capture_build.py
+
+tests/test_mellum_capture_receipt: tests/test_mellum_capture_receipt.c tests/mellum_capture_receipt.h
+	$(CC) $(filter-out -std=%,$(QUALITY_CFLAGS)) -std=c99 -I. -o $@ $<
+
+.PHONY: test-mellum-capture-receipt
+test-mellum-capture-receipt: tests/test_mellum_capture_receipt
+	./tests/test_mellum_capture_receipt
+
+.PHONY: test-mellum-capture-publish
+test-mellum-capture-publish:
+	python3 -I tests/test_mellum_capture_publish.py
+
+.PHONY: test-mellum-workload-source
+test-mellum-workload-source:
+	python3 -I tests/test_mellum_artifact.py
+	python3 -I tests/test_mellum_workload_bundle.py
+
+test-mellum: test-mellum-workload-source
+
+MELLUM_READ_CFLAGS = -std=c99 -O2 -D_POSIX_C_SOURCE=200809L -D_DARWIN_C_SOURCE -Wall -Wextra -Werror -pthread
+
+tests/test_mellum_read_plan: tests/test_mellum_read_plan.c tools/mellum_read_plan.c tools/mellum_read.h tests/mellum_read_faults.h
+	$(CC) $(MELLUM_READ_CFLAGS) -include tests/mellum_read_faults.h tests/test_mellum_read_plan.c tools/mellum_read_plan.c -o $@
+
+.PHONY: test-mellum-read-plan
+test-mellum-read-plan: tests/test_mellum_read_plan
+	./tests/test_mellum_read_plan
+
+clean-mellum-read:
+	rm -f tests/test_mellum_read_plan
+clean: clean-mellum-read
+
+tests/test_mellum_read_io: tests/test_mellum_read_io.c tools/mellum_read_io.c tools/mellum_read.h tests/mellum_read_io_faults.h
+	$(CC) $(MELLUM_READ_CFLAGS) -include tests/mellum_read_io_faults.h tests/test_mellum_read_io.c tools/mellum_read_io.c -o $@
+
+.PHONY: test-mellum-read-io
+test-mellum-read-io: tests/test_mellum_read_io
+	./tests/test_mellum_read_io
+
+.PHONY: clean-mellum-read-io
+clean-mellum-read-io:
+	rm -f tests/test_mellum_read_io
+clean: clean-mellum-read-io
+
+tests/test_mellum_read_run: tests/test_mellum_read_run.c tools/mellum_read_run.c tools/mellum_read_io.c tools/mellum_read.h tests/mellum_read_run_faults.h
+	$(CC) $(MELLUM_READ_CFLAGS) -include tests/mellum_read_run_faults.h tests/test_mellum_read_run.c tools/mellum_read_run.c tools/mellum_read_io.c -o $@
+
+.PHONY: test-mellum-read-run
+test-mellum-read-run: tests/test_mellum_read_run
+	./tests/test_mellum_read_run
+
+.PHONY: clean-mellum-read-run
+clean-mellum-read-run:
+	rm -f tests/test_mellum_read_run tools/mellum_read_bench
+clean: clean-mellum-read-run
+
+MELLUM_READ_SOURCES = tools/mellum_read_bench.c tools/mellum_read_plan.c tools/mellum_read_io.c tools/mellum_read_run.c tools/mellum_read_gate.c
+
+tools/mellum_read_bench: $(MELLUM_READ_SOURCES) tools/mellum_read.h
+	$(CC) $(MELLUM_READ_CFLAGS) $(MELLUM_READ_SOURCES) -o $@
+
+tests/mellum_read_bench_fault: $(MELLUM_READ_SOURCES) tools/mellum_read.h tests/mellum_read_bench_faults.h tests/mellum_read_bench_faults.c
+	$(CC) $(MELLUM_READ_CFLAGS) -include tests/mellum_read_bench_faults.h $(MELLUM_READ_SOURCES) tests/mellum_read_bench_faults.c -o $@
+
+.PHONY: test-mellum-read-bench
+test-mellum-read-bench: tools/mellum_read_bench tests/mellum_read_bench_fault
+	python3 -I tests/test_mellum_read_bench.py
+
+.PHONY: clean-mellum-read-bench
+clean-mellum-read-bench:
+	rm -f tests/mellum_read_bench_fault
+clean: clean-mellum-read-bench
+
+.PHONY: test-mellum-storage
+test-mellum-storage: test-mellum-read-plan test-mellum-read-io test-mellum-read-run test-mellum-read-bench
+	python3 -I tests/test_mellum_gguf_reader.py
+	python3 -I tests/test_mellum_expert_index.py
+	python3 -I tests/test_mellum_expert_pack.py
+	python3 -I tests/test_mellum_read_plan.py
+	python3 -I tests/test_mellum_read_batch.py
+
+test-mellum: test-mellum-storage
+
+.PHONY: test-mellum-read-gate
+tests/test_mellum_read_gate: tests/test_mellum_read_gate.c tools/mellum_read_gate.c tools/mellum_read.h tests/mellum_read_gate_faults.h
+	$(CC) $(MELLUM_READ_CFLAGS) -include tests/mellum_read_gate_faults.h tests/test_mellum_read_gate.c tools/mellum_read_gate.c -o $@
+test-mellum-read-gate: tests/test_mellum_read_gate
+	./tests/test_mellum_read_gate
+clean-mellum-read-gate:
+	rm -f tests/test_mellum_read_gate
+clean: clean-mellum-read-gate
+
+.PHONY: test-mellum-device-observation
+test-mellum-device-observation: test-mellum-read-gate tools/mellum_read_bench
+	python3 -I tests/test_mellum_read_observed.py
+	python3 -I tests/test_mellum_device_observer.py
+	python3 -I tests/test_mellum_device_classify.py
+	python3 -I tests/test_mellum_observe_manifest.py
+	python3 -I tests/test_mellum_observe_process.py
+	python3 -I tests/test_mellum_observe_batch.py
+test-mellum-storage: test-mellum-device-observation
+
+MELLUM_STAGE_SOURCES = tools/mellum_stage_bench.c tools/mellum_stage_io.c tools/mellum_read_plan.c tools/mellum_read_io.c
+tools/mellum_stage_bench: $(MELLUM_STAGE_SOURCES) tools/mellum_stage.h tools/mellum_read.h
+	$(CC) $(MELLUM_READ_CFLAGS) $(MELLUM_STAGE_SOURCES) -o $@
+tests/test_mellum_stage: tests/test_mellum_stage.c tools/mellum_stage_io.c tools/mellum_stage.h tools/mellum_read_io.c
+	$(CC) $(MELLUM_READ_CFLAGS) tests/test_mellum_stage.c tools/mellum_stage_io.c tools/mellum_read_io.c -o $@
+tests/mellum_stage_fault: $(MELLUM_STAGE_SOURCES) tests/mellum_stage_faults.h tests/mellum_stage_faults.c
+	$(CC) $(MELLUM_READ_CFLAGS) -include tests/mellum_stage_faults.h $(MELLUM_STAGE_SOURCES) tests/mellum_stage_faults.c -o $@
+.PHONY: test-mellum-stage clean-mellum-stage
+test-mellum-stage: tests/test_mellum_stage tools/mellum_stage_bench tests/mellum_stage_fault
+	./tests/test_mellum_stage
+	python3 -I tests/test_mellum_stage.py
+clean-mellum-stage:
+	rm -f tests/test_mellum_stage tests/mellum_stage_fault tools/mellum_stage_bench
+clean: clean-mellum-stage
+
+.PHONY: test-mellum-service
+test-mellum-service: test-mellum-stage tools/mellum_read_bench
+	python3 -I tests/test_mellum_service_plan.py
+	python3 -I tests/test_mellum_service_verify.py
+	python3 -I tests/test_mellum_service_run.py
+test-mellum-storage: test-mellum-service
+
+tests/test_mellum_stream: tests/test_mellum_stream.c ds4_mellum_stream.c ds4_mellum_stream.h
+	$(CC) -std=c99 -O2 -Wall -Wextra -Werror -I. tests/test_mellum_stream.c ds4_mellum_stream.c -o $@
+.PHONY: test-mellum-stream clean-mellum-stream
+test-mellum-stream: tests/test_mellum_stream
+	./tests/test_mellum_stream
+test-mellum: test-mellum-stream
+# S6: the double reference's MXFP4 experts against hand blocks and the engine's CPU dot; no GPU, no model
+tests/test_mellum_moe_ref.o: tests/test_mellum_moe_ref.c tests/mellum_moe_ref.inc ds4.c ds4.h
+	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -Wno-unused-function -DDS4_NO_GPU -I. -c -o $@ $<
+tests/test_mellum_moe_ref: tests/test_mellum_moe_ref.o $(filter-out ds4_cpu.o,$(CPU_CORE_OBJS))
+	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -o $@ $^ $(LDLIBS)
+.PHONY: test-mellum-moe-ref clean-mellum-moe-ref
+test-mellum-moe-ref: tests/test_mellum_moe_ref
+	./tests/test_mellum_moe_ref
+test-mellum: test-mellum-moe-ref
+clean-mellum-moe-ref:
+	rm -f tests/test_mellum_moe_ref tests/test_mellum_moe_ref.o
+clean: clean-mellum-moe-ref
+# S6: the request replay client (phase C's Pi-shaped workload through ds4-server), tested against a fake server
+.PHONY: test-mellum-replay-request
+test-mellum-replay-request:
+	python3 -I tests/test_mellum_replay_request.py
+test-mellum: test-mellum-replay-request
+# S6: the Metal device facts that bound a streamed run (phase C, the iMac); runs nothing on the GPU
+tools/mellum_metal_limit: tools/mellum_metal_limit.m
+	$(CC) -O2 -Wall -Wextra -Werror -fobjc-arc $< -framework Metal -framework Foundation -o $@
+# S6: the trace driver's streaming setting (MELLUM_TRACE_STREAM_BYTES), CPU only
+tests/test_mellum_trace_stream: tests/test_mellum_trace_stream.c tests/mellum_trace_context.h
+	$(CC) -std=c99 -O2 -Wall -Wextra -Werror -Wno-unused-function -Itests tests/test_mellum_trace_stream.c -o $@
+.PHONY: test-mellum-trace-stream
+test-mellum-trace-stream: tests/test_mellum_trace_stream
+	./tests/test_mellum_trace_stream
+test-mellum: test-mellum-trace-stream
+# S6: the agreement report between two traced runs (CPU only, in test-mellum), and the llama.cpp logits driver
+# (built only on request: it links Homebrew's libllama; `make test-mellum-llama-logits` also checks its usage errors)
+LLAMA_PREFIX ?= $(shell brew --prefix llama.cpp 2>/dev/null)
+GGML_PREFIX ?= $(shell brew --prefix ggml 2>/dev/null)
+tools/mellum_llama_logits: tools/mellum_llama_logits.c
+	$(CC) -std=c11 -O2 -Wall -Wextra -Werror -I$(LLAMA_PREFIX)/include -I$(GGML_PREFIX)/include $< \
+		-L$(LLAMA_PREFIX)/lib -Wl,-rpath,$(LLAMA_PREFIX)/lib -lllama -o $@
+.PHONY: test-mellum-logits-agree test-mellum-llama-logits
+test-mellum-logits-agree:
+	python3 -I tests/test_mellum_logits_agree.py
+test-mellum: test-mellum-logits-agree
+test-mellum-llama-logits: tools/mellum_llama_logits test-mellum-logits-agree
+# S4 measurement driver: built here, run only with the model (tests/test_mellum_s4_driver.py)
+test-mellum: tools/mellum_s4_measure
+.PHONY: test-mellum-s4-measure
+test-mellum-s4-measure:
+	python3 -I tests/test_mellum_s4_measure.py
+test-mellum: test-mellum-s4-measure
+clean-mellum-stream:
+	rm -f tests/test_mellum_stream
+clean: clean-mellum-stream
+
+MELLUM_GENERATE_CFLAGS = -std=c99 -O2 -D_POSIX_C_SOURCE=200809L -D_DARWIN_C_SOURCE -Wall -Wextra -Werror
+tests/test_mellum_generate_io: tests/test_mellum_generate_io.c tools/mellum_generate_io.c tools/mellum_generate_io.h
+	$(CC) $(MELLUM_GENERATE_CFLAGS) tests/test_mellum_generate_io.c tools/mellum_generate_io.c -o $@
+.PHONY: test-mellum-generated-inputs
+test-mellum-generated-inputs: tests/test_mellum_generate_io
+	./tests/test_mellum_generate_io
+	python3 -I tests/test_mellum_generated_inputs.py
+clean-mellum-generated-inputs:
+	rm -f tests/test_mellum_generate_io
+clean: clean-mellum-generated-inputs
+
+MELLUM_GENERATE_SOURCES = tools/mellum_generate.c tools/mellum_generate_driver.c tools/mellum_generate_loop.c tools/mellum_generate_io.c
+tools/mellum_generate_inspect.o: tools/mellum_generate_inspect.c ds4.c ds4.h tools/mellum_generate_driver.h
+	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -DDS4_NO_GPU -I. -c $< -o $@
+tools/mellum_generate_cpu: tools/mellum_generate.c tools/mellum_generate_io.c tools/mellum_generate_inspect.o $(filter-out ds4_cpu.o,$(CPU_CORE_OBJS))
+	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -DDS4_NO_GPU -I. tools/mellum_generate.c tools/mellum_generate_io.c tools/mellum_generate_inspect.o $(filter-out ds4_cpu.o,$(CPU_CORE_OBJS)) $(LDLIBS) -o $@
+tools/mellum_generate: $(MELLUM_GENERATE_SOURCES) $(CORE_OBJS)
+	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -I. $(MELLUM_GENERATE_SOURCES) $(CORE_OBJS) $(METAL_LDLIBS) -o $@
+tests/test_mellum_generate_loop: tests/test_mellum_generate_loop.c tools/mellum_generate_loop.c tools/mellum_generate_loop.h
+	$(CC) $(MELLUM_GENERATE_CFLAGS) tests/test_mellum_generate_loop.c tools/mellum_generate_loop.c -o $@
+.PHONY: test-mellum-generated-native clean-mellum-generated-native
+test-mellum-generated-native: test-mellum-generated-inputs tests/test_mellum_generate_loop tools/mellum_generate_cpu
+	./tests/test_mellum_generate_loop
+clean-mellum-generated-native:
+	rm -f tests/test_mellum_generate_loop tools/mellum_generate_cpu tools/mellum_generate
+clean: clean-mellum-generated-native
+test-mellum: test-mellum-generated-native
+
+.PHONY: test-mellum-generated-publish
+test-mellum-generated-publish:
+	python3 -I tests/test_mellum_generated_publish.py
+	python3 -I tests/test_mellum_generated_analysis.py
+test-mellum: test-mellum-generated-publish
+
+tests/mellum_generate_driver_fault.o: tools/mellum_generate_driver.c tests/mellum_generate_driver_fault.h
+	$(CC) $(MELLUM_GENERATE_CFLAGS) -include tests/mellum_generate_driver_fault.h -c tools/mellum_generate_driver.c -o $@
+tests/test_mellum_generate_driver: tests/test_mellum_generate_driver.c tests/mellum_generate_driver_fault.o tools/mellum_generate_loop.c tools/mellum_generate_io.c
+	$(CC) $(MELLUM_GENERATE_CFLAGS) tests/test_mellum_generate_driver.c tests/mellum_generate_driver_fault.o tools/mellum_generate_loop.c tools/mellum_generate_io.c -o $@
+.PHONY: test-mellum-generated-driver clean-mellum-generated-driver
+test-mellum-generated-driver: tests/test_mellum_generate_driver
+	./tests/test_mellum_generate_driver
+test-mellum: test-mellum-generated-driver
+clean-mellum-generated-driver:
+	rm -f tests/test_mellum_generate_driver tests/mellum_generate_driver_fault.o
+clean: clean-mellum-generated-driver
+
+
+tests/test_mellum_generate_prepare.o: tests/test_mellum_generate_prepare.c tools/mellum_generate_inspect.c tools/mellum_generate.c tools/mellum_generate_driver.h tools/mellum_generate_io.h tests/mellum_fixture.h ds4.c ds4.h
+	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -DDS4_NO_GPU -I. -c $< -o $@
+tests/test_mellum_generate_prepare: tests/test_mellum_generate_prepare.o tools/mellum_generate_io.c $(filter-out ds4_cpu.o,$(CPU_CORE_OBJS))
+	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -I. $^ $(LDLIBS) -o $@
+.PHONY: test-mellum-generated-prepare clean-mellum-generated-prepare
+test-mellum-generated-prepare: tests/test_mellum_generate_prepare
+	./tests/test_mellum_generate_prepare
+test-mellum: test-mellum-generated-prepare
+clean-mellum-generated-prepare:
+	rm -f tests/test_mellum_generate_prepare tests/test_mellum_generate_prepare.o tools/mellum_generate_inspect.o
+clean: clean-mellum-generated-prepare

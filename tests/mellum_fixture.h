@@ -19,7 +19,7 @@
 enum {
     MF_GGUF_MAGIC = 0x46554747,   /* "GGUF" */
     MF_UINT32 = 4, MF_INT32 = 5, MF_FLOAT32 = 6, MF_BOOL = 7, MF_STRING = 8, MF_ARRAY = 9,
-    MF_F32 = 0, MF_Q8_0 = 8, MF_Q4_K = 12,
+    MF_F32 = 0, MF_Q8_0 = 8, MF_Q4_K = 12, MF_MXFP4 = 39,
 };
 
 typedef enum {
@@ -40,6 +40,9 @@ typedef enum {
     MF_SHEXP_TENSOR,      /* a shared-expert router in layer 0 */
     MF_DOWN_Q4K,          /* layer 2's ffn_down_exps is Q4_K */
     MF_UP_Q4K,            /* layer 2's ffn_up_exps is Q4_K */
+    MF_EXPERTS_MXFP4,     /* all 84 routed-expert tensors are MXFP4 */
+    MF_LAYER2_MXFP4,      /* only layer 2's three routed-expert tensors are MXFP4 */
+    MF_DOWN2_MXFP4,       /* only layer 2's ffn_down_exps is MXFP4 */
     MF_NO_OUTPUT_NORM,
     MF_NO_ATTN_Q_NORM,    /* layer 5 has no attn_q_norm */
     MF_BAD_ATTN_Q_DIM,    /* layer 5's attn_q is twice as wide */
@@ -203,6 +206,7 @@ static void mf_tensors(mf_gguf *g, mf_mutation mu) {
     if (mu != MF_NO_OUTPUT_NORM) mf_tensor(g, "output_norm.weight", F32, 1, 2304, 0, 0);
     mf_tensor(g, "token_embd.weight", Q8, 2, 2304, 98304, 0);
     for (uint32_t il = 0; il < 28; il++) {
+        const uint32_t X = mu == MF_EXPERTS_MXFP4 || (mu == MF_LAYER2_MXFP4 && il == 2) ? MF_MXFP4 : Q8;
         mf_layer_tensor(g, il, "attn_k.weight", Q8, 2, 2304, 512, 0);
         mf_layer_tensor(g, il, "attn_k_norm.weight", F32, 1, 128, 0, 0);
         mf_layer_tensor(g, il, "attn_norm.weight", F32, 1, 2304, 0, 0);
@@ -210,11 +214,13 @@ static void mf_tensors(mf_gguf *g, mf_mutation mu) {
         mf_layer_tensor(g, il, "attn_q.weight", Q8, 2, 2304, mu == MF_BAD_ATTN_Q_DIM && il == 5 ? 8192 : 4096, 0);
         if (!(mu == MF_NO_ATTN_Q_NORM && il == 5)) mf_layer_tensor(g, il, "attn_q_norm.weight", F32, 1, 128, 0, 0);
         mf_layer_tensor(g, il, "attn_v.weight", Q8, 2, 2304, 512, 0);
-        mf_layer_tensor(g, il, "ffn_down_exps.weight", mu == MF_DOWN_Q4K && il == 2 ? MF_Q4_K : Q8, 3, 896, 2304, 64);
-        mf_layer_tensor(g, il, "ffn_gate_exps.weight", Q8, 3, 2304, 896, 64);
+        mf_layer_tensor(g, il, "ffn_down_exps.weight",
+                        mu == MF_DOWN_Q4K && il == 2 ? MF_Q4_K : mu == MF_DOWN2_MXFP4 && il == 2 ? MF_MXFP4 : X,
+                        3, 896, 2304, 64);
+        mf_layer_tensor(g, il, "ffn_gate_exps.weight", X, 3, 2304, 896, 64);
         mf_layer_tensor(g, il, "ffn_gate_inp.weight", F32, 2, 2304, 64, 0);
         mf_layer_tensor(g, il, "ffn_norm.weight", F32, 1, 2304, 0, 0);
-        mf_layer_tensor(g, il, "ffn_up_exps.weight", mu == MF_UP_Q4K && il == 2 ? MF_Q4_K : Q8, 3, 2304, 896, 64);
+        mf_layer_tensor(g, il, "ffn_up_exps.weight", mu == MF_UP_Q4K && il == 2 ? MF_Q4_K : X, 3, 2304, 896, 64);
         if (mu == MF_SHEXP_TENSOR && il == 0) mf_layer_tensor(g, il, "ffn_gate_inp_shexp.weight", F32, 1, 2304, 0, 0);
     }
 }

@@ -1,0 +1,2 @@
+/private/tmp/claude-501/-Users-pauleveritt-projects-pauleveritt-ds4-engine/fdfb2dba-a766-48f3-9305-44e7972db282/scratchpad/pregate/on2.stderr:screen_prefetch loaded 1782
+/private/tmp/claude-501/-Users-pauleveritt-projects-pauleveritt-ds4-engine/fdfb2dba-a766-48f3-9305-44e7972db282/scratchpad/pregate/on1.stderr:screen_prefetch loaded 1782

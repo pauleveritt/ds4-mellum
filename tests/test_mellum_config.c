@@ -330,7 +330,7 @@ static uint64_t expect_fixed(uint64_t cap) {
 
 static uint64_t sum_requests(uint32_t ctx, uint32_t cap, uint32_t *n_out) {
     mellum_req reqs[MELLUM_MAX_REQS];
-    const uint32_t n = mellum_requests(ctx, cap, reqs);
+    const uint32_t n = mellum_requests(ctx, cap, 0u, reqs);
     uint64_t total = 0;
     for (uint32_t i = 0; i < n; i++) total += reqs[i].bytes;
     if (n_out) *n_out = n;
@@ -375,7 +375,7 @@ static void check_mellum_plan_scales_with_chunk(void) {
     CHECK(s.prefill_cap == 300 && s.scratch_bytes == 300 * expect_per_row() + expect_fixed(300));
 
     mellum_req reqs[MELLUM_MAX_REQS];
-    const uint32_t n = mellum_requests(20000, 1024, reqs);
+    const uint32_t n = mellum_requests(20000, 1024, 0u, reqs);
     uint32_t k = 0, v = 0, tags = 0, scratch = 0, logits = 0, frontier = 0;
     uint64_t frontier_bytes = 0;
     uint64_t moe = 0;
@@ -520,7 +520,7 @@ static void check_mellum_attention_scratch(void) {
     CHECK(n_full == 7);
     for (size_t c = 0; c < sizeof(caps) / sizeof(caps[0]); c++) {
         mellum_req reqs[MELLUM_MAX_REQS];
-        const uint32_t n = mellum_requests(20000, caps[c], reqs);
+        const uint32_t n = mellum_requests(20000, caps[c], 0u, reqs);
         int tables = 0, parts = 0;
         for (uint32_t i = 0; i < n; i++) {
             if (reqs[i].kind != MELLUM_REQ_SCRATCH) continue;
@@ -537,7 +537,7 @@ static void check_mellum_attention_scratch(void) {
     }
     /* at the default chunk: 7 x 1,024 x 64 B = 448 KiB, and 65.0 MiB of partials */
     mellum_req reqs[MELLUM_MAX_REQS];
-    const uint32_t n = mellum_requests(20000, 1024, reqs);
+    const uint32_t n = mellum_requests(20000, 1024, 0u, reqs);
     for (uint32_t i = 0; i < n; i++) {
         if (reqs[i].kind == MELLUM_REQ_SCRATCH && reqs[i].index == MELLUM_S_ATTN_TABLE) CHECK(reqs[i].bytes == 458752ull);
         if (reqs[i].kind == MELLUM_REQ_SCRATCH && reqs[i].index == MELLUM_S_ATTN_PART) CHECK(reqs[i].bytes == 68157440ull);
@@ -1126,6 +1126,9 @@ int main(void) {
     expect_refused(MF_SHEXP_TENSOR, "ffn_gate_inp_shexp", "a shared-expert tensor present");
     expect_refused(MF_DOWN_Q4K, "ffn_down_exps", "ffn_down_exps not Q8_0");
     expect_refused(MF_UP_Q4K, "ffn_up_exps", "ffn_up_exps not Q8_0");
+    expect_accepted(MF_EXPERTS_MXFP4, "all experts MXFP4");
+    expect_refused(MF_LAYER2_MXFP4, "blk.2.ffn_gate_exps", "one layer MXFP4, the rest Q8_0");
+    expect_refused(MF_DOWN2_MXFP4, "blk.2.ffn_down_exps", "MXFP4 down beside Q8_0 gate/up");
     expect_refused(MF_NO_OUTPUT_NORM, "output_norm.weight", "no output_norm");
     expect_refused(MF_NO_ATTN_Q_NORM, "blk.5.attn_q_norm.weight", "no attn_q_norm in layer 5");
     expect_refused(MF_BAD_ATTN_Q_DIM, "blk.5.attn_q.weight", "attn_q of the wrong width");

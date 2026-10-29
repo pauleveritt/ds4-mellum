@@ -1,0 +1,10 @@
+test-mellum rc 0
+test-mellum-kernels rc 0
+mx mellum-stream-identity rc 0
+mx mellum-stream-prefill rc 0
+mx mellum-stream-faults rc 0
+mx mellum-stream-slabs rc 0
+q8 mellum-stream-identity rc 0
+q8 mellum-stream-prefill rc 0
+q8 mellum-stream-faults rc 0
+q8 mellum-stream-slabs rc 0

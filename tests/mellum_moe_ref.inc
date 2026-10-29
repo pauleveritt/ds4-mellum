@@ -1,8 +1,10 @@
 /* The double reference for Mellum 2.1's FFN, shared by the model-free kernel tests (tests/test_mellum_kernels.c) and
  * the gated real-weights test in tests/ds4_test.c: the model's router and MoE (as its Hugging Face modeling code
  * computes them) in double: softmax over all experts, top-k by probability (a tie goes to the lower index), renormalize the k, SwiGLU
- * experts, weighted sum.  F32 router, Q8_0 experts, read from the same bytes the kernels read.  Needs <math.h>,
- * <stdbool.h>, <stdint.h>, <string.h> and an arm64 compiler for __fp16 (the file is Darwin-only like its users). */
+ * experts, weighted sum.  F32 router, Q8_0 or MXFP4 experts (mref_weights.expert_type), read from the same bytes the
+ * kernels read.  Needs <assert.h>, <math.h>, <stdbool.h>, <stdint.h>, <string.h> and an arm64 compiler for __fp16
+ * (the file is Darwin-only like its users). */
+#include <assert.h>
 
 #define MREF_E 2304u
 #define MREF_NEXP 64u
@@ -14,6 +16,9 @@
 #define MREF_GATE_BYTES ((uint64_t)MREF_NEXP * MREF_FF * MREF_ROW_GATE)
 #define MREF_DOWN_BYTES ((uint64_t)MREF_NEXP * MREF_E * MREF_ROW_DOWN)
 #define MREF_ROUTER_BYTES ((uint64_t)MREF_NEXP * MREF_E * sizeof(float))
+#define MREF_MXFP4_BLOCK_BYTES 17u   /* one E8M0 scale byte, then 16 bytes of E2M1 nibbles for 32 values */
+#define MREF_TYPE_Q8_0 8u            /* GGUF tensor types */
+#define MREF_TYPE_MXFP4 39u
 
 typedef struct {
     int sel[MREF_USED];
@@ -26,6 +31,7 @@ typedef struct {
 typedef struct {
     const uint8_t *base;
     uint64_t router, gate, up, down;
+    uint32_t expert_type;      /* MREF_TYPE_Q8_0 or MREF_TYPE_MXFP4, for gate, up and down alike */
 } mref_weights;
 
 /* softmax over all logits, then top-k by probability (a tie goes to the lower index), then renormalize */
@@ -61,7 +67,30 @@ static inline double mref_q8_dot(const uint8_t *row, const double *x, uint32_t n
     return acc;
 }
 
+/* An MXFP4 block: the scale byte e is 2^(e - 127) (e == 0 gives 2^-127, as the engine's ds4_e8m0_to_f32 does);
+ * the low nibble of qs[j] is element j, the high nibble element j + 16, each an E2M1 value. */
+static inline double mref_mxfp4_dot(const uint8_t *row, const double *x, uint32_t n) {
+    static const double v[16] = { 0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0,
+                                  -0.0, -0.5, -1.0, -1.5, -2.0, -3.0, -4.0, -6.0 };
+    double acc = 0.0;
+    for (uint32_t ib = 0; ib < n / 32u; ib++) {
+        const uint8_t *b = row + (uint64_t)ib * MREF_MXFP4_BLOCK_BYTES;
+        const double *xb = x + ib * 32u;
+        double s = 0.0;
+        for (uint32_t j = 0; j < 16u; j++) s += v[b[1u + j] & 0x0fu] * xb[j] + v[b[1u + j] >> 4] * xb[j + 16u];
+        acc += ldexp(1.0, (int)b[0] - 127) * s;
+    }
+    return acc;
+}
+
+static inline double mref_expert_dot(uint32_t type, const uint8_t *row, const double *x, uint32_t n) {
+    return type == MREF_TYPE_MXFP4 ? mref_mxfp4_dot(row, x, n) : mref_q8_dot(row, x, n);
+}
+
 static inline void mref_moe_row(const mref_weights *a, const float *x, mref_t *r) {
+    assert(a->expert_type == MREF_TYPE_Q8_0 || a->expert_type == MREF_TYPE_MXFP4);
+    const uint32_t bb = a->expert_type == MREF_TYPE_MXFP4 ? MREF_MXFP4_BLOCK_BYTES : MREF_Q8_BLOCK_BYTES;
+    const uint64_t row_gate = (MREF_E / 32u) * bb, row_down = (MREF_FF / 32u) * bb;
     double xd[MREF_E], logit[MREF_NEXP], mid[MREF_FF];
     const float *rw = (const float *)(a->base + a->router);
     for (uint32_t i = 0; i < MREF_E; i++) xd[i] = x[i];
@@ -75,12 +104,13 @@ static inline void mref_moe_row(const mref_weights *a, const float *x, mref_t *r
     for (uint32_t s = 0; s < MREF_USED; s++) {
         const uint64_t e = (uint64_t)r->sel[s];
         for (uint32_t f = 0; f < MREF_FF; f++) {
-            const double g = mref_q8_dot(a->base + a->gate + (e * MREF_FF + f) * MREF_ROW_GATE, xd, MREF_E);
-            const double u = mref_q8_dot(a->base + a->up + (e * MREF_FF + f) * MREF_ROW_GATE, xd, MREF_E);
+            const double g = mref_expert_dot(a->expert_type, a->base + a->gate + (e * MREF_FF + f) * row_gate, xd, MREF_E);
+            const double u = mref_expert_dot(a->expert_type, a->base + a->up + (e * MREF_FF + f) * row_gate, xd, MREF_E);
             mid[f] = g / (1.0 + exp(-g)) * u;
         }
         for (uint32_t o = 0; o < MREF_E; o++)
-            r->out[o] += r->w[s] * mref_q8_dot(a->base + a->down + (e * MREF_E + o) * MREF_ROW_DOWN, mid, MREF_FF);
+            r->out[o] += r->w[s] * mref_expert_dot(a->expert_type, a->base + a->down + (e * MREF_E + o) * row_down,
+                                                   mid, MREF_FF);
     }
 }
 
@@ -102,19 +132,48 @@ static inline double mref_q8_dot_staged(const uint8_t *row, const double *x_half
     return acc;
 }
 
+/* MXFP4 staged the same way (metal/qwen4.metal:3566-3571 and :3703-3707): each weight as half(d * value), d the
+ * float E8M0 scale; the products with the half input are summed wider. */
+static inline double mref_mxfp4_dot_staged(const uint8_t *row, const double *x_half, uint32_t n) {
+    static const float v[16] = { 0.0f, 0.5f, 1.0f, 1.5f, 2.0f, 3.0f, 4.0f, 6.0f,
+                                 -0.0f, -0.5f, -1.0f, -1.5f, -2.0f, -3.0f, -4.0f, -6.0f };
+    double acc = 0.0;
+    for (uint32_t ib = 0; ib < n / 32u; ib++) {
+        const uint8_t *b = row + (uint64_t)ib * MREF_MXFP4_BLOCK_BYTES;
+        const float d = ldexpf(1.0f, (int)b[0] - 127);
+        const double *xb = x_half + ib * 32u;
+        for (uint32_t j = 0; j < 16u; j++) {
+            acc += (double)(__fp16)(d * v[b[1u + j] & 0x0fu]) * xb[j];
+            acc += (double)(__fp16)(d * v[b[1u + j] >> 4]) * xb[j + 16u];
+        }
+    }
+    return acc;
+}
+
+/* One expert's staged partial: part[o] = down row o . half(silu(g) * u), g and u the staged gate and up rows on the
+ * half input x_half. */
+static inline void mref_expert_staged(const mref_weights *a, uint64_t e, const double *x_half, double *part) {
+    assert(a->expert_type == MREF_TYPE_Q8_0 || a->expert_type == MREF_TYPE_MXFP4);
+    const bool mx = a->expert_type == MREF_TYPE_MXFP4;
+    const uint32_t bb = mx ? MREF_MXFP4_BLOCK_BYTES : MREF_Q8_BLOCK_BYTES;
+    const uint64_t row_gate = (MREF_E / 32u) * bb, row_down = (MREF_FF / 32u) * bb;
+    double (*dot)(const uint8_t *, const double *, uint32_t) = mx ? mref_mxfp4_dot_staged : mref_q8_dot_staged;
+    double mid[MREF_FF];
+    for (uint32_t f = 0; f < MREF_FF; f++) {
+        const double g = dot(a->base + a->gate + (e * MREF_FF + f) * row_gate, x_half, MREF_E);
+        const double u = dot(a->base + a->up + (e * MREF_FF + f) * row_gate, x_half, MREF_E);
+        mid[f] = (double)(__fp16)(float)(g / (1.0 + exp(-g)) * u);
+    }
+    for (uint32_t o = 0; o < MREF_E; o++) part[o] = dot(a->base + a->down + (e * MREF_E + o) * row_down, mid, MREF_FF);
+}
+
 static inline void mref_moe_row_staged(const mref_weights *a, const float *x, mref_t *r) {
     mref_moe_row(a, x, r);   /* the selection and its weights */
-    double xh[MREF_E], mid[MREF_FF];
+    double xh[MREF_E], part[MREF_E];
     for (uint32_t i = 0; i < MREF_E; i++) xh[i] = (double)(__fp16)x[i];
     for (uint32_t i = 0; i < MREF_E; i++) r->out[i] = 0.0;
     for (uint32_t s = 0; s < MREF_USED; s++) {
-        const uint64_t e = (uint64_t)r->sel[s];
-        for (uint32_t f = 0; f < MREF_FF; f++) {
-            const double g = mref_q8_dot_staged(a->base + a->gate + (e * MREF_FF + f) * MREF_ROW_GATE, xh, MREF_E);
-            const double u = mref_q8_dot_staged(a->base + a->up + (e * MREF_FF + f) * MREF_ROW_GATE, xh, MREF_E);
-            mid[f] = (double)(__fp16)(float)(g / (1.0 + exp(-g)) * u);
-        }
-        for (uint32_t o = 0; o < MREF_E; o++)
-            r->out[o] += r->w[s] * mref_q8_dot_staged(a->base + a->down + (e * MREF_E + o) * MREF_ROW_DOWN, mid, MREF_FF);
+        mref_expert_staged(a, (uint64_t)r->sel[s], xh, part);
+        for (uint32_t o = 0; o < MREF_E; o++) r->out[o] += r->w[s] * part[o];
     }
 }

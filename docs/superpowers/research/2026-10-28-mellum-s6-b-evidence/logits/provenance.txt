@@ -1,0 +1,7 @@
+build e930f6d4dcecfa8e781d264d020d106fe984d032
+Wed Oct 28 22:34:31 EDT 2026
+version: 0.7.0 (build 11669, commit 620d2225c)
+built with AppleClang 21.0.0.21000334 for Darwin arm64
+27.2
+ea1e4ec737bb259ac2ffe1f20d412f458fd52dd230f42dce9e944f111093c29b  /Users/pauleveritt/models/Mellum2.1-12B-A2.5B-Thinking-Q8_0.gguf
+cf09584a30423f6f80b0c9fe2f42e152520dabf08fecd1cad641ce21a7588166  /Users/pauleveritt/.cache/huggingface/hub/models--JetBrains--Mellum2.1-12B-A2.5B-Thinking-GGUF/snapshots/4159d684ffdb09ba89dc2a58feb3e75c54eef036/Mellum2.1-12B-A2.5B-Thinking-MXFP4_MOE.gguf

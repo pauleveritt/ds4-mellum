@@ -1,3 +1,21 @@
 # Preserve hosted-model continuation bytes exactly; these fixtures may contain
 # model-generated trailing whitespace that is meaningful to tokenizer scoring.
 gguf-tools/quality-testing/data/*/continuations/*.txt -diff
+
+# S6 phase B evidence: captured model output and llama.cpp logs, kept byte for byte (binding rule 5).
+docs/superpowers/research/2026-10-28-mellum-s6-b-evidence/** -whitespace
+
+# Streamed decode screen: captured profiles and the screened patches, kept byte for byte (binding rule 5).
+docs/superpowers/research/2026-10-29-mellum-stream-decode-screen/** -whitespace
+docs/superpowers/research/2026-10-29-mellum-stream-decode-ab/** -whitespace
+
+# S6 phase C: the M5 reproduction of the iMac's Python 3.9 test log, kept byte for byte (binding rule 5).
+docs/superpowers/research/2026-10-28-mellum-s6-c-evidence/py39-repro-m5/** -whitespace
+
+# S6 phase C: the iMac captures, kept byte for byte (binding rule 5).
+docs/superpowers/research/2026-10-28-mellum-s6-c-evidence/imac/** -whitespace
+
+# Stop-profile screen: captured stderr and the patch kept byte for byte (binding rule 5).
+docs/superpowers/research/2026-10-29-mellum-imac-stop-profile/m5-dryrun/** -whitespace
+docs/superpowers/research/2026-10-29-mellum-imac-stop-profile/imac/** -whitespace
+docs/superpowers/research/2026-10-29-mellum-imac-stop-profile/profile.patch -whitespace

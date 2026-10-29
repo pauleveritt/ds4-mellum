@@ -1,0 +1,182 @@
+"""CPU tests of the S4 measurement runner (tools/mellum_s4_measure.py) with fake commands: no model, GPU or
+device access."""
+import importlib.util
+import json
+from pathlib import Path
+import subprocess
+import tempfile
+import unittest
+import unittest.mock
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def load():
+    path = ROOT / 'tools/mellum_s4_measure.py'
+    assert path.exists(), 'tools/mellum_s4_measure.py missing'
+    spec = importlib.util.spec_from_file_location('mellum_s4_measure', path)
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m
+
+
+def repo(root: Path) -> Path:
+    for name, body in (('a.c', 'int a;\n'), ('b.md', '# b\n' * 50), ('docs/superpowers/research/r.md', 'secret\n'),
+                       ('ac-demo/x.md', 'eval\n'), ('c.h', 'skip\n'), ('z.c', 'int z;\n' * 40)):
+        p = root / name
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(body)
+    subprocess.run(['git', 'init', '-q', str(root)], check=True)
+    subprocess.run(['git', '-C', str(root), 'add', '.'], check=True)
+    return root
+
+
+def sparse_gguf(path: Path, kind: int, name: str = 'blk.0.ffn_gate_exps.weight'):
+    """A GGUF v3 file holding one Mellum gate-experts tensor of type `kind`, its data left sparse."""
+    import struct
+
+    def string(value):
+        raw = value.encode()
+        return struct.pack('<Q', len(raw)) + raw
+    meta = [('general.architecture', 8, string('mellum')), ('general.alignment', 4, struct.pack('<I', 32))]
+    data = b'GGUF' + struct.pack('<IQQ', 3, 1, len(meta))
+    for key, k, value in meta:
+        data += string(key) + struct.pack('<I', k) + value
+    dims = (2304, 896, 64)
+    data += string(name) + struct.pack('<I', 3) + struct.pack('<QQQ', *dims) + struct.pack('<IQ', kind, 0)
+    start = (len(data) + 31) // 32 * 32
+    row = {8: 34, 39: 17, 12: 144}[kind] * (2304 // (256 if kind == 12 else 32))
+    with open(path, 'wb') as f:
+        f.write(data.ljust(start, b'\0'))
+        f.truncate(start + row * 896 * 64)
+
+
+class Prompt(unittest.TestCase):
+    def test_deterministic_and_excludes_research_and_ac_demo(self):
+        m = load()
+        with tempfile.TemporaryDirectory() as d:
+            r = repo(Path(d))
+            a, b = m.build_prompt(r, 10_000), m.build_prompt(r, 10_000)
+            self.assertEqual(a, b)
+            self.assertEqual(a['files'], ['a.c', 'b.md', 'z.c'])
+            self.assertNotIn('secret', a['text'])
+            self.assertNotIn('eval', a['text'])
+            self.assertEqual(a['sha256'], m.hashlib.sha256(a['text'].encode()).hexdigest())
+
+    def test_budget_never_splits_a_file(self):
+        m = load()
+        with tempfile.TemporaryDirectory() as d:
+            r = repo(Path(d))
+            small = m.build_prompt(r, 300)
+            self.assertLessEqual(len(small['text'].encode()), 300)
+            for name in small['files']:
+                self.assertIn((r / name).read_text(), small['text'])
+
+
+class Copy(unittest.TestCase):
+    def test_fresh_copy_round_trip_and_exclusive(self):
+        m = load()
+        with tempfile.TemporaryDirectory() as d:
+            src, dst = Path(d) / 'm.gguf', Path(d) / 'copy.gguf'
+            src.write_bytes(bytes(range(256)) * 5000)
+            info = m.fresh_copy(src, dst, block=4096)
+            self.assertEqual(dst.read_bytes(), src.read_bytes())
+            self.assertEqual(info['bytes'], src.stat().st_size)
+            with self.assertRaises(FileExistsError):
+                m.fresh_copy(src, dst)
+
+    def test_fresh_copy_never_reads_the_copy_back(self):
+        # reading a copy back caches it (cached-reads spike): verification is separate and runs after timing
+        m = load()
+        with tempfile.TemporaryDirectory() as d:
+            src, dst = Path(d) / 'm.gguf', Path(d) / 'copy.gguf'
+            src.write_bytes(b'x' * 100_000)
+            real_open = open
+            opened = []
+
+            def watch(path, *a, **k):
+                opened.append((str(path), a[0] if a else k.get('mode', 'r')))
+                return real_open(path, *a, **k)
+
+            with unittest.mock.patch('builtins.open', watch):
+                m.fresh_copy(src, dst, block=4096)
+            self.assertFalse([o for o in opened if o[0] == str(dst) and 'r' in o[1]], opened)
+            self.assertEqual(m.verify_copy(src, dst, block=4096)['bytes'], 100_000)
+            dst.write_bytes(b'y' * 100_000)
+            with self.assertRaises(ValueError):
+                m.verify_copy(src, dst, block=4096)
+
+
+class Reads(unittest.TestCase):
+    def test_classification_threshold(self):
+        m = load()
+        self.assertEqual(m.classify_reads(1000, 990), 'device-observed')
+        self.assertEqual(m.classify_reads(1000, 985), 'cache-contaminated')
+        self.assertEqual(m.classify_reads(int(400e9) + 1, int(400e9) + 1), 'over-read-cap')
+
+
+class Regression(unittest.TestCase):
+    def test_abba_order(self):
+        m = load()
+        self.assertEqual(m.regression_order(6), list('ABBAABBAABBA'))
+
+    def test_two_percent_rule_on_medians(self):
+        m = load()
+        runs = [dict(arm='A', prefill=100.0, gen=50.0)] * 6 + [dict(arm='B', prefill=98.5, gen=49.2)] * 6
+        v = m.regression_verdict(runs)
+        self.assertTrue(v['pass'])
+        slow = runs[:6] + [dict(arm='B', prefill=97.0, gen=50.0)] * 6
+        self.assertFalse(m.regression_verdict(slow)['pass'])
+
+    def test_expert_bytes_come_from_the_model(self):
+        m = load()
+        with tempfile.TemporaryDirectory() as d:
+            for kind, want in ((8, 6_580_224), (39, 3_290_112)):
+                path = Path(d) / f'{kind}.gguf'
+                sparse_gguf(path, kind)
+                self.assertEqual(m.expert_bytes_for(path), want)
+            self.assertEqual(m.EXPERT_BYTES, 6_580_224)
+            bad = Path(d) / 'q4k.gguf'
+            sparse_gguf(bad, 12)
+            with self.assertRaisesRegex(ValueError, 'blk.0.ffn_gate_exps'):
+                m.expert_bytes_for(bad)
+
+    def test_cli_line_parse(self):
+        m = load()
+        self.assertEqual(m.parse_cli_rates('x\nds4: Mellum prefill: 504.11 t/s, generation: 138.36 t/s\n'), (504.11, 138.36))
+        with self.assertRaises(ValueError):
+            m.parse_cli_rates('no rates')
+
+
+class Runner(unittest.TestCase):
+    def test_lock_held_postpones_without_root(self):
+        m = load()
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d) / 'run'
+            with self.assertRaises(m.Busy):
+                m.run_all(root, plan={}, runner=lambda argv, **k: dict(returncode=0, stdout=b'', stderr=b''),
+                          lock_held=lambda: True)
+            self.assertFalse(root.exists())
+
+    def test_every_step_runs_once_and_raw_is_kept_even_on_failure(self):
+        m = load()
+        calls = []
+
+        def runner(argv, **k):
+            calls.append(argv)
+            return dict(returncode=1 if 'fail' in argv else 0, stdout=b'out', stderr=b'err')
+
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d) / 'run'
+            plan = dict(steps=[dict(name='one', argv=['x']), dict(name='two', argv=['fail']), dict(name='three', argv=['y'])])
+            result = m.run_all(root, plan=plan, runner=runner, lock_held=lambda: False)
+            self.assertEqual([c for c in calls], [['x'], ['fail'], ['y']])
+            self.assertEqual([s['returncode'] for s in result['steps']], [0, 1, 0])
+            for name in ('one', 'two', 'three'):
+                self.assertTrue((root / 'raw' / f'{name}.json').exists())
+            with self.assertRaises(FileExistsError):
+                m.run_all(root, plan=plan, runner=runner, lock_held=lambda: False)
+
+
+if __name__ == '__main__':
+    unittest.main()

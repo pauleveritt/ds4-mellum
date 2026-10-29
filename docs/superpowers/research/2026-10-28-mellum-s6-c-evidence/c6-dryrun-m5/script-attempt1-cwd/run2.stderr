@@ -1,0 +1,3 @@
+ds4: Metal device Apple M5 Max, 128.00 GiB RAM
+ds4: Metal source metal/flash_attn.metal not found (set DS4_METAL_FLASH_ATTN_SOURCE to override)
+ds4: metal backend unavailable; aborting startup

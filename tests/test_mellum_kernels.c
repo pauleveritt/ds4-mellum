@@ -1263,7 +1263,13 @@ typedef struct {
     /* declared and poisoned: a shared-expert input gate and gate/up/down rows; the driver must never read them */
     uint64_t sh_gate_inp, sh_gate, sh_up, sh_down;
     float x0[MREF_E];      /* the input the tie routers are built for */
+    uint32_t expert_type;  /* MREF_TYPE_Q8_0 or MREF_TYPE_MXFP4 (S6): the routed experts' type */
 } moe_arena_t;
+
+/* one routed-expert row of in values in the arena's expert type */
+static uint64_t moe_row_bytes(const moe_arena_t *a, uint32_t in) {
+    return (uint64_t)(in / 32u) * (a->expert_type == MREF_TYPE_MXFP4 ? MREF_MXFP4_BLOCK_BYTES : MREF_Q8_BLOCK_BYTES);
+}
 
 static uint64_t g_rng64 = 0x2545F4914F6CDD1Dull;
 
@@ -1299,6 +1305,17 @@ static void fill_q8(uint8_t *dst, uint64_t n_blocks) {
     }
 }
 
+/* random MXFP4 blocks (S6): scale 2^-8 .. 2^-6 (E8M0 119..121), random E2M1 nibbles, so a weight is at most
+ * 6 * 2^-6 = 0.09 and about 0.02 typically, near fill_q8's */
+static void fill_mxfp4(uint8_t *dst, uint64_t n_blocks) {
+    for (uint64_t i = 0; i < n_blocks; i++) {
+        uint8_t *b = dst + i * MREF_MXFP4_BLOCK_BYTES;
+        b[0] = (uint8_t)(119u + rng64() % 3u);
+        const uint64_t v0 = rng64(), v1 = rng64();
+        for (uint32_t j = 0; j < 8u; j++) { b[1u + j] = (uint8_t)(v0 >> (8u * j)); b[9u + j] = (uint8_t)(v1 >> (8u * j)); }
+    }
+}
+
 static void fill_router_random(float *w, float amp) {
     for (uint64_t i = 0; i < (uint64_t)MREF_NEXP * MREF_E; i++) w[i] = amp * frand();
 }
@@ -1318,7 +1335,7 @@ static ds4_gpu_mellum_moe moe_params(const moe_arena_t *a, uint64_t router_off) 
     p.n_expert = MREF_NEXP;
     p.n_used = MREF_USED;
     p.ff_dim = MREF_FF;
-    p.expert_type = 8u; /* Q8_0 */
+    p.expert_type = a->expert_type;
     p.router_offset = router_off;
     p.gate_offset = a->gate;
     p.up_offset = a->up;
@@ -1329,7 +1346,7 @@ static ds4_gpu_mellum_moe moe_params(const moe_arena_t *a, uint64_t router_off) 
 /* ---- the double reference ---- */
 
 static void ref_moe_row(const moe_arena_t *a, uint64_t router_off, const float *x, mref_t *r) {
-    const mref_weights w = { a->base, router_off, a->gate, a->up, a->down };
+    const mref_weights w = { a->base, router_off, a->gate, a->up, a->down, a->expert_type };
     mref_moe_row(&w, x, r);
 }
 
@@ -1611,7 +1628,7 @@ static void test_moe_no_shared(const moe_arena_t *a) {
     float gl = 0.0f;
     require_ok(ds4_gpu_tensor_read(sg, 0, &gl, 4), "shared gate readback");
     CHECK(isnan(gl), "control: the shared gate logit read over the poison must be NaN, got %g", (double)gl);
-    require_ok(ds4_gpu_qwen4_moe_mid_tensor(mid9, xt, sel, a->base, a->size, a->gate, a->up, 8u, MREF_NEXP, 1, MREF_USED, MREF_E, MREF_FF,
+    require_ok(ds4_gpu_qwen4_moe_mid_tensor(mid9, xt, sel, a->base, a->size, a->gate, a->up, a->expert_type, MREF_NEXP, 1, MREF_USED, MREF_E, MREF_FF,
                                             a->sh_gate, a->sh_up, 8u), "mid with a shared slot");
     float shared_mid[MREF_FF];
     require_ok(ds4_gpu_tensor_read(mid9, (uint64_t)MREF_USED * MREF_FF * 4u, shared_mid, sizeof(shared_mid)), "shared slot readback");
@@ -1648,10 +1665,10 @@ static void test_moe_refusals(const moe_arena_t *a) {
     /* Q4_0 has valid row sizes at both widths, so only the type check refuses it; Q4_K is also refused by its
      * 256-wide blocks (896 is not a multiple of 256) */
     p = good; p.expert_type = 2u;
-    CHECK(moe_call(a, &p, &r) == 0, "expert type Q4_0 is refused (Mellum's experts are Q8_0)");
+    CHECK(moe_call(a, &p, &r) == 0, "expert type Q4_0 is refused (Mellum's experts are Q8_0 or MXFP4)");
     MOE_UNTOUCHED("an expert type");
     p = good; p.expert_type = 12u;
-    CHECK(moe_call(a, &p, &r) == 0, "expert type Q4_K is refused (Mellum's experts are Q8_0)");
+    CHECK(moe_call(a, &p, &r) == 0, "expert type Q4_K is refused (Mellum's experts are Q8_0 or MXFP4)");
     MOE_UNTOUCHED("an expert type (Q4_K)");
     p = good; p.n_expert = 513u;
     CHECK(moe_call(a, &p, &r) == 0, "513 experts are refused");
@@ -1855,10 +1872,305 @@ static void test_moe_q8_tiles_mellum_only(const moe_arena_t *a) {
     free(x); free(plain); free(flash); free(tiles); free(sel);
 }
 
-static void test_moe(void) {
-    printf("Mellum MoE driver (2304 -> 64 F32 router, softmax over all, top-8, renormalized, 896-wide Q8_0 experts, no shared expert)\n");
+/* S6: the tiled expert GEMMs (moe_mm mid and down) on the arena's experts for T rows, each routed to the experts in
+ * sel; part is [T][8][2304]. */
+static void moe_tiled_part(const moe_arena_t *a, const float *x, const int32_t *sel, uint32_t T, float *part) {
+    const uint32_t K = MREF_USED;
+    ds4_gpu_tensor *xt = upload(x, (uint64_t)T * MREF_E), *st = zeroed((uint64_t)T * K * 4u);
+    ds4_gpu_tensor *lists = zeroed((uint64_t)MREF_NEXP * T * 4u), *counts = zeroed(MREF_NEXP * 4u);
+    ds4_gpu_tensor *mid = zeroed((uint64_t)T * K * MREF_FF * 4u), *pt = zeroed((uint64_t)T * K * MREF_E * 4u);
+    require_ok(ds4_gpu_tensor_write(st, 0, sel, (uint64_t)T * K * 4u), "selected upload");
+    require_ok(ds4_gpu_qwen4_moe_build_lists_tensor(lists, counts, st, T, K, MREF_NEXP, T), "build lists");
+    require_ok(ds4_gpu_qwen4_moe_mm_mid_tensor(mid, xt, lists, counts, a->base, a->size, a->gate, a->up, a->expert_type,
+                                               MREF_NEXP, T, K, K, MREF_E, MREF_FF, T), "moe_mm mid");
+    require_ok(ds4_gpu_qwen4_moe_mm_down_tensor(pt, mid, lists, counts, a->base, a->size, a->down, a->expert_type,
+                                                MREF_NEXP, T, K, K, MREF_FF, MREF_E, T), "moe_mm down");
+    require_ok(ds4_gpu_tensor_read(pt, 0, part, (uint64_t)T * K * MREF_E * 4u), "part download");
+    ds4_gpu_tensor_free(xt); ds4_gpu_tensor_free(st); ds4_gpu_tensor_free(lists); ds4_gpu_tensor_free(counts);
+    ds4_gpu_tensor_free(mid); ds4_gpu_tensor_free(pt);
+}
+
+/* The tiled path's per-slot partials against the staged double reference (half weights, half input, half SwiGLU
+ * output, wider sums), at 64 and 100 rows with eight distinct experts per row: the worst slot's max|d| / max|ref|.
+ * The inputs come from a fixed seed, so both arenas see the same rows and selections; the shared generator's state
+ * is restored after, so no other test's inputs change. */
+static double moe_tiled_staged_worst(const moe_arena_t *a) {
+    static const uint32_t Ts[] = { 64, 100, 1024 };   /* at 1,024 rows every expert spans several 64-row tiles */
+    const uint32_t K = MREF_USED, saved = g_rng;
+    g_rng = 0x5eed1234u;
+    const mref_weights w = { a->base, a->router, a->gate, a->up, a->down, a->expert_type };
+    double worst = 0.0;
+    for (size_t ti = 0; ti < sizeof(Ts) / sizeof(Ts[0]); ti++) {
+        const uint32_t T = Ts[ti];
+        float *x = rand_vec((uint64_t)T * MREF_E, 1.7f), *part = malloc((uint64_t)T * K * MREF_E * 4u);
+        int32_t *sel = malloc((uint64_t)T * K * 4u);
+        double *xh = malloc(MREF_E * sizeof(double)), *ref = malloc(MREF_E * sizeof(double));
+        require_ok(part && sel && xh && ref, "malloc");
+        for (uint32_t t = 0; t < T; t++)
+            for (uint32_t k = 0; k < K; k++) sel[t * K + k] = (int32_t)((t * 7u + k * 9u) % MREF_NEXP);
+        moe_tiled_part(a, x, sel, T, part);
+        for (uint32_t t = 0; t < T; t++) {
+            if (T > 128u && t % 64u != 0u && t != T - 1u) continue;   /* 1,024 rows: every 64th and the last */
+            for (uint32_t i = 0; i < MREF_E; i++) xh[i] = (double)(__fp16)x[(uint64_t)t * MREF_E + i];
+            for (uint32_t k = 0; k < K; k++) {
+                mref_expert_staged(&w, (uint64_t)sel[t * K + k], xh, ref);
+                const double d = max_rel(part + ((uint64_t)t * K + k) * MREF_E, ref, MREF_E);
+                if (!(d <= worst)) worst = d;
+            }
+        }
+        free(x); free(part); free(sel); free(xh); free(ref);
+    }
+    g_rng = saved;
+    return worst;
+}
+
+/* S6: MXFP4's tiled experts against the staged reference, slot by slot, within MOE_STAGED_TOL: the bound
+ * tests/ds4_test.c holds the tiled rows of the real weights to.  1e-5 (MOE_TOL) bounds the decode path's routed
+ * output; a single tiled slot is not held to it, and Q8_0's is not either.  q8_worst is Q8_0's figure on the same
+ * rows, printed as context only: it is measured at the test's Q8_0 tile level (0, the simdgroup tiles), while
+ * production Mellum Q8_0 prefill runs level 2 and MXFP4 runs the qwen4 default. */
+#define MOE_STAGED_TOL 2.5e-4
+static void test_moe_tiled_staged_reference(const moe_arena_t *a, double q8_worst) {
+    const double worst = moe_tiled_staged_worst(a);
+    CHECK(worst <= MOE_STAGED_TOL, "tiled MXFP4 experts vs the staged reference: worst slot %.3e (tol %.1e)",
+          worst, MOE_STAGED_TOL);
+    printf("  moe    tiled mid/down, T 64/100/1024, vs staged double reference: worst slot MXFP4 %.2e (tol %.1e); "
+           "context: Q8_0 at tile level 0 %.2e\n", worst, MOE_STAGED_TOL, q8_worst);
+}
+
+/* ---- S4 address-table variants: each expert in its own slot buffer, reached through a uint64 GPU-address
+ * table, must give the resident kernels' bits; a zero address reads nothing and writes nothing ---- */
+
+typedef struct { ds4_gpu_tensor *gate[MREF_NEXP], *up[MREF_NEXP], *down[MREF_NEXP], *ga, *ua, *da; } addr_slots_t;
+
+static void addr_slots_make(const moe_arena_t *a, addr_slots_t *s) {
+    const uint64_t gb = (uint64_t)MREF_FF * moe_row_bytes(a, MREF_E), db = (uint64_t)MREF_E * moe_row_bytes(a, MREF_FF);
+    uint64_t ga[MREF_NEXP], ua[MREF_NEXP], da[MREF_NEXP];
+    for (uint32_t e = 0; e < MREF_NEXP; e++) {
+        s->gate[e] = ds4_gpu_tensor_alloc(gb); s->up[e] = ds4_gpu_tensor_alloc(gb); s->down[e] = ds4_gpu_tensor_alloc(db);
+        require_ok(s->gate[e] && s->up[e] && s->down[e] &&
+                   ds4_gpu_tensor_write(s->gate[e], 0, a->base + a->gate + e * gb, gb) &&
+                   ds4_gpu_tensor_write(s->up[e], 0, a->base + a->up + e * gb, gb) &&
+                   ds4_gpu_tensor_write(s->down[e], 0, a->base + a->down + e * db, db), "slot copy");
+        ga[e] = ds4_gpu_tensor_gpu_address(s->gate[e]); ua[e] = ds4_gpu_tensor_gpu_address(s->up[e]);
+        da[e] = ds4_gpu_tensor_gpu_address(s->down[e]);
+        require_ok(ga[e] && ua[e] && da[e], "slot address");
+    }
+    s->ga = ds4_gpu_tensor_alloc(sizeof(ga)); s->ua = ds4_gpu_tensor_alloc(sizeof(ua)); s->da = ds4_gpu_tensor_alloc(sizeof(da));
+    require_ok(s->ga && s->ua && s->da && ds4_gpu_tensor_write(s->ga, 0, ga, sizeof(ga)) &&
+               ds4_gpu_tensor_write(s->ua, 0, ua, sizeof(ua)) && ds4_gpu_tensor_write(s->da, 0, da, sizeof(da)), "address tables");
+}
+
+static void addr_slots_free(addr_slots_t *s) {
+    for (uint32_t e = 0; e < MREF_NEXP; e++) {
+        ds4_gpu_tensor_free(s->gate[e]); ds4_gpu_tensor_free(s->up[e]); ds4_gpu_tensor_free(s->down[e]);
+    }
+    ds4_gpu_tensor_free(s->ga); ds4_gpu_tensor_free(s->ua); ds4_gpu_tensor_free(s->da);
+}
+
+/* eight distinct experts, in a random order */
+static void addr_pick(int32_t sel[MREF_USED]) {
+    for (uint32_t k = 0; k < MREF_USED; k++) {
+        int32_t e;
+        bool dup;
+        do {
+            e = (int32_t)((uint32_t)((frand() + 1.0f) * 32.0f) % MREF_NEXP);
+            dup = false;
+            for (uint32_t j = 0; j < k; j++) dup = dup || sel[j] == e;
+        } while (dup);
+        sel[k] = e;
+    }
+}
+
+/* S6: the four address-table entry points refuse Q4_0 (2) and Q4_K (12) experts, writing nothing; the sibling
+ * is the same call at the arena's type, which runs. */
+static void test_moe_addr_refusals(const moe_arena_t *a) {
+    enum { T = 32 };
+    const uint32_t K = MREF_USED;
+    addr_slots_t s;
+    addr_slots_make(a, &s);
+    ds4_gpu_tensor *res[2u * MREF_NEXP], *dres[MREF_NEXP];
+    for (uint32_t e = 0; e < MREF_NEXP; e++) { res[2u * e] = s.gate[e]; res[2u * e + 1u] = s.up[e]; dres[e] = s.down[e]; }
+    int32_t sel_h[T * MREF_USED];
+    for (uint32_t t = 0; t < T; t++) addr_pick(sel_h + t * K);
+    float *x = rand_vec((uint64_t)T * MREF_E, 1.7f);
+    const uint64_t mid_bytes = (uint64_t)T * K * MREF_FF * 4u, part_bytes = (uint64_t)T * K * MREF_E * 4u;
+    float *mark = malloc(part_bytes), *back = malloc(part_bytes);
+    require_ok(mark && back, "malloc");
+    for (uint64_t i = 0; i < part_bytes / 4u; i++) mark[i] = 12345.0f;
+    ds4_gpu_tensor *xt = upload(x, (uint64_t)T * MREF_E), *sel = ds4_gpu_tensor_alloc(sizeof(sel_h));
+    ds4_gpu_tensor *lists = zeroed((uint64_t)MREF_NEXP * T * 4u), *counts = zeroed(MREF_NEXP * 4u);
+    ds4_gpu_tensor *mid = ds4_gpu_tensor_alloc(mid_bytes), *part = ds4_gpu_tensor_alloc(part_bytes);
+    require_ok(sel && mid && part && ds4_gpu_tensor_write(sel, 0, sel_h, sizeof(sel_h)) &&
+               ds4_gpu_qwen4_moe_build_lists_tensor(lists, counts, sel, T, K, MREF_NEXP, T) &&
+               ds4_gpu_tensor_write(mid, 0, mark, mid_bytes) && ds4_gpu_tensor_write(part, 0, mark, part_bytes), "setup");
+    static const uint32_t bad[] = { 2u, 12u };
+    int refused = 0, calls = 0;
+    for (size_t b = 0; b < sizeof(bad) / sizeof(bad[0]); b++, calls += 4) {
+        const uint32_t ty = bad[b];
+        refused += ds4_gpu_qwen4_moe_mid_addr_tensor(mid, xt, sel, s.ga, s.ua, res, 2u * MREF_NEXP, ty, MREF_NEXP, T, K,
+                                                     MREF_E, MREF_FF) == 0;
+        refused += ds4_gpu_qwen4_moe_down_addr_tensor(part, mid, sel, s.da, dres, MREF_NEXP, ty, MREF_NEXP, T, K,
+                                                      MREF_FF, MREF_E) == 0;
+        refused += ds4_gpu_qwen4_moe_mm_mid_addr_tensor(mid, xt, lists, counts, s.ga, s.ua, res, 2u * MREF_NEXP, ty,
+                                                        MREF_NEXP, T, K, K, MREF_E, MREF_FF, T) == 0;
+        refused += ds4_gpu_qwen4_moe_mm_down_addr_tensor(part, mid, lists, counts, s.da, dres, MREF_NEXP, ty, MREF_NEXP,
+                                                         T, K, K, MREF_FF, MREF_E, T) == 0;
+    }
+    bool untouched = ds4_gpu_tensor_read(mid, 0, back, mid_bytes) && memcmp(back, mark, mid_bytes) == 0;
+    untouched = untouched && ds4_gpu_tensor_read(part, 0, back, part_bytes) && memcmp(back, mark, part_bytes) == 0;
+    CHECK(refused == calls, "addr: %d of %d calls with Q4_0 or Q4_K experts were refused", refused, calls);
+    CHECK(untouched, "addr: a refused call must leave mid and part as they were");
+    const int sibling = ds4_gpu_qwen4_moe_mid_addr_tensor(mid, xt, sel, s.ga, s.ua, res, 2u * MREF_NEXP, a->expert_type,
+                                                          MREF_NEXP, T, K, MREF_E, MREF_FF);
+    CHECK(sibling != 0, "addr: the same call at the arena's own type must run");
+    printf("  moe    addr refusals: Q4_0 and Q4_K through the four address-table entry points -> %d of %d refused, "
+           "outputs untouched %s; the same call at type %u runs\n", refused, calls, untouched ? "yes" : "NO", a->expert_type);
+    ds4_gpu_tensor_free(xt); ds4_gpu_tensor_free(sel); ds4_gpu_tensor_free(lists); ds4_gpu_tensor_free(counts);
+    ds4_gpu_tensor_free(mid); ds4_gpu_tensor_free(part);
+    addr_slots_free(&s);
+    free(x); free(mark); free(back);
+}
+
+static void test_moe_addr_decode(const moe_arena_t *a) {
+    addr_slots_t s;
+    addr_slots_make(a, &s);
+    const uint64_t mid_bytes = (uint64_t)MREF_USED * MREF_FF * 4u, part_bytes = (uint64_t)MREF_USED * MREF_E * 4u;
+    bool mid_eq = true, down_eq = true, mid_untouched = true, down_untouched = true, others_eq = true;
+    for (int trial = 0; trial < 4; trial++) {
+        int32_t sel_h[MREF_USED];
+        addr_pick(sel_h);
+        float *x = rand_vec(MREF_E, 1.7f);
+        ds4_gpu_tensor *xt = upload(x, MREF_E), *sel = ds4_gpu_tensor_alloc(sizeof(sel_h));
+        require_ok(sel && ds4_gpu_tensor_write(sel, 0, sel_h, sizeof(sel_h)), "selection");
+        ds4_gpu_tensor *res[2u * MREF_USED], *dres[MREF_USED];
+        for (uint32_t k = 0; k < MREF_USED; k++) {
+            res[2u * k] = s.gate[sel_h[k]]; res[2u * k + 1u] = s.up[sel_h[k]]; dres[k] = s.down[sel_h[k]];
+        }
+        ds4_gpu_tensor *mid_r = zeroed(mid_bytes), *mid_a = zeroed(mid_bytes), *part_r = zeroed(part_bytes), *part_a = zeroed(part_bytes);
+        require_ok(ds4_gpu_qwen4_moe_mid_tensor(mid_r, xt, sel, a->base, a->size, a->gate, a->up, a->expert_type, MREF_NEXP, 1, MREF_USED,
+                                                MREF_E, MREF_FF, 0u, 0u, UINT32_MAX), "resident mid");
+        require_ok(ds4_gpu_qwen4_moe_mid_addr_tensor(mid_a, xt, sel, s.ga, s.ua, res, 2u * MREF_USED, a->expert_type, MREF_NEXP, 1, MREF_USED,
+                                                     MREF_E, MREF_FF), "addr mid");
+        require_ok(ds4_gpu_qwen4_moe_down_tensor(part_r, mid_r, sel, a->base, a->size, a->down, a->expert_type, MREF_NEXP, 1, MREF_USED,
+                                                 MREF_FF, MREF_E, 0u, UINT32_MAX), "resident down");
+        require_ok(ds4_gpu_qwen4_moe_down_addr_tensor(part_a, mid_r, sel, s.da, dres, MREF_USED, a->expert_type, MREF_NEXP, 1, MREF_USED,
+                                                      MREF_FF, MREF_E), "addr down");
+        float *mr = download(mid_r, mid_bytes / 4u), *ma = download(mid_a, mid_bytes / 4u);
+        float *pr = download(part_r, part_bytes / 4u), *pa = download(part_a, part_bytes / 4u);
+        mid_eq = mid_eq && memcmp(mr, ma, mid_bytes) == 0;
+        down_eq = down_eq && memcmp(pr, pa, part_bytes) == 0;
+        /* zero the first selected expert's addresses: its rows keep a sentinel, the other seven still match */
+        const uint64_t zero = 0u, e0 = (uint64_t)sel_h[0] * 8u;
+        const uint64_t restore_g = ds4_gpu_tensor_gpu_address(s.gate[sel_h[0]]), restore_u = ds4_gpu_tensor_gpu_address(s.up[sel_h[0]]);
+        const uint64_t restore_d = ds4_gpu_tensor_gpu_address(s.down[sel_h[0]]);
+        require_ok(ds4_gpu_tensor_write(s.ga, e0, &zero, 8) && ds4_gpu_tensor_write(s.ua, e0, &zero, 8) &&
+                   ds4_gpu_tensor_write(s.da, e0, &zero, 8), "zero address");
+        float *sent = malloc(part_bytes);
+        for (uint64_t i = 0; i < part_bytes / 4u; i++) sent[i] = 12345.0f;
+        require_ok(ds4_gpu_tensor_write(mid_a, 0, sent, mid_bytes) && ds4_gpu_tensor_write(part_a, 0, sent, part_bytes), "sentinel");
+        require_ok(ds4_gpu_qwen4_moe_mid_addr_tensor(mid_a, xt, sel, s.ga, s.ua, res, 2u * MREF_USED, a->expert_type, MREF_NEXP, 1, MREF_USED,
+                                                     MREF_E, MREF_FF), "addr mid, zero address");
+        require_ok(ds4_gpu_qwen4_moe_down_addr_tensor(part_a, mid_r, sel, s.da, dres, MREF_USED, a->expert_type, MREF_NEXP, 1, MREF_USED,
+                                                      MREF_FF, MREF_E), "addr down, zero address");
+        float *mz = download(mid_a, mid_bytes / 4u), *pz = download(part_a, part_bytes / 4u);
+        mid_untouched = mid_untouched && memcmp(mz, sent, (uint64_t)MREF_FF * 4u) == 0;
+        down_untouched = down_untouched && memcmp(pz, sent, (uint64_t)MREF_E * 4u) == 0;
+        others_eq = others_eq && memcmp(mz + MREF_FF, mr + MREF_FF, mid_bytes - (uint64_t)MREF_FF * 4u) == 0 &&
+                    memcmp(pz + MREF_E, pr + MREF_E, part_bytes - (uint64_t)MREF_E * 4u) == 0;
+        require_ok(ds4_gpu_tensor_write(s.ga, e0, &restore_g, 8) && ds4_gpu_tensor_write(s.ua, e0, &restore_u, 8) &&
+                   ds4_gpu_tensor_write(s.da, e0, &restore_d, 8), "restore address");
+        free(sent); free(mr); free(ma); free(pr); free(pa); free(mz); free(pz); free(x);
+        ds4_gpu_tensor_free(xt); ds4_gpu_tensor_free(sel); ds4_gpu_tensor_free(mid_r); ds4_gpu_tensor_free(mid_a);
+        ds4_gpu_tensor_free(part_r); ds4_gpu_tensor_free(part_a);
+    }
+    CHECK(mid_eq, "addr: decode mid through slot addresses must equal the resident kernel's bits");
+    CHECK(down_eq, "addr: decode down through slot addresses must equal the resident kernel's bits");
+    CHECK(mid_untouched && down_untouched, "addr: a zero address must leave its expert's rows untouched");
+    CHECK(others_eq, "addr: with one zero address the other seven experts must still equal the resident kernel");
+    printf("  moe    addr decode: mid %s, down %s; zero address untouched %s\n", mid_eq ? "equal" : "DIFFER",
+           down_eq ? "equal" : "DIFFER", mid_untouched && down_untouched ? "yes" : "NO");
+    addr_slots_free(&s);
+}
+
+/* the tiled prefill path at Q8 tile level `level` (0: simdgroup tiles; 2: Mellum's E1 tensor tiles):
+ * resident and address-table mid/down over the same lists give the same bits; a zero address leaves the
+ * (token, slot) rows routed to that expert at a sentinel */
+static void test_moe_addr_tiled(const moe_arena_t *a, uint32_t level) {
+    addr_slots_t s;
+    addr_slots_make(a, &s);
+    ds4_gpu_tensor *gres[2u * MREF_NEXP], *dres[MREF_NEXP];
+    for (uint32_t e = 0; e < MREF_NEXP; e++) { gres[2u * e] = s.gate[e]; gres[2u * e + 1u] = s.up[e]; dres[e] = s.down[e]; }
+    static const uint32_t Ts[] = { 31, 32, 64, 100 };
+    bool mid_eq = true, down_eq = true, untouched = true, others_eq = true;
+    ds4_gpu_qwen4_moe_q8_tiles(level);
+    for (size_t ti = 0; ti < sizeof(Ts) / sizeof(Ts[0]); ti++) {
+        const uint32_t T = Ts[ti], K = MREF_USED;
+        int32_t *sel_h = malloc((uint64_t)T * K * 4u);
+        for (uint32_t t = 0; t < T; t++) addr_pick(sel_h + (uint64_t)t * K);
+        float *x = rand_vec((uint64_t)T * MREF_E, 1.7f);
+        const uint64_t mid_n = (uint64_t)T * K * MREF_FF, part_n = (uint64_t)T * K * MREF_E;
+        ds4_gpu_tensor *xt = upload(x, (uint64_t)T * MREF_E), *st = zeroed((uint64_t)T * K * 4u);
+        ds4_gpu_tensor *lists = zeroed((uint64_t)MREF_NEXP * T * 4u), *counts = zeroed(MREF_NEXP * 4u);
+        ds4_gpu_tensor *mid_r = zeroed(mid_n * 4u), *mid_a = zeroed(mid_n * 4u), *part_r = zeroed(part_n * 4u), *part_a = zeroed(part_n * 4u);
+        require_ok(ds4_gpu_tensor_write(st, 0, sel_h, (uint64_t)T * K * 4u) &&
+                   ds4_gpu_qwen4_moe_build_lists_tensor(lists, counts, st, T, K, MREF_NEXP, T), "lists");
+        require_ok(ds4_gpu_qwen4_moe_mm_mid_tensor(mid_r, xt, lists, counts, a->base, a->size, a->gate, a->up, a->expert_type, MREF_NEXP, T,
+                                                   K, K, MREF_E, MREF_FF, T), "resident mm mid");
+        require_ok(ds4_gpu_qwen4_moe_mm_mid_addr_tensor(mid_a, xt, lists, counts, s.ga, s.ua, gres, 2u * MREF_NEXP, a->expert_type, MREF_NEXP,
+                                                        T, K, K, MREF_E, MREF_FF, T), "addr mm mid");
+        require_ok(ds4_gpu_qwen4_moe_mm_down_tensor(part_r, mid_r, lists, counts, a->base, a->size, a->down, a->expert_type, MREF_NEXP, T, K, K,
+                                                    MREF_FF, MREF_E, T), "resident mm down");
+        require_ok(ds4_gpu_qwen4_moe_mm_down_addr_tensor(part_a, mid_r, lists, counts, s.da, dres, MREF_NEXP, a->expert_type, MREF_NEXP, T, K, K,
+                                                         MREF_FF, MREF_E, T), "addr mm down");
+        float *mr = download(mid_r, mid_n), *ma = download(mid_a, mid_n), *pr = download(part_r, part_n), *pa = download(part_a, part_n);
+        mid_eq = mid_eq && memcmp(mr, ma, mid_n * 4u) == 0;
+        down_eq = down_eq && memcmp(pr, pa, part_n * 4u) == 0;
+        /* zero row 0 slot 0's expert */
+        const int32_t e0 = sel_h[0];
+        const uint64_t zero = 0u, restore[3] = { ds4_gpu_tensor_gpu_address(s.gate[e0]), ds4_gpu_tensor_gpu_address(s.up[e0]),
+                                                 ds4_gpu_tensor_gpu_address(s.down[e0]) };
+        require_ok(ds4_gpu_tensor_write(s.ga, (uint64_t)e0 * 8u, &zero, 8) && ds4_gpu_tensor_write(s.ua, (uint64_t)e0 * 8u, &zero, 8) &&
+                   ds4_gpu_tensor_write(s.da, (uint64_t)e0 * 8u, &zero, 8), "zero address");
+        float *sent = malloc(part_n * 4u);
+        for (uint64_t i = 0; i < part_n; i++) sent[i] = 12345.0f;
+        require_ok(ds4_gpu_tensor_write(mid_a, 0, sent, mid_n * 4u) && ds4_gpu_tensor_write(part_a, 0, sent, part_n * 4u), "sentinel");
+        require_ok(ds4_gpu_qwen4_moe_mm_mid_addr_tensor(mid_a, xt, lists, counts, s.ga, s.ua, gres, 2u * MREF_NEXP, a->expert_type, MREF_NEXP,
+                                                        T, K, K, MREF_E, MREF_FF, T), "addr mm mid, zero address");
+        require_ok(ds4_gpu_qwen4_moe_mm_down_addr_tensor(part_a, mid_r, lists, counts, s.da, dres, MREF_NEXP, a->expert_type, MREF_NEXP, T, K, K,
+                                                         MREF_FF, MREF_E, T), "addr mm down, zero address");
+        float *mz = download(mid_a, mid_n), *pz = download(part_a, part_n);
+        for (uint64_t pair = 0; pair < (uint64_t)T * K; pair++) {
+            const bool hit = sel_h[pair] == e0;
+            const float *m_got = mz + pair * MREF_FF, *p_got = pz + pair * MREF_E;
+            if (hit) untouched = untouched && memcmp(m_got, sent, MREF_FF * 4u) == 0 && memcmp(p_got, sent, MREF_E * 4u) == 0;
+            else others_eq = others_eq && memcmp(m_got, mr + pair * MREF_FF, MREF_FF * 4u) == 0 &&
+                             memcmp(p_got, pr + pair * MREF_E, MREF_E * 4u) == 0;
+        }
+        require_ok(ds4_gpu_tensor_write(s.ga, (uint64_t)e0 * 8u, &restore[0], 8) && ds4_gpu_tensor_write(s.ua, (uint64_t)e0 * 8u, &restore[1], 8) &&
+                   ds4_gpu_tensor_write(s.da, (uint64_t)e0 * 8u, &restore[2], 8), "restore address");
+        free(sel_h); free(x); free(sent); free(mr); free(ma); free(pr); free(pa); free(mz); free(pz);
+        ds4_gpu_tensor_free(xt); ds4_gpu_tensor_free(st); ds4_gpu_tensor_free(lists); ds4_gpu_tensor_free(counts);
+        ds4_gpu_tensor_free(mid_r); ds4_gpu_tensor_free(mid_a); ds4_gpu_tensor_free(part_r); ds4_gpu_tensor_free(part_a);
+    }
+    ds4_gpu_qwen4_moe_q8_tiles(0);
+    CHECK(mid_eq, "addr: tiled mid (level %u) through slot addresses must equal the resident kernel's bits", level);
+    CHECK(down_eq, "addr: tiled down (level %u) through slot addresses must equal the resident kernel's bits", level);
+    CHECK(untouched, "addr: tiled (level %u) rows routed to a zero address must stay untouched", level);
+    CHECK(others_eq, "addr: tiled (level %u) rows of the other experts must still equal the resident kernel", level);
+    printf("  moe    addr tiled level %u (T 31/32/64/100): mid %s, down %s; zero address untouched %s\n", level,
+           mid_eq ? "equal" : "DIFFER", down_eq ? "equal" : "DIFFER", untouched ? "yes" : "NO");
+    addr_slots_free(&s);
+}
+
+/* An arena of random weights whose routed experts are of type expert_type; the shared-expert poison stays
+ * Q8_0-sized (it is never read as experts).  Registers the arena as the model map. */
+static moe_arena_t *moe_arena_make(uint32_t expert_type) {
     moe_arena_t *a = calloc(1, sizeof(*a));
     require_ok(a != NULL, "calloc");
+    a->expert_type = expert_type;
+    const uint64_t gate_bytes = (uint64_t)MREF_NEXP * MREF_FF * moe_row_bytes(a, MREF_E);
+    const uint64_t down_bytes = (uint64_t)MREF_NEXP * MREF_E * moe_row_bytes(a, MREF_FF);
     a->size = (uint64_t)448 << 20;
     a->base = mmap(NULL, a->size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
     if (a->base == MAP_FAILED) { perror("mmap"); exit(1); }
@@ -1867,17 +2179,18 @@ static void test_moe(void) {
     a->router_tie = moe_take(a, MREF_ROUTER_BYTES);
     a->router_near = moe_take(a, MREF_ROUTER_BYTES);
     a->sh_gate_inp = moe_take(a, MREF_E * 4u);
-    a->gate = moe_take(a, MREF_GATE_BYTES);
-    a->up = moe_take(a, MREF_GATE_BYTES);
-    a->down = moe_take(a, MREF_DOWN_BYTES);
+    a->gate = moe_take(a, gate_bytes);
+    a->up = moe_take(a, gate_bytes);
+    a->down = moe_take(a, down_bytes);
     a->sh_gate = moe_take(a, (uint64_t)MREF_FF * MREF_ROW_GATE);
     a->sh_up = moe_take(a, (uint64_t)MREF_FF * MREF_ROW_GATE);
     a->sh_down = moe_take(a, (uint64_t)MREF_E * MREF_ROW_DOWN);
     /* logits about 2 in standard deviation: a softmax that is not flat, with the top eight holding most of its mass */
     fill_router_random((float *)(a->base + a->router), 0.072f);
-    fill_q8(a->base + a->gate, (uint64_t)MREF_NEXP * MREF_FF * (MREF_E / 32u));
-    fill_q8(a->base + a->up, (uint64_t)MREF_NEXP * MREF_FF * (MREF_E / 32u));
-    fill_q8(a->base + a->down, (uint64_t)MREF_NEXP * MREF_E * (MREF_FF / 32u));
+    void (*fill)(uint8_t *, uint64_t) = expert_type == MREF_TYPE_MXFP4 ? fill_mxfp4 : fill_q8;
+    fill(a->base + a->gate, (uint64_t)MREF_NEXP * MREF_FF * (MREF_E / 32u));
+    fill(a->base + a->up, (uint64_t)MREF_NEXP * MREF_FF * (MREF_E / 32u));
+    fill(a->base + a->down, (uint64_t)MREF_NEXP * MREF_E * (MREF_FF / 32u));
     /* the tie routers: expert e's logit on x0 is alpha[e]; experts 10 and 40 share a row (or 40 is 1e-3 above) */
     for (uint32_t i = 0; i < MREF_E; i++) a->x0[i] = 1.7f * frand();
     {
@@ -1892,19 +2205,56 @@ static void test_moe(void) {
         fill_router_for((float *)(a->base + a->router_near), a->x0, alpha);
     }
     require_ok(ds4_gpu_set_model_map(a->base, a->size), "model map registration");
+    return a;
+}
+
+static void moe_arena_free(moe_arena_t *a) {
+    munmap(a->base, a->size);
+    free(a);
+}
+
+static void test_moe(void) {
+    printf("Mellum MoE driver (2304 -> 64 F32 router, softmax over all, top-8, renormalized, 896-wide Q8_0 experts, no shared expert)\n");
+    moe_arena_t *a = moe_arena_make(MREF_TYPE_Q8_0);
+    const double q8_tiled = moe_tiled_staged_worst(a);   /* S6's reference point for MXFP4's tiled experts */
     test_moe_reference(a);
     test_moe_ties_direct();
     test_moe_ties_driver(a);
     test_moe_no_shared(a);
     test_moe_refusals(a);
     test_moe_q8_tiles_mellum_only(a);
+    test_moe_addr_decode(a);
+    test_moe_addr_tiled(a, 0u);
+    /* E1 tensor tiles: level 2 is Mellum's default (64-wide half); 1, 3-6 cover the 32-wide, float and
+     * compensated variants the same encoder can pick */
+    for (uint32_t level = 1; level <= 6; level++) test_moe_addr_tiled(a, level);
     for (int batched = 0; batched <= 1; batched++) {
         g_batched = batched != 0;
         test_moe_rows_equal_singles(a);
     }
     g_batched = false;
-    munmap(a->base, a->size);
-    free(a);
+
+    /* S6: the same driver on MXFP4 experts (GGUF type 39), against the double reference at type 39.  The Q8_0
+     * arena stays mapped until the end: a new mapping at a freed one's address would leave the Metal model map
+     * wrapping the old pages. */
+    printf("Mellum MoE driver, MXFP4 experts (E8M0 scales, E2M1 values, 32-wide blocks of 17 bytes)\n");
+    moe_arena_t *q8 = a;
+    a = moe_arena_make(MREF_TYPE_MXFP4);
+    require_ok(a->base != q8->base, "a distinct MXFP4 arena");
+    test_moe_reference(a);
+    test_moe_no_shared(a);
+    test_moe_refusals(a);
+    test_moe_addr_decode(a);
+    test_moe_addr_tiled(a, 0u);   /* the tensor-tile levels apply to Q8_0 only */
+    test_moe_addr_refusals(a);
+    test_moe_tiled_staged_reference(a, q8_tiled);
+    for (int batched = 0; batched <= 1; batched++) {
+        g_batched = batched != 0;
+        test_moe_rows_equal_singles(a);
+    }
+    g_batched = false;
+    moe_arena_free(a);
+    moe_arena_free(q8);
 }
 
 /* ======================================================================
@@ -2623,6 +2973,197 @@ static void test_tiled_half_refusals(void) {
     ds4_gpu_tensor_free(q); ds4_gpu_tensor_free(o); ds4_gpu_tensor_free(small);
 }
 
+/* S4 streamed decode: one command buffer per token that stops at its first missed layer.  A chain of
+ * 28 adds stands in for the layers; a trip after add l leaves l + 1 adds applied. */
+#define GATE_N 1024u
+#define GATE_LAYERS 28u
+
+static ds4_gpu_tensor *gate_filled(float v) {
+    float *h = malloc(GATE_N * sizeof(float));
+    for (uint32_t i = 0; i < GATE_N; i++) h[i] = v;
+    ds4_gpu_tensor *t = upload(h, GATE_N);
+    free(h);
+    return t;
+}
+
+static bool gate_all(const ds4_gpu_tensor *t, float v) {
+    float *h = download(t, GATE_N);
+    bool ok = true;
+    for (uint32_t i = 0; i < GATE_N; i++) ok = ok && h[i] == v;
+    free(h);
+    return ok;
+}
+
+static void gate_chain(ds4_gpu_tensor *acc, const ds4_gpu_tensor *one, ds4_gpu_tensor *gate,
+                       const ds4_gpu_tensor *probe, int trip_layer) {
+    require_ok(ds4_gpu_begin_commands(), "gate chain begin");
+    for (uint32_t l = 0; l < GATE_LAYERS; l++) {
+        require_ok(ds4_gpu_add_tensor(acc, acc, one, GATE_N), "gate chain add");
+        if ((int)l == trip_layer) require_ok(ds4_gpu_stream_gate_trip_if_zero_tensor(gate, probe, l), "gate trip");
+    }
+    require_ok(ds4_gpu_end_commands(), "gate chain end");
+}
+
+static void check_gate_suppresses_after_trip(void) {
+    ds4_gpu_tensor *acc = gate_filled(0.0f), *one = gate_filled(1.0f), *zero = gate_filled(0.0f);
+    ds4_gpu_tensor *gate = ds4_gpu_stream_gate_create();
+    require_ok(gate != NULL && ds4_gpu_stream_gate_reset(gate), "gate create");
+    require_ok(ds4_gpu_stream_gate_bind(gate), "gate bind");
+    gate_chain(acc, one, gate, zero, 9);
+    require_ok(ds4_gpu_stream_gate_bind(NULL), "gate unbind");
+    uint32_t layer = 0;
+    bool stopped = false;
+    require_ok(ds4_gpu_stream_gate_read(gate, &layer, &stopped), "gate read");
+    CHECK(stopped && layer == 9, "gate: a zero probe at layer 9 must stop at layer 9 (stopped %d, layer %u)", stopped, layer);
+    CHECK(gate_all(acc, 10.0f), "gate: layers after the trip must not run (want 10 adds everywhere)");
+    /* reset clears the stop: the same gate then runs the whole chain */
+    require_ok(ds4_gpu_stream_gate_reset(gate) && ds4_gpu_stream_gate_bind(gate), "gate reset");
+    gate_chain(acc, one, gate, zero, -1);
+    require_ok(ds4_gpu_stream_gate_bind(NULL), "gate unbind");
+    CHECK(gate_all(acc, 38.0f), "gate: a reset gate must run all 28 layers (want 10 + 28)");
+    ds4_gpu_tensor_free(gate); ds4_gpu_tensor_free(acc); ds4_gpu_tensor_free(one); ds4_gpu_tensor_free(zero);
+}
+
+static void check_gate_all_hit_one_wait(void) {
+    ds4_gpu_tensor *acc = gate_filled(0.0f), *one = gate_filled(1.0f);
+    ds4_gpu_tensor *gate = ds4_gpu_stream_gate_create();
+    require_ok(gate != NULL && ds4_gpu_stream_gate_reset(gate) && ds4_gpu_stream_gate_bind(gate), "gate create");
+    const uint64_t w0 = ds4_gpu_wait_count();
+    gate_chain(acc, one, gate, one, 9);  /* a nonzero probe never trips */
+    const uint64_t waits = ds4_gpu_wait_count() - w0;
+    require_ok(ds4_gpu_stream_gate_bind(NULL), "gate unbind");
+    uint32_t layer = 0;
+    bool stopped = true;
+    require_ok(ds4_gpu_stream_gate_read(gate, &layer, &stopped), "gate read");
+    CHECK(!stopped, "gate: a nonzero probe must not stop");
+    CHECK(gate_all(acc, 28.0f), "gate: an all-hit chain must run all 28 layers");
+    CHECK(waits == 1, "gate: an all-hit chain must wait once on the host (waited %llu)", (unsigned long long)waits);
+    ds4_gpu_tensor_free(gate); ds4_gpu_tensor_free(acc); ds4_gpu_tensor_free(one);
+}
+
+/* past its record cap the gate can no longer suppress, so a token that overflows it must read back as an
+ * error rather than as a clean all-hit or a stop */
+static void check_gate_overflow_is_error(void) {
+    ds4_gpu_tensor *acc = gate_filled(0.0f), *one = gate_filled(1.0f);
+    ds4_gpu_tensor *gate = ds4_gpu_stream_gate_create();
+    require_ok(gate != NULL && ds4_gpu_stream_gate_reset(gate) && ds4_gpu_stream_gate_bind(gate), "gate create");
+    require_ok(ds4_gpu_begin_commands(), "overflow begin");
+    for (uint32_t i = 0; i < 4100u; i++) require_ok(ds4_gpu_add_tensor(acc, acc, one, GATE_N), "overflow add");
+    require_ok(ds4_gpu_end_commands(), "overflow end");
+    require_ok(ds4_gpu_stream_gate_bind(NULL), "gate unbind");
+    uint32_t layer = 0;
+    bool stopped = false;
+    CHECK(!ds4_gpu_stream_gate_read(gate, &layer, &stopped), "gate: more dispatches than records must read back as an error");
+    /* a reset clears it: the next token is judged on its own */
+    require_ok(ds4_gpu_stream_gate_reset(gate) && ds4_gpu_stream_gate_bind(gate), "gate reset");
+    gate_chain(acc, one, gate, one, -1);
+    require_ok(ds4_gpu_stream_gate_bind(NULL), "gate unbind");
+    CHECK(ds4_gpu_stream_gate_read(gate, &layer, &stopped) && !stopped, "gate: a reset gate must read cleanly again");
+    ds4_gpu_tensor_free(gate); ds4_gpu_tensor_free(acc); ds4_gpu_tensor_free(one);
+}
+
+/* the Q8_0 projection chain and the f32 -> f16 copy are on the streamed decode path too: after a trip they
+ * must write nothing; unbound they run as before */
+static void check_gate_suppresses_projection_and_copy(void) {
+    const uint64_t in = 256, out = 64, wbytes = out * (in / 32u) * 34u;
+    uint8_t *arena = mmap(NULL, 1u << 20, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
+    require_ok(arena != MAP_FAILED, "projection arena");
+    fill_q8(arena, out * (in / 32u));
+    require_ok(ds4_gpu_set_model_map(arena, 1u << 20), "projection arena map");
+    float *xh = rand_vec(in, 1.0f), sent[64];
+    for (uint32_t i = 0; i < out; i++) sent[i] = 12345.0f;
+    uint16_t sent16[256];
+    for (uint32_t i = 0; i < in; i++) sent16[i] = 0xABCDu;
+    for (int bound = 1; bound >= 0; bound--) {
+        for (uint32_t rows = 1; rows <= 8; rows += 7) {
+            ds4_gpu_tensor *x = ds4_gpu_tensor_alloc(rows * in * 4u), *o = ds4_gpu_tensor_alloc(rows * out * 4u);
+            ds4_gpu_tensor *d16 = ds4_gpu_tensor_alloc(in * 2u), *zero = gate_filled(0.0f);
+            ds4_gpu_tensor *gate = ds4_gpu_stream_gate_create();
+            require_ok(x && o && d16 && gate && ds4_gpu_stream_gate_reset(gate), "projection tensors");
+            for (uint32_t r = 0; r < rows; r++) require_ok(ds4_gpu_tensor_write(x, r * in * 4u, xh, in * 4u), "x");
+            for (uint32_t r = 0; r < rows; r++) require_ok(ds4_gpu_tensor_write(o, r * out * 4u, sent, out * 4u), "o");
+            require_ok(ds4_gpu_tensor_write(d16, 0, sent16, in * 2u), "d16");
+            require_ok(ds4_gpu_stream_gate_bind(bound ? gate : NULL) && ds4_gpu_begin_commands(), "begin");
+            require_ok(ds4_gpu_stream_gate_trip_if_zero_tensor(gate, zero, 0), "trip");
+            require_ok(ds4_gpu_matmul_q8_0_tensor(o, arena, 1u << 20, 0, in, out, x, rows), "projection");
+            require_ok(ds4_gpu_tensor_copy_f32_to_f16(d16, 0, x, 0, in), "copy");
+            require_ok(ds4_gpu_end_commands() && ds4_gpu_stream_gate_bind(NULL), "end");
+            float *oh = download(o, rows * out);
+            uint16_t got16[256];
+            require_ok(ds4_gpu_tensor_read(d16, 0, got16, in * 2u), "d16 read");
+            bool o_kept = true;
+            for (uint32_t r = 0; r < rows; r++) o_kept = o_kept && memcmp(oh + r * out, sent, out * 4u) == 0;
+            const bool d_kept = memcmp(got16, sent16, in * 2u) == 0;
+            if (bound) {
+                CHECK(o_kept, "gate: a Q8_0 projection of %u rows after a trip must write nothing", rows);
+                CHECK(d_kept, "gate: an f32-to-f16 copy after a trip must write nothing");
+            } else {
+                CHECK(!o_kept && !d_kept, "gate: unbound, the projection (%u rows) and copy must run", rows);
+            }
+            free(oh);
+            ds4_gpu_tensor_free(x); ds4_gpu_tensor_free(o); ds4_gpu_tensor_free(d16); ds4_gpu_tensor_free(zero);
+            ds4_gpu_tensor_free(gate);
+        }
+    }
+    (void)wbytes;
+    free(xh);
+    munmap(arena, 1u << 20);
+}
+
+/* the per-layer check kernel: a selected expert with no address trips the gate and suppresses every later
+ * dispatch (even with far more gate records than the layer has hidden units), and saves the layer's resume
+ * state; with every address present it trips nothing */
+static void check_stream_check_kernel(void) {
+    enum { CE = 128 };
+    for (int missing = 1; missing >= 0; missing--) {
+        int32_t sel[8] = { 3, 9, 17, 22, 40, 41, 50, 63 };
+        float wts[8] = { 0.1f, 0.2f, 0.3f, 0.4f, 0.5f, 0.6f, 0.7f, 0.8f };
+        uint64_t addr[64];
+        for (uint32_t e = 0; e < 64; e++) addr[e] = 0x1000u + e;
+        if (missing) addr[22] = 0;
+        float *ar = rand_vec(CE, 1.0f), *fn = rand_vec(CE, 1.0f);
+        ds4_gpu_tensor *st = ds4_gpu_tensor_alloc(sizeof(sel)), *wt = ds4_gpu_tensor_alloc(sizeof(wts));
+        ds4_gpu_tensor *at = upload(ar, CE), *ft = upload(fn, CE), *save = zeroed(2u * (2u * CE + 16u) * 4u);
+        ds4_gpu_tensor *ga = ds4_gpu_tensor_alloc(sizeof(addr)), *ua = ds4_gpu_tensor_alloc(sizeof(addr)), *da = ds4_gpu_tensor_alloc(sizeof(addr));
+        ds4_gpu_tensor *acc = gate_filled(0.0f), *one = gate_filled(1.0f), *gate = ds4_gpu_stream_gate_create();
+        require_ok(st && wt && ga && ua && da && gate && ds4_gpu_tensor_write(st, 0, sel, sizeof(sel)) &&
+                   ds4_gpu_tensor_write(wt, 0, wts, sizeof(wts)) && ds4_gpu_tensor_write(ga, 0, addr, sizeof(addr)) &&
+                   ds4_gpu_tensor_write(ua, 0, addr, sizeof(addr)) && ds4_gpu_tensor_write(da, 0, addr, sizeof(addr)) &&
+                   ds4_gpu_stream_gate_reset(gate) && ds4_gpu_stream_gate_bind(gate) && ds4_gpu_begin_commands(), "check setup");
+        require_ok(ds4_gpu_mellum_stream_check_tensor(gate, st, wt, at, ft, save, ga, ua, da, 1, CE), "check");
+        /* more dispatches after the trip than any grid sized to the layer: records past it must be zeroed too */
+        for (uint32_t i = 0; i < 600; i++) require_ok(ds4_gpu_add_tensor(acc, acc, one, GATE_N), "check chain add");
+        require_ok(ds4_gpu_end_commands() && ds4_gpu_stream_gate_bind(NULL), "check end");
+        uint32_t layer = 0;
+        bool stopped = false;
+        require_ok(ds4_gpu_stream_gate_read(gate, &layer, &stopped), "check read");
+        float *sv = download(save, 2u * (2u * CE + 16u));
+        const float *slot = sv + (2u * CE + 16u);
+        bool saved = memcmp(slot, ar, CE * 4u) == 0 && memcmp(slot + CE, fn, CE * 4u) == 0 &&
+                     memcmp(slot + 2u * CE, sel, sizeof(sel)) == 0 && memcmp(slot + 2u * CE + 8u, wts, sizeof(wts)) == 0;
+        if (missing) {
+            CHECK(stopped && layer == 1, "check: a missing address must stop at its layer (stopped %d, layer %u)", stopped, layer);
+            CHECK(gate_all(acc, 0.0f), "check: every dispatch after a trip must do nothing, past the layer's width");
+        } else {
+            CHECK(!stopped && gate_all(acc, 600.0f), "check: with every address present nothing is suppressed");
+        }
+        CHECK(saved, "check: the layer's resume state must be saved in its slot (missing %d)", missing);
+        free(ar); free(fn); free(sv);
+        ds4_gpu_tensor_free(st); ds4_gpu_tensor_free(wt); ds4_gpu_tensor_free(at); ds4_gpu_tensor_free(ft);
+        ds4_gpu_tensor_free(save); ds4_gpu_tensor_free(ga); ds4_gpu_tensor_free(ua); ds4_gpu_tensor_free(da);
+        ds4_gpu_tensor_free(acc); ds4_gpu_tensor_free(one); ds4_gpu_tensor_free(gate);
+    }
+}
+
+static void check_unbound_gate_inert(void) {
+    ds4_gpu_tensor *acc = gate_filled(0.0f), *one = gate_filled(1.0f), *zero = gate_filled(0.0f);
+    ds4_gpu_tensor *gate = ds4_gpu_stream_gate_create();
+    require_ok(gate != NULL && ds4_gpu_stream_gate_reset(gate) && ds4_gpu_stream_gate_bind(NULL), "gate create");
+    gate_chain(acc, one, gate, zero, 9);
+    CHECK(gate_all(acc, 28.0f), "gate: an unbound gate must not suppress anything, even when tripped");
+    ds4_gpu_tensor_free(gate); ds4_gpu_tensor_free(acc); ds4_gpu_tensor_free(one); ds4_gpu_tensor_free(zero);
+}
+
 int main(void) {
     fixture_t f;
     memset(&f, 0, sizeof(f));
@@ -2695,6 +3236,14 @@ int main(void) {
      * (QWEN4_ATTN_MAX_SPLITS), so a key count past 2,048 runs more keys per split than any count below it */
     static const uint32_t long_full_counts[] = { 2100, 4100 };
     for (size_t i = 0; i < sizeof(long_full_counts) / sizeof(long_full_counts[0]); i++) test_full_session(long_full_counts[i]);
+
+    printf("S4 streamed-decode gate (28-layer add chain)\n");
+    check_gate_suppresses_after_trip();
+    check_gate_all_hit_one_wait();
+    check_unbound_gate_inert();
+    check_stream_check_kernel();
+    check_gate_suppresses_projection_and_copy();
+    check_gate_overflow_is_error();
 
     printf("%d checks, %d failures\n", g_checks, g_failures);
     return g_failures ? 1 : 0;

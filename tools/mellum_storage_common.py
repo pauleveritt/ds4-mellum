@@ -1,0 +1,183 @@
+"""Shared bounded JSON and opened-file identities for storage evidence."""
+from contextlib import contextmanager
+import hashlib
+import importlib.util
+import json
+import math
+import os
+from pathlib import Path
+import stat
+from typing import BinaryIO
+
+_spec = importlib.util.spec_from_file_location('mellum_capture_identity', Path(__file__).with_name('mellum_capture_identity.py'))
+identity = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(identity)
+publication = identity.sibling('mellum_artifact')
+ROOT = Path(__file__).resolve().parents[1]
+STAT_KEYS = ('dev', 'ino', 'size', 'mtime_ns', 'ctime_ns')
+READ_BYTES = 0
+READ_LIMIT = None
+
+
+def canonical(value: object) -> bytes:
+    return json.dumps(value, sort_keys=True, separators=(',', ':'), allow_nan=False).encode()
+
+
+def load_json(path: Path) -> dict:
+    def pairs(items):
+        result = {}
+        for key, value in items:
+            if key in result:
+                raise ValueError('duplicate JSON key')
+            result[key] = value
+        return result
+    def number(raw):
+        result = float(raw)
+        if not math.isfinite(result):
+            raise ValueError('nonfinite JSON number')
+        return result
+    allow_read(8 * 1024**2 + 1)
+    with path.open('rb') as source:
+        raw = source.read(8 * 1024**2 + 1)
+    account(len(raw))
+    if len(raw) > 8 * 1024**2:
+        raise ValueError('JSON exceeds 8 MiB')
+    value = json.loads(raw, object_pairs_hook=pairs, parse_float=number,
+                       parse_constant=lambda raw: (_ for _ in ()).throw(ValueError('nonfinite JSON constant')))
+    if not isinstance(value, dict):
+        raise ValueError('JSON object required')
+    return value
+
+
+def write_json(path: Path, value: dict) -> None:
+    payload = canonical(value) + b'\n'
+    with path.open('xb') as stream:
+        if stream.write(payload) != len(payload):
+            raise OSError('short JSON write')
+        stream.flush()
+
+
+def stat_value(value: os.stat_result) -> dict:
+    if not stat.S_ISREG(value.st_mode):
+        raise ValueError('regular file required')
+    return {key: getattr(value, f'st_{key}') for key in STAT_KEYS}
+
+
+def check_open(source: BinaryIO, path: Path, expected: dict) -> None:
+    if stat_value(os.fstat(source.fileno())) != expected or identity.file_stat(path) != expected:
+        raise ValueError(f'file changed or substituted: {path}')
+
+
+@contextmanager
+def opened(path: Path):
+    before = identity.file_stat(path)
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    with os.fdopen(fd, 'rb') as source:
+        check_open(source, path, before)
+        yield ReadCounter(source), before
+        check_open(source, path, before)
+
+
+def hash_stream(source: BinaryIO, length: int | None = None) -> str:
+    digest = hashlib.sha256()
+    source.seek(0)
+    remaining = length
+    while remaining is None or remaining:
+        block = read(source, 65536 if remaining is None else min(65536, remaining))
+        if not block:
+            if remaining:
+                raise ValueError('short hashing read')
+            break
+        digest.update(block)
+        if remaining is not None:
+            remaining -= len(block)
+    return digest.hexdigest()
+
+
+def integer(value: object, low: int = 0, high: int = 2**63 - 1) -> int:
+    if type(value) is not int or not low <= value <= high:
+        raise ValueError('integer outside supported bounds')
+    return value
+
+
+def digest(value: object) -> str:
+    if not isinstance(value, str) or len(value) != 64 or any(c not in '0123456789abcdef' for c in value):
+        raise ValueError('SHA-256 required')
+    return value
+
+
+@contextmanager
+def read_budget(limit: int):
+    """Opt-in absolute read ceiling; nested budgets cannot enlarge the allowance."""
+    global READ_LIMIT
+    integer(limit)
+    before=READ_LIMIT
+    READ_LIMIT=min(READ_BYTES+limit,before) if before is not None else READ_BYTES+limit
+    try:
+        yield
+    finally:
+        READ_LIMIT=before
+
+
+def allow_read(size: int) -> None:
+    if READ_LIMIT is not None and (size<0 or READ_BYTES+size>READ_LIMIT):
+        raise ValueError('Python logical-read budget exhausted before read')
+
+
+def account(count: int) -> None:
+    global READ_BYTES
+    READ_BYTES += count
+
+
+class ReadCounter:
+    """Count successful Python input bytes, excluding seek and native reads."""
+    def __init__(self, source: BinaryIO):
+        self.source = source
+
+    def read(self, n: int = -1) -> bytes:
+        allow_read(n)
+        block = self.source.read(n)
+        account(len(block))
+        return block
+
+    def __iter__(self):
+        return self
+
+    def __next__(self) -> bytes:
+        block = self.source.readline()
+        account(len(block))
+        if not block:
+            raise StopIteration
+        return block
+
+    def seek(self, *args) -> int:
+        return self.source.seek(*args)
+
+    def tell(self) -> int:
+        return self.source.tell()
+
+    def fileno(self) -> int:
+        return self.source.fileno()
+
+
+def read(source: BinaryIO, size: int) -> bytes:
+    if not isinstance(source, ReadCounter):
+        allow_read(size)
+    block = source.read(size)
+    if not isinstance(source, ReadCounter):
+        account(len(block))
+    return block
+
+
+def file_identity(path: Path) -> dict:
+    with opened(path) as (source, before):
+        digest = hash_stream(source)
+    return dict(sha256=digest, **before)
+
+
+def source_identity(root: Path) -> dict:
+    if READ_LIMIT is not None:
+        return identity.source_identity(root, file_hasher=file_identity)
+    result = identity.source_identity(root)
+    account(sum(value['size'] for value in result['files'].values()))
+    return result

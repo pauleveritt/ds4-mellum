@@ -177,6 +177,8 @@ int ds4_gpu_tensor_read_after_selected_event(const ds4_gpu_tensor *tensor,
                                              const char *label);
 #endif
 int ds4_gpu_end_commands(void);
+/* Drops the open command batch without committing it: none of its work runs.  No-op without one. */
+void ds4_gpu_discard_commands(void);
 int ds4_gpu_synchronize(void);
 
 int ds4_gpu_set_model_map(const void *model_map, uint64_t model_size);
@@ -3838,7 +3840,8 @@ int ds4_gpu_mellum_attn_full_rows_tensor(
  * Shapes (all f32 unless noted): x and out [n_tokens][n_embd]; logits
  * [n_tokens][n_expert]; selected int32 and weights [n_tokens][n_used]; mid
  * [n_tokens][n_used][ff_dim]; part [n_tokens][n_used][n_embd].  The router is
- * F32 [n_expert][n_embd]; the experts are Q8_0 (expert_type 8), gate and up
+ * F32 [n_expert][n_embd]; the experts are Q8_0 (expert_type 8) or MXFP4 (39,
+ * S6), one type for gate, up and down; gate and up
  * [n_expert][ff_dim][n_embd], down [n_expert][n_embd][ff_dim], each expert
  * contiguous.  Every offset is into model_map.  Checked before the first
  * dispatch (a refused call writes nothing): sizes, ranges (overflow-safe),
@@ -3850,13 +3853,79 @@ typedef struct {
     uint32_t n_expert;     /* 64 */
     uint32_t n_used;       /* 8 */
     uint32_t ff_dim;       /* 896 */
-    uint32_t expert_type;  /* 8: Q8_0 */
+    uint32_t expert_type;  /* 8: Q8_0, 39: MXFP4 */
     uint32_t pad0;
     uint64_t router_offset;
     uint64_t gate_offset;
     uint64_t up_offset;
     uint64_t down_offset;
 } ds4_gpu_mellum_moe;
+
+/* S4 streamed decode gate.  While a gate is bound, gated encoders dispatch indirectly from it, and a
+ * trip zeroes every later dispatch's threadgroup counts on the GPU: work encoded after the trip does
+ * nothing.  Unbound, gated encoders dispatch exactly as before. */
+ds4_gpu_tensor *ds4_gpu_stream_gate_create(void);
+int ds4_gpu_stream_gate_reset(ds4_gpu_tensor *gate);
+int ds4_gpu_stream_gate_bind(ds4_gpu_tensor *gate_or_null);
+int ds4_gpu_stream_gate_trip_if_zero_tensor(ds4_gpu_tensor *gate, const ds4_gpu_tensor *probe, uint32_t layer);
+int ds4_gpu_stream_gate_read(const ds4_gpu_tensor *gate, uint32_t *layer, bool *stopped);
+/* S4 Mellum streamed decode.  layer_tables: views of the expert cache's per-layer uint64 address tables
+ * (an evicted expert's entry is 0).  load: make the given experts of one layer resident from the model
+ * file and publish their addresses, protecting them from that call's own pruning.  check: save a layer's
+ * resume state into its slot of `save` (2 * n_embd + 16 floats per layer) and stop the gate when a
+ * selected expert has no address.  restore: put that state back before resuming at the layer's experts. */
+/* Bytes the Metal device has allocated now (MTLDevice.currentAllocatedSize), 0 without a device. */
+uint64_t ds4_gpu_current_allocated_size(void);
+void ds4_gpu_mellum_stream_set_readahead(bool enabled);
+int ds4_gpu_mellum_stream_layer_tables(uint32_t layer, ds4_gpu_tensor **gate, ds4_gpu_tensor **up, ds4_gpu_tensor **down);
+/* load takes up to 64 ids (a prefill chunk's layer) and fails if the cache cannot hold them all at once. */
+int ds4_gpu_mellum_stream_load(const ds4_gpu_stream_expert_table *t, const int32_t *ids, uint32_t n, uint32_t *n_loaded);
+/* load_begin: start the reads of a load that ds4_gpu_mellum_stream_load will make as one group (at most 8 ids), and
+ * return before they finish; the later load with the same ids, in order, finishes them and publishes the addresses.
+ * When it cannot start them (more ids, DS4_METAL_DISABLE_STREAMING_EXPERT_EARLY_LOAD, no capacity) it makes the
+ * whole load itself, counted in *n_loaded, so every slab a stop fills exists before the resumed pass is encoded. */
+int ds4_gpu_mellum_stream_load_begin(const ds4_gpu_stream_expert_table *t, const int32_t *ids, uint32_t n,
+                                     uint32_t *n_loaded);
+int ds4_gpu_mellum_stream_check_tensor(ds4_gpu_tensor *gate, const ds4_gpu_tensor *selected,
+                                       const ds4_gpu_tensor *weights, const ds4_gpu_tensor *attn_res,
+                                       const ds4_gpu_tensor *ffn_norm, ds4_gpu_tensor *save,
+                                       const ds4_gpu_tensor *gate_addrs, const ds4_gpu_tensor *up_addrs,
+                                       const ds4_gpu_tensor *down_addrs, uint32_t layer, uint32_t n_embd);
+int ds4_gpu_mellum_stream_restore_tensor(const ds4_gpu_tensor *save, ds4_gpu_tensor *selected, ds4_gpu_tensor *weights,
+                                         ds4_gpu_tensor *attn_res, ds4_gpu_tensor *ffn_norm, uint32_t layer,
+                                         uint32_t n_embd);
+/* Passed as n_resident with a NULL resident list: make every allocated expert-cache slab resident. */
+#define DS4_GPU_MELLUM_STREAM_SLABS UINT32_MAX
+/* GPU virtual address of a tensor's first byte (0 if it has no buffer), for address tables. */
+uint64_t ds4_gpu_tensor_gpu_address(const ds4_gpu_tensor *tensor);
+/* S4: decode MoE mid and down for Q8_0 experts reached through per-expert uint64 address tables; bits equal
+ * ds4_gpu_qwen4_moe_mid_tensor / _down_tensor for the same experts, and a zero address writes nothing. */
+int ds4_gpu_qwen4_moe_mid_addr_tensor(
+        ds4_gpu_tensor *mid, const ds4_gpu_tensor *x, const ds4_gpu_tensor *selected,
+        const ds4_gpu_tensor *gate_addrs, const ds4_gpu_tensor *up_addrs,
+        ds4_gpu_tensor *const *resident, uint32_t n_resident,
+        uint32_t weight_type, uint32_t n_total_expert, uint32_t n_tokens, uint32_t n_slots,
+        uint32_t in_dim, uint32_t ff_dim);
+int ds4_gpu_qwen4_moe_down_addr_tensor(
+        ds4_gpu_tensor *part, const ds4_gpu_tensor *mid, const ds4_gpu_tensor *selected,
+        const ds4_gpu_tensor *down_addrs, ds4_gpu_tensor *const *resident, uint32_t n_resident,
+        uint32_t weight_type, uint32_t n_total_expert, uint32_t n_tokens, uint32_t n_slots,
+        uint32_t ff_dim, uint32_t out_dim);
+/* S4: tiled prefill MoE (any Q8 tile level the resident encoder picks) through address tables; bits equal
+ * ds4_gpu_qwen4_moe_mm_mid_tensor / _down_tensor for the same experts and lists. */
+int ds4_gpu_qwen4_moe_mm_mid_addr_tensor(
+        ds4_gpu_tensor *mid, const ds4_gpu_tensor *x, const ds4_gpu_tensor *lists, const ds4_gpu_tensor *counts,
+        const ds4_gpu_tensor *gate_addrs, const ds4_gpu_tensor *up_addrs,
+        ds4_gpu_tensor *const *resident, uint32_t n_resident,
+        uint32_t weight_type, uint32_t n_expert, uint32_t n_tokens, uint32_t n_slots, uint32_t n_out,
+        uint32_t in_dim, uint32_t ff_dim, uint32_t list_cap);
+int ds4_gpu_qwen4_moe_mm_down_addr_tensor(
+        ds4_gpu_tensor *part, const ds4_gpu_tensor *mid, const ds4_gpu_tensor *lists, const ds4_gpu_tensor *counts,
+        const ds4_gpu_tensor *down_addrs, ds4_gpu_tensor *const *resident, uint32_t n_resident,
+        uint32_t weight_type, uint32_t n_expert, uint32_t n_tokens, uint32_t n_slots, uint32_t n_out,
+        uint32_t ff_dim, uint32_t out_dim, uint32_t list_cap);
+/* Host waits taken by ds4_gpu_end_commands since process start. */
+uint64_t ds4_gpu_wait_count(void);
 
 int ds4_gpu_mellum_moe_tensor(
         ds4_gpu_tensor *out, const ds4_gpu_tensor *x, ds4_gpu_tensor *logits,

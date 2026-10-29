@@ -1,0 +1,5 @@
+73d245101ffacc11d6df7155747baa322f25eecfed7cd95d89c023857be7e274  docs/superpowers/research/2026-10-28-mellum-s6-c-prereg/workload-request.json
+a73cd5f77905af04b68d8016fc5986f7fefcdbbbf3e2485632c7b3e709c97e41  /Users/pauleveritt/projects/pauleveritt/mellum-worker-raw-research-2026-10-13/ablation-a21-control.tar.gz
+source: ablation-a21-control/rung6-baseline-mode-guards-r1/trace.jsonl, provider_request index 4 (messages, tools, chat_template_kwargs kept; sampling replaced by the replay client)
+2f34a81791608814feb8e609a28725dac5879c5d2c2eb475eefb12620a73b95a  docs/superpowers/research/2026-10-28-mellum-s6-c-prereg/workload-prompt.txt
+19134e5d2cfc8b82ac4ab1c43f57710d382486d7bdb5ba4217c46afc719032d0  docs/superpowers/research/2026-10-28-mellum-s6-c-prereg/flatten.py
