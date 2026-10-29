@@ -305,7 +305,9 @@ the M5 Max: MXFP4 kernels within tolerance of the double reference; logits agree
 positions (near-ties counted), mean KL <= 2.0e-3 ([logits](docs/superpowers/research/2026-10-28-mellum-s6-b-logits.md));
 Q8_0 unchanged (B/A 0.991/1.000, n=6); streamed MXFP4 at 2.5/3 GiB gives resident ids (n=3), 19.98
 loads/token at 2.5 GiB; resident MXFP4 decodes 1.13-1.20x Q8_0 ([measurement](docs/superpowers/research/2026-10-28-mellum-s6-b-measurement.md)).
-Next: plan C, the M1 iMac bring-up and footprint.
+Phase C's [plan](docs/superpowers/plans/2026-10-28-mellum-s6-c-imac.md) and [preregistration](docs/superpowers/research/2026-10-28-mellum-s6-c-preregistration.md)
+are committed with the iMac kit (`s6-c-prereg/KIT.md`); the M5's reference for the Pi-shaped workload is streamed
+2.5 GiB at 23-24 t/s (n=3). `ds4-server` does not serve Mellum, so the workload runs flattened. Next: the owner's iMac stages.
 
 ## Working rules
 
