@@ -1119,6 +1119,9 @@ int main(void) {
     expect_refused(MF_SHEXP_TENSOR, "ffn_gate_inp_shexp", "a shared-expert tensor present");
     expect_refused(MF_DOWN_Q4K, "ffn_down_exps", "ffn_down_exps not Q8_0");
     expect_refused(MF_UP_Q4K, "ffn_up_exps", "ffn_up_exps not Q8_0");
+    expect_accepted(MF_EXPERTS_MXFP4, "all experts MXFP4");
+    expect_refused(MF_LAYER2_MXFP4, "blk.2.ffn_gate_exps", "one layer MXFP4, the rest Q8_0");
+    expect_refused(MF_DOWN2_MXFP4, "blk.2.ffn_down_exps", "MXFP4 down beside Q8_0 gate/up");
     expect_refused(MF_NO_OUTPUT_NORM, "output_norm.weight", "no output_norm");
     expect_refused(MF_NO_ATTN_Q_NORM, "blk.5.attn_q_norm.weight", "no attn_q_norm in layer 5");
     expect_refused(MF_BAD_ATTN_Q_DIM, "blk.5.attn_q.weight", "attn_q of the wrong width");
