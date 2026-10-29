@@ -3,21 +3,31 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-uint32_t ds4_mellum_stream_slots(uint64_t cache_bytes) {
-    const uint64_t slots = cache_bytes / DS4_MELLUM_EXPERT_BYTES;
+uint64_t ds4_mellum_expert_bytes(uint32_t expert_type) {
+    return expert_type == 8u ? DS4_MELLUM_Q8_EXPERT_BYTES : expert_type == 39u ? DS4_MELLUM_MXFP4_EXPERT_BYTES : 0ull;
+}
+
+uint32_t ds4_mellum_stream_slots(uint64_t cache_bytes, uint64_t expert_bytes) {
+    if (!expert_bytes) return 0;
+    const uint64_t slots = cache_bytes / expert_bytes;
     return slots > UINT32_MAX ? UINT32_MAX : (uint32_t)slots;
 }
 
-int ds4_mellum_stream_config(bool streaming, uint64_t cache_bytes, uint32_t *slots, char *err, size_t n) {
+int ds4_mellum_stream_config(bool streaming, uint64_t cache_bytes, uint64_t expert_bytes, uint32_t *slots,
+                             char *err, size_t n) {
     if (!slots) return -1;
     *slots = 0;
     if (!streaming) return 0;
-    const uint32_t got = ds4_mellum_stream_slots(cache_bytes);
+    if (!expert_bytes) {
+        if (err && n) snprintf(err, n, "Mellum --ssd-streaming: unsupported Mellum expert type");
+        return -1;
+    }
+    const uint32_t got = ds4_mellum_stream_slots(cache_bytes, expert_bytes);
     if (got < DS4_MELLUM_STREAM_MIN_SLOTS) {
         if (err && n) {
             snprintf(err, n, "Mellum --ssd-streaming needs --ssd-streaming-cache-experts of at least %u experts "
                              "(%llu bytes), one layer's 64: got %u", DS4_MELLUM_STREAM_MIN_SLOTS,
-                     (unsigned long long)DS4_MELLUM_STREAM_MIN_SLOTS * DS4_MELLUM_EXPERT_BYTES, got);
+                     (unsigned long long)DS4_MELLUM_STREAM_MIN_SLOTS * expert_bytes, got);
         }
         return -1;
     }

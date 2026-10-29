@@ -74172,16 +74172,18 @@ static int ds4_engine_open_internal(ds4_engine **out,
         if (ds4_model_is_mellum() && e->ssd_streaming) {
             char why[256] = "";
             uint32_t slots = 0;
+            /* S6: a slot is one expert of the file's type, Q8_0 or MXFP4 */
+            const uint64_t expert_bytes = ds4_mellum_expert_bytes(mellum_expert_type(&e->weights, 0));
             const uint64_t want = e->ssd_streaming_cache_bytes ? e->ssd_streaming_cache_bytes :
-                                  (uint64_t)e->ssd_streaming_cache_experts * DS4_MELLUM_EXPERT_BYTES;
-            if (ds4_mellum_stream_config(true, want, &slots, why, sizeof(why)) != 0) {
+                                  (uint64_t)e->ssd_streaming_cache_experts * expert_bytes;
+            if (ds4_mellum_stream_config(true, want, expert_bytes, &slots, why, sizeof(why)) != 0) {
                 fprintf(stderr, "ds4: %s\n", why);
                 ds4_engine_close(e);
                 *out = NULL;
                 return 1;
             }
             e->ssd_streaming_cache_experts = slots;
-            e->ssd_streaming_cache_bytes = (uint64_t)slots * DS4_MELLUM_EXPERT_BYTES;
+            e->ssd_streaming_cache_bytes = (uint64_t)slots * expert_bytes;
             fprintf(stderr, "ds4: Mellum SSD streaming: %u expert slots (%.2f GiB)\n", slots,
                     (double)e->ssd_streaming_cache_bytes / 1073741824.0);
         }

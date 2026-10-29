@@ -7,18 +7,24 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* One routed Q8_0 expert: gate, up and down together. */
-#define DS4_MELLUM_EXPERT_BYTES 6580224ull
+/* One routed expert, gate, up and down together: Q8_0 (GGUF type 8), or MXFP4 (type 39, S6), half the size. */
+#define DS4_MELLUM_Q8_EXPERT_BYTES 6580224ull
+#define DS4_MELLUM_MXFP4_EXPERT_BYTES 3290112ull
+
+/* One expert's bytes for a GGUF tensor type: 8 is Q8_0, 39 is MXFP4, anything else 0. */
+uint64_t ds4_mellum_expert_bytes(uint32_t expert_type);
 
 /* The smallest cache: a prefill chunk can need all 64 of one layer's experts resident at once. */
 #define DS4_MELLUM_STREAM_MIN_SLOTS 64u
 
-/* Slots a cache of cache_bytes holds, rounded down; 0 below one expert. */
-uint32_t ds4_mellum_stream_slots(uint64_t cache_bytes);
+/* Slots of expert_bytes a cache of cache_bytes holds, rounded down; 0 below one expert or when expert_bytes is 0. */
+uint32_t ds4_mellum_stream_slots(uint64_t cache_bytes, uint64_t expert_bytes);
 
-/* Validates a streaming request.  Off: *slots = 0, returns 0.  On: *slots from cache_bytes, or -1 with
- * a message in err when the cache holds fewer than DS4_MELLUM_STREAM_MIN_SLOTS experts.  The whole budget is slots; prefill shares them. */
-int ds4_mellum_stream_config(bool streaming, uint64_t cache_bytes, uint32_t *slots, char *err, size_t n);
+/* Validates a streaming request.  Off: *slots = 0, returns 0.  On: *slots from cache_bytes / expert_bytes, or
+ * -1 with a message in err when expert_bytes is 0 (an unsupported expert type) or the cache holds fewer than
+ * DS4_MELLUM_STREAM_MIN_SLOTS experts.  The whole budget is slots; prefill shares them. */
+int ds4_mellum_stream_config(bool streaming, uint64_t cache_bytes, uint64_t expert_bytes, uint32_t *slots,
+                             char *err, size_t n);
 
 /* Decode stop/resume.  A token runs as one command buffer that stops at its first layer with a missing
  * expert; the host loads that layer's missing experts and resumes at the layer's expert compute (its
