@@ -4,7 +4,7 @@
 #
 #   MX=/path/to/Mellum2.1-12B-A2.5B-Thinking-MXFP4_MOE.gguf OUT=~/s6-c-imac sh <this file> STAGE [ARG]
 #
-#   bringup             C1: build, CPU and kernel tests, the three streamed ds4_test checks, machine facts
+#   bringup             C1: build, CPU and kernel tests (the gate), the three streamed ds4_test checks (recorded), machine facts
 #   cache               C2: the workload once at 3, 2.5 and 2 GiB, apps closed, with vm_stat around each
 #   correct BYTES       C3: decode-mode streamed logits at the chosen cache on the oracle files, vs the M5 reference
 #   footprint closed|open BYTES   C4: three workload runs at the chosen cache (start the background load before "open")
@@ -38,8 +38,11 @@ bringup)
     tools/mellum_machine_facts.sh "$d/machine.txt"
     make test-mellum > "$d/test-mellum.log" 2>&1; echo "test-mellum rc $?" >> "$d/summary.txt"
     make test-mellum-kernels > "$d/test-mellum-kernels.log" 2>&1; echo "test-mellum-kernels rc $?" >> "$d/summary.txt"
+    # recorded, not gated (preregistration C1, amended): these build a resident session, which 8 GB may not hold
     for t in mellum-stream-identity mellum-stream-prefill mellum-stream-faults; do
-        DS4_TEST_MELLUM_MODEL="$MX" ./ds4_test --$t > "$d/ds4_test-$t.log" 2>&1; echo "$t rc $?" >> "$d/summary.txt"
+        echo "swapouts_before $(swapouts)" > "$d/ds4_test-$t.vmstat"
+        DS4_TEST_MELLUM_MODEL="$MX" ./ds4_test --$t > "$d/ds4_test-$t.log" 2>&1; echo "$t rc $? (not a gate)" >> "$d/summary.txt"
+        echo "swapouts_after $(swapouts)" >> "$d/ds4_test-$t.vmstat"
     done
     cat "$d/summary.txt" ;;
 cache)
@@ -55,7 +58,7 @@ correct)
         MELLUM_TRACE_STREAM_BYTES=$b DS4_MELLUM_TRACE="$d/imac.mx.$t" MELLUM_TRACE_SESSION_AT=$pos \
             tests/mellum_trace "$MX" "$tok" decode > "$d/trace-$t.log" 2>&1; echo "trace $t rc $?" >> "$d/summary.txt"
         python3 -I tools/mellum_logits_agree.py "$d/imac.mx.$t" "$REF/m5-decode-resident.mx.$t" "$pos" \
-            > "$d/agree.$t.json" 2>> "$d/summary.txt"
+            > "$d/agree.$t.json" 2>> "$d/summary.txt"; echo "agree $t rc $?" >> "$d/summary.txt"
     done
     cat "$d/summary.txt" ;;
 footprint)

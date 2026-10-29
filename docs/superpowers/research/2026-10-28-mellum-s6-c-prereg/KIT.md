@@ -20,7 +20,8 @@ The rules are in [the preregistration](../2026-10-28-mellum-s6-c-preregistration
 
 Set `MX` and `OUT` first, then run each stage as `MX=… OUT=… sh docs/superpowers/research/2026-10-28-mellum-s6-c-prereg/run_imac.sh STAGE`:
 
-1. **`bringup`** (C1). Stop if any line in `$OUT/bringup/summary.txt` is not `rc 0`.
+1. **`bringup`** (C1). Stop if `make`, `test-mellum` or `test-mellum-kernels` is not `rc 0`. The three
+   `ds4_test` lines are recorded only; on 8 GB they may fail for memory (C1, amended).
 2. **`cache`** (C2), with the apps closed. Pick the cache by the preregistered rule from the three `*.measure.json`
    (`metal_allocated_peak`) and the `*.vmstat` files, and from `tools/mellum_metal_limit`'s line in
    `bringup/machine.txt`.
@@ -28,6 +29,7 @@ Set `MX` and `OUT` first, then run each stage as `MX=… OUT=… sh docs/superpo
 4. **`footprint closed BYTES`** (C4).
 5. **Start the background load:** `sh tools/mellum_background_load.sh ../mellum-demo docs/superpowers/research/2026-10-28-mellum-s6-c-prereg/urls.txt`.
    Wait until it prints `ready`, then run **`footprint open BYTES`**.
-6. **C6, on the M4 Max:** the 27B through `ds4-engine`, on `workload-prompt.txt`, n=3.
+6. **C6, on the M4 Max:** first fix the 27B's exact `ds4-engine` invocation in a dated addendum to the
+   preregistration (C6). Then run it on `workload-prompt.txt`, n=3.
 
 Bring `$OUT` back whole, including failed stages. The agent writes the analysis from those captures alone.
