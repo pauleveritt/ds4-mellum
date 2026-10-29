@@ -235,8 +235,10 @@ exact against resident:
    (C n=3, device-true, exact, no regression at n=6): decode 39.0 t/s median, up 49% from 02; cold first
    token 60.6 s; 29.5 t/s after a 1,905-token append, whose first token took 4.3 s. R's preregistered
    reuse-time check failed, so the per-turn figures are reported, not claimed.
-2. **Layer-major prefill:** read each layer's experts once per prompt, not once per 1,024-row chunk. In
-   02, prefill loaded 334 GB and added about 31 s to the first token. It helps on any machine.
+2. **Layer-major prefill: done.** [Grouped prefill](docs/superpowers/specs/2026-10-28-mellum-s5-layer-major-prefill-design.md),
+   K = 8 chunks per layer pass, streaming only. [Measurement 02](docs/superpowers/research/2026-10-28-mellum-s5-measurement-02.md)
+   (C n=3, device-true, exact, no regression at n=6): cold first token 60.6 → 37.7 s median, prefill loads
+   50,806 → 7,416, Metal 7.94 GiB. The preregistered load ceiling (7,168) was exceeded by 3.5%.
 3. **Fewer stops per token:** hotness for layers that hit, and the eviction policy. Choose on a fresh
    trace, never the held-out -02 trace or ac-demo. After the append, stops rose from 8.7 to 12.7 per
    token. Wait for the M1 Pro's baseline, whose cost per stop
