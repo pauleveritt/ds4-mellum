@@ -33,8 +33,8 @@ The routing is the M5's: 20.8 stops and 21.8 GPU rounds per token, a median of 2
 - **GPU round, 3.7 ms median.** Fit (reads run, 1,405 rounds): 2.1 ms fixed per round plus 2.1 ms per
   executed layer; a round executes 1.28 layers on average. A decode command buffer spends a median 2.9 ms on
   the GPU of 3.7 ms from commit to done (M5: 0.6 of 0.8).
-- **Reads, about 2.7 ms on the critical path.** The read start (0.1 ms), the resumed pass's encode (1.9-2.0
-  ms, which overlaps the reads) and the remaining wait (0.7-0.8 ms median). A read of 1 expert (3.3 MB)
+- **Reads and the resumed pass, about 2.7 ms.** The read start (0.1 ms), the resumed pass's encode (1.9-2.0
+  ms, which overlaps the reads and is needed either way) and the remaining read wait (0.7-0.8 ms median). A read of 1 expert (3.3 MB)
   spans 2.3 ms, about 1.4 GB/s; of 2, 3.4 ms; of 8, 8.5 ms, about 3.1 GB/s. These are the SSD's: 8 GB cannot
   cache the 7 GB file. (The M5's 6-11 GB/s came from its page cache.)
 
@@ -45,11 +45,16 @@ shorter than they are, so cutting it would mostly expose read wait.
 
 ## What this says about the levers (conjecture)
 
-1. **Hide the reads behind the GPU wait.** The read span per stop (2.3-3.4 ms for 1-2 experts) is shorter
-   than a GPU round (3.7 ms). Pre-gating already predicts 7.0 of the next layer's 8 experts (the
-   [M5 screen](2026-10-29-mellum-stream-decode.md)). An asynchronous prefetch issued as a round is committed
-   could remove most of the ~2.7 ms per stop, up to about 55 ms of 180 per token. That is S5 step 4 in the
-   backlog; the iMac makes it the largest single lever.
+1. **Prefetch the next layer's experts, to avoid stops.** Pre-gating already predicts 7.0 of the next layer's
+   8 experts, all 8 in 45.7% of layer pairs (the [M5 screen](2026-10-29-mellum-stream-decode.md)). Hiding a
+   stop's reads alone saves only the exposed wait, about 1.2 ms per stop on average (25-26 ms per token),
+   because the resumed pass must be encoded either way. A prefetch that lands before the GPU reaches the next
+   layer's check avoids that stop entirely, about 6.4 ms. That is S5 step 4 in the backlog; see the
+   [prefetch design](../specs/2026-10-29-mellum-stream-prefetch-design.md).
+
+   **Corrected 2026-10-29, after writing that design.** This item first read: hiding the reads "could remove
+   most of the ~2.7 ms per stop, up to about 55 ms of 180 per token". That counted the resumed pass's encode
+   (about 2 ms per stop) as read time, though it is on the critical path with or without reads.
 2. **The fixed cost of a GPU round, 2.1 ms × 21.8 rounds, about 45 ms per token.** Its parts are not split:
    suppressed-layer dispatches, command-buffer latency (0.8 ms between commit-to-done and GPU span) and the
    gate read. Shorter passes cut the suppressed dispatches; windowed passes lost on the M5, whose costs are
