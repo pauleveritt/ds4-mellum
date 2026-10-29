@@ -1752,6 +1752,13 @@ test-mellum: test-mellum-moe-ref
 clean-mellum-moe-ref:
 	rm -f tests/test_mellum_moe_ref tests/test_mellum_moe_ref.o
 clean: clean-mellum-moe-ref
+# S6: the trace driver's streaming setting (MELLUM_TRACE_STREAM_BYTES), CPU only
+tests/test_mellum_trace_stream: tests/test_mellum_trace_stream.c tests/mellum_trace_context.h
+	$(CC) -std=c99 -O2 -Wall -Wextra -Werror -Itests tests/test_mellum_trace_stream.c -o $@
+.PHONY: test-mellum-trace-stream
+test-mellum-trace-stream: tests/test_mellum_trace_stream
+	./tests/test_mellum_trace_stream
+test-mellum: test-mellum-trace-stream
 # S6: the agreement report between two traced runs (CPU only, in test-mellum), and the llama.cpp logits driver
 # (built only on request: it links Homebrew's libllama; `make test-mellum-llama-logits` also checks its usage errors)
 LLAMA_PREFIX ?= $(shell brew --prefix llama.cpp 2>/dev/null)
