@@ -60989,9 +60989,8 @@ typedef struct {
     int32_t token;
 } mellum_stream_ctx;
 
-static bool mellum_stream_encode(void *ctx, uint32_t from_layer, uint32_t end_layer, bool resume) {
+static bool mellum_stream_encode(void *ctx, uint32_t from_layer, bool resume) {
     mellum_stream_ctx *c = ctx;
-    (void)end_layer;   /* windows: not yet */
     ds4_qwen4_gpu_graph *g = c->g;
     ds4_gpu_tensor *const *s = g->mellum_scratch;
     const ds4_gpu_mellum_rope rope = mellum_rope_params();
@@ -61062,7 +61061,7 @@ static bool mellum_stream_decode(ds4_qwen4_gpu_graph *g, const ds4_model *m, con
                                  float *logits_out) {
     mellum_stream_ctx c = { g, m, w, token };
     const ds4_mellum_stream_ops ops = { &c, mellum_stream_encode, mellum_stream_finish, mellum_stream_load,
-                                        mellum_stream_cancelled, mellum_stream_load_begin, mellum_stream_discard, 0u };
+                                        mellum_stream_cancelled, mellum_stream_load_begin, mellum_stream_discard };
     uint32_t stops = 0;
     const int rc = ds4_mellum_stream_decode(&ops, DS4_N_LAYER, &stops);
     if (ds4_gpu_commands_active()) (void)ds4_gpu_end_commands();

@@ -30,12 +30,9 @@ int ds4_mellum_stream_config(bool streaming, uint64_t cache_bytes, uint64_t expe
  * expert; the host loads that layer's missing experts and resumes at the layer's expert compute (its
  * attention and KV write already ran).  Mellum's expert ids are 0..63. */
 typedef struct { uint32_t layer; uint32_t n_missing; int32_t missing[8]; } ds4_mellum_stream_stop;
-/* encode: from_layer up to end_layer (n_layer: on to the head).  resume_at_experts restores the stopped layer's
- * state and starts at its experts; from_layer 0 without it embeds the token; any other from_layer without it
- * continues from the hidden state the previous pass left on the GPU. */
 typedef struct ds4_mellum_stream_ops {
     void *ctx;
-    bool (*encode)(void *ctx, uint32_t from_layer, uint32_t end_layer, bool resume_at_experts);
+    bool (*encode)(void *ctx, uint32_t from_layer, bool resume_at_experts);
     bool (*finish)(void *ctx, bool *stopped, ds4_mellum_stream_stop *stop);  /* commit, wait, read the gate */
     bool (*load)(void *ctx, uint32_t layer, const int32_t *ids, uint32_t n);  /* returns once resident */
     bool (*cancelled)(void *ctx);
@@ -44,9 +41,6 @@ typedef struct ds4_mellum_stream_ops {
      * an encoded pass uncommitted, when a load fails or the token is cancelled after the encode. */
     bool (*load_begin)(void *ctx, uint32_t layer, const int32_t *ids, uint32_t n);
     void (*discard)(void *ctx);
-    /* Layers per pass: 0 or n_layer and more is the whole token.  A pass that ends without a stop continues at
-     * its end layer; a resumed pass takes a fresh window from its stop layer. */
-    uint32_t window;
 } ds4_mellum_stream_ops;
 enum { DS4_MELLUM_STREAM_OK = 0, DS4_MELLUM_STREAM_LOAD = -1,
        DS4_MELLUM_STREAM_PROTOCOL = -2, DS4_MELLUM_STREAM_CANCELLED = -3, DS4_MELLUM_STREAM_GPU = -4 };
@@ -58,11 +52,6 @@ int ds4_mellum_stream_decode(const ds4_mellum_stream_ops *ops, uint32_t n_layer,
 
 /* Streamed prefill: the distinct experts `rows` rows of top_k ids chose, sorted into out (at most 64).  Returns
  * the count, or UINT32_MAX for an id outside 0..63. */
-/* S5 decode window from DS4_MELLUM_STREAM_DECODE_WINDOW: NULL gives the default; a decimal 1..64 gives itself;
- * anything else 0 (refuse). */
-#define DS4_MELLUM_STREAM_WINDOW_DEFAULT 4u
-uint32_t ds4_mellum_stream_decode_window(const char *env);
-
 uint32_t ds4_mellum_stream_unique(const int32_t *selected, uint32_t rows, uint32_t top_k, int32_t out[64]);
 
 /* S5 grouped layer-major prefill: a streamed sync runs its suffix in groups of K chunks, every layer over
