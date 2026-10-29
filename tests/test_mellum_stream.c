@@ -221,6 +221,32 @@ static void test_unique_rejects_out_of_range(void) {
     CHECK(ds4_mellum_stream_unique(neg, 1u, 8u, out) == UINT32_MAX, "unique: a negative id is refused");
 }
 
+/* S5 grouped layer-major prefill: K from DS4_MELLUM_STREAM_PREFILL_GROUP, 1-64, default 8, else 0 (refuse) */
+static void test_prefill_group_setting(void) {
+    CHECK(ds4_mellum_stream_prefill_group(NULL) == DS4_MELLUM_STREAM_GROUP_DEFAULT &&
+          DS4_MELLUM_STREAM_GROUP_DEFAULT == 8u, "unset must give the default 8");
+    CHECK(ds4_mellum_stream_prefill_group("2") == 2u && ds4_mellum_stream_prefill_group("64") == 64u &&
+          ds4_mellum_stream_prefill_group("1") == 1u, "1, 2 and 64 must be taken as they are");
+    CHECK(ds4_mellum_stream_prefill_group("0") == 0u && ds4_mellum_stream_prefill_group("65") == 0u &&
+          ds4_mellum_stream_prefill_group("") == 0u && ds4_mellum_stream_prefill_group("8x") == 0u &&
+          ds4_mellum_stream_prefill_group("-1") == 0u, "0, 65, empty, 8x and -1 must refuse (0)");
+}
+
+/* rows for the next group: up to k chunks, ending before a one-row last chunk */
+static void test_group_rows(void) {
+    CHECK(ds4_mellum_stream_group_rows(30620, 1024, 8) == 8192u, "30,620 rows at K 8 start with 8 chunks");
+    CHECK(ds4_mellum_stream_group_rows(2200, 1024, 2) == 2048u && ds4_mellum_stream_group_rows(152, 1024, 2) == 152u,
+          "2,200 rows at K 2: 2,048 then 152");
+    CHECK(ds4_mellum_stream_group_rows(1281, 256, 2) == 512u && ds4_mellum_stream_group_rows(257, 256, 2) == 256u &&
+          ds4_mellum_stream_group_rows(1, 256, 2) == 1u, "a one-row last chunk is left out of its group (got %u)",
+          ds4_mellum_stream_group_rows(257, 256, 2));
+    CHECK(ds4_mellum_stream_group_rows(1025, 1024, 8) == 1024u, "1,025 rows: 1,024, then the one-row tail (got %u)",
+          ds4_mellum_stream_group_rows(1025, 1024, 8));
+    CHECK(ds4_mellum_stream_group_rows(2200, 1024, 1) == 1024u, "K 1 is one chunk");
+    CHECK(ds4_mellum_stream_group_rows(0, 1024, 8) == 0u && ds4_mellum_stream_group_rows(5, 0, 8) == 0u &&
+          ds4_mellum_stream_group_rows(5, 1024, 0) == 0u, "no rows, no chunk or no K give 0");
+}
+
 int main(void) {
     test_slots();
     test_config_refuses_zero_cache();
@@ -237,6 +263,8 @@ int main(void) {
     test_stop_cap();
     test_unique_sorted();
     test_unique_rejects_out_of_range();
+    test_prefill_group_setting();
+    test_group_rows();
     printf("%d checks, %d failures\n", g_checks, g_failures);
     return g_failures ? 1 : 0;
 }
