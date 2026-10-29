@@ -17582,10 +17582,21 @@ static uint32_t mellum_prefill_cap(uint32_t ctx, uint32_t requested) {
 
 /* Every GPU tensor of a Mellum session, in allocation order.  Returns the
  * count; out holds MELLUM_MAX_REQS entries. */
+/* S5: K for a streamed Mellum graph of cap_tokens rows: 1 (per chunk) unless streaming with K > 1 and
+ * chunks of two rows or more; one-row chunks all run on the decode path, so they never group. */
+static uint32_t mellum_group_k(uint32_t cap_tokens) {
+#if defined(__APPLE__)
+    return g_mellum_stream_engine && cap_tokens > 1u ? g_mellum_stream_group_k : 1u;
+#else
+    (void)cap_tokens;
+    return 1u;
+#endif
+}
+
 /* S5: the rows of the streamed prefill group buffer a Mellum graph of cap_tokens rows holds (0: none). */
 static uint32_t mellum_group_rows(uint32_t cap_tokens) {
 #if defined(__APPLE__)
-    return g_mellum_stream_engine && g_mellum_stream_group_k > 1u ? g_mellum_stream_group_k * cap_tokens : 0u;
+    return mellum_group_k(cap_tokens) > 1u ? mellum_group_k(cap_tokens) * cap_tokens : 0u;
 #else
     (void)cap_tokens;
     return 0u;
@@ -59505,7 +59516,7 @@ static bool mellum_graph_alloc(ds4_qwen4_gpu_graph *g, uint32_t ctx_cap, uint32_
     g->mellum_moe_nax = nax && !strcmp(nax, "0") ? 0u : 2u;
 #if defined(__APPLE__)
     g->mellum_stream = g_mellum_stream_engine;
-    g->mellum_group_k = g->mellum_stream ? g_mellum_stream_group_k : 1u;
+    g->mellum_group_k = mellum_group_k(cap_tokens);
     g->mellum_stream_resume = UINT32_MAX;
     if (g->mellum_stream) {
         g->mellum_stream_gate = ds4_gpu_stream_gate_create();
