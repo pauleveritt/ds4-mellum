@@ -258,7 +258,7 @@ Exit: whole-machine memory pressure, with an editor, a browser and a couple of a
 target latency on that machine. Native host integration in `../ds4-engine` follows engine correctness and
 measurements; Python owns workflow policy, while C/Rust owns inference-critical scheduling.
 
-### S6 — 8 GB target with MXFP4 experts: reopened, brainstorming
+### S6 — 8 GB target with MXFP4 experts: phase A complete, phase B next
 
 Deferred until 2026-10-28, behind three reopen conditions: a target-class SSD
 read bench, better non-thinking locality, or lower-bit streamed experts.
@@ -293,7 +293,14 @@ Still needed: our own quality and routing-agreement checks against Q8_0, a
 target-class SSD read bench, and an 8 GB memory plan with the measured Metal
 limit. Target machine: an M1 iMac, 8 GB, 1 TB, macOS 27.1. The
 [design](docs/superpowers/specs/2026-10-28-mellum-s6-mxfp4-8gb-design.md)
-is drafted and awaiting the owner's approval.
+was approved on 2026-10-28.
+
+Phase A (CPU only, `7160525..ff22dcc`): the loader opens all-MXFP4 experts
+and refuses mixtures, streamed slots follow the file's expert size, and the
+double reference reads MXFP4. Replay at MXFP4 size (n=1 trace): LRU 69.2
+MB/token at 2.5 GiB ([curve](docs/superpowers/research/2026-10-28-mellum-mxfp4-miss-curve.md)).
+Phase B is [preregistered](docs/superpowers/research/2026-10-28-mellum-s6-b-preregistration.md);
+by the owner's call it runs on the SSD tip, before the S4 merge.
 
 ## Working rules
 
