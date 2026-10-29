@@ -99,6 +99,8 @@ typedef struct {
     ds4_mellum_stream_stop stops[300];
     uint32_t n_stops, next;
     bool load_fails, cancel_after_load, cancelled, begin_fails;
+    uint32_t fail_encode_at;   /* 1-based: that encode fails (0: none) */
+    uint32_t encodes;
     char log[16384];
 } fake_t;
 
@@ -111,7 +113,7 @@ static bool fake_encode(void *ctx, uint32_t from_layer, bool resume_at_experts) 
     char b[32];
     snprintf(b, sizeof(b), "E%u%s ", from_layer, resume_at_experts ? "x" : "");
     fake_log(f, b);
-    return true;
+    return ++f->encodes != f->fail_encode_at;
 }
 
 static bool fake_finish(void *ctx, bool *stopped, ds4_mellum_stream_stop *stop) {
@@ -310,6 +312,22 @@ static void test_overlap_begin_failure_encodes_nothing(void) {
           "overlap: a failed begin returns LOAD and encodes nothing (rc %d, log \"%s\")", rc, f.log);
 }
 
+static void test_overlap_encode_failure_discards(void) {
+    /* a failed encode leaves a partly encoded pass: with discard set it is dropped, never committed */
+    fake_t f = { 0 };
+    f.fail_encode_at = 1u;
+    uint32_t stops;
+    int rc = fake_run_overlap(&f, &stops);
+    CHECK(rc == DS4_MELLUM_STREAM_GPU && !strcmp(f.log, "E0 D "),
+          "overlap: a failed first encode is discarded (rc %d, log \"%s\")", rc, f.log);
+    fake_t g = { 0 };
+    g.fail_encode_at = 2u;
+    fake_stop(&g, 9u, 1u, (const int32_t[]){ 3 });
+    rc = fake_run_overlap(&g, &stops);
+    CHECK(rc == DS4_MELLUM_STREAM_GPU && !strcmp(g.log, "E0 F B9:3 E9x D "),
+          "overlap: a failed resumed encode is discarded (rc %d, log \"%s\")", rc, g.log);
+}
+
 static void test_overlap_needs_discard(void) {
     fake_t f = { 0 };
     const ds4_mellum_stream_ops ops = { &f, fake_encode, fake_finish, fake_load, fake_cancelled, fake_load_begin, NULL };
@@ -387,6 +405,7 @@ int main(void) {
     test_overlap_cancel_discards();
     test_overlap_begin_failure_encodes_nothing();
     test_overlap_needs_discard();
+    test_overlap_encode_failure_discards();
     test_unique_sorted();
     test_unique_rejects_out_of_range();
     test_prefill_group_setting();
