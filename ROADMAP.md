@@ -269,7 +269,7 @@ Exit: whole-machine memory pressure, with an editor, a browser and a couple of a
 target latency on that machine. Native host integration in `../ds4-engine` follows engine correctness and
 measurements; Python owns workflow policy, while C/Rust owns inference-critical scheduling.
 
-### S6 — 8 GB target with MXFP4 experts: phases A-C done, C4 and C6 undecided
+### S6 — 8 GB target with MXFP4 experts: phases A-C done and merged, phase D next
 
 Deferred until 2026-10-28, behind three reopen conditions: a target-class SSD
 read bench, better non-thinking locality, or lower-bit streamed experts.
@@ -324,7 +324,9 @@ reference for the Pi-shaped workload is streamed 2.5 GiB at 40.7 t/s, up from 23
 Phase C [result](docs/superpowers/research/2026-10-28-mellum-s6-c-imac.md) (2026-10-29): C1 and C3 pass; C2's rule
 picks 2 GiB, since 2.5 GiB's Metal peak is 24.8 MB over the limit, which fires the preregistration's design falsifier.
 Apps closed, decode 5.85 t/s (n=3), first token 19.4 s, no swap growth at 2 GiB. C4's apps-open runs (no desktop
-access) and C6 (no M4 Max) were not run, so both are undecided. Next: merge into `mellum` (owner's call).
+access) and C6 (no M4 Max) were not run, so both are undecided. Merged into `mellum` on 2026-10-29 (`c04037c`).
+Next, phase D: the 2.5 GiB fit, then an asynchronous expert prefetch only if an iMac screen clears its bar
+([design](docs/superpowers/specs/2026-10-29-mellum-stream-prefetch-design.md), aim 9 t/s on the iMac).
 
 ## Working rules
 
