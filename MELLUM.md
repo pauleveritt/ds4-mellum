@@ -69,7 +69,8 @@ row, rotated.
 - In every row the three runs give the same 512 ids, and the rows of each file agree with each other.
 - Streamed decode was 23 t/s at 2.5 GiB before that day's cheaper stops
   ([result](docs/superpowers/research/2026-10-29-mellum-stream-decode.md)).
-- Streaming is opt-in (`--ssd-streaming`). Nothing here is measured on a smaller Mac.
+- Streaming is opt-in (`--ssd-streaming`). These rows are the M5's; streamed MXFP4 on an 8 GB M1 iMac is in S6
+  phase C's [result](docs/superpowers/research/2026-10-28-mellum-s6-c-imac.md).
 - The table, its ranges and its commands are in
   [`2026-10-29-mellum-speed-run/`](docs/superpowers/research/2026-10-29-mellum-speed-run/summary.md).
 

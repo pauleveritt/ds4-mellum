@@ -9,9 +9,11 @@ Metal kernels for that shape.
 
 - **Mac only.** Metal on Apple Silicon. CUDA, ROCm, the CPU path and distributed inference are not built or
   tested for Mellum.
-- **Q8_0 only.** The loader accepts JetBrains' Q8_0 file and refuses every other quant, including the Q4_K_M
-  that JetBrains' model card recommends.
-- **One machine measured.** Everything here was run on an Apple M5 Max with 128 GB. Part of the prefill speed
+- **Q8_0 or MXFP4 experts.** The loader accepts JetBrains' Q8_0 file and its `MXFP4_MOE` file (the routed experts
+  in MXFP4, the rest Q8_0), and refuses every other quant, including the Q4_K_M that JetBrains' model card
+  recommends.
+- **Mostly one machine measured.** Everything here was run on an Apple M5 Max with 128 GB, except streamed MXFP4
+  on an 8 GB M1 iMac ([result](docs/superpowers/research/2026-10-28-mellum-s6-c-imac.md)). Part of the prefill speed
   comes from Metal 4 tensor tiles that the port uses only on M5-class chips, so an M4 or earlier is untested and
   will be slower.
 
