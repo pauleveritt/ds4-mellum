@@ -577,6 +577,51 @@ static void test_mellum_session_allocation(void) {
     }
 }
 
+/* S5 grouped prefill (DS4_TEST_MELLUM_MODEL): a streamed session's group buffer, K x 1,024 rows x 2,304 floats, is
+ * in its plan (allocated equals planned) only when K > 1; a K outside 1-64 refuses the streamed engine. */
+static void test_mellum_stream_group_memory(void) {
+    const char *model = getenv("DS4_TEST_MELLUM_MODEL");
+    if (!model || !model[0]) {
+        puts("mellum-stream-group-memory: DS4_TEST_MELLUM_MODEL unset, skipped");
+        return;
+    }
+    char *saved = test_save_env("DS4_MELLUM_STREAM_PREFILL_GROUP");
+    static const struct { const char *k; bool opens; } arms[] = { {"1", true}, {"8", true}, {"0", false}, {"2", true} };
+    uint64_t allocated[2] = {0};
+    for (size_t a = 0; a < sizeof(arms) / sizeof(arms[0]); a++) {
+        setenv("DS4_MELLUM_STREAM_PREFILL_GROUP", arms[a].k, 1);
+        ds4_engine *engine = NULL;
+        ds4_engine_options opt = { .model_path = model, .backend = DS4_BACKEND_METAL, .context_size = 8192,
+                                   .prefill_chunk = 1024, .ssd_streaming = true, .ssd_streaming_cache_bytes = 6ull << 30 };
+        const int rc = ds4_engine_open(&engine, &opt);
+        TEST_ASSERT((rc == 0 && engine) == arms[a].opens);
+        if (!engine) continue;
+        if (a < 2) {
+            /* the session line alone: S4's gate and save buffers (about 0.54 MiB) sit outside the plan, so the
+             * shared helper's live-tensor check does not apply to streamed sessions */
+            test_stderr_capture c = test_stderr_begin();
+            ds4_session *s = NULL;
+            const int src = ds4_session_create(&s, engine, 8192);
+            char *text = test_stderr_end(c);
+            TEST_ASSERT(src == 0 && s != NULL);
+            unsigned long long al = 0, pl = 0;
+            const char *line = text ? strstr(text, "mellum: session allocated ") : NULL;
+            TEST_ASSERT(line && sscanf(line, "mellum: session allocated %llu bytes, planned %llu bytes", &al, &pl) == 2);
+            free(text);
+            if (s) ds4_session_free(s);
+            allocated[a] = al;
+            const uint64_t planned = pl;
+            TEST_ASSERT(allocated[a] == planned);
+            printf("mellum-stream-group-memory: K %s allocated %llu planned %llu\n", arms[a].k,
+                   (unsigned long long)allocated[a], (unsigned long long)planned);
+        }
+        ds4_engine_close(engine);
+    }
+    TEST_ASSERT(allocated[1] - allocated[0] == 75497472ull);
+    printf("mellum-stream-group-memory: K 8 adds %lld bytes\n", (long long)(allocated[1] - allocated[0]));
+    test_restore_env("DS4_MELLUM_STREAM_PREFILL_GROUP", saved);
+}
+
 /* Session rewind (DS4_TEST_MELLUM_MODEL): after a prompt of `len` tokens, decode k tokens recording each step's
  * logits, rewind k, decode the same k again; every step's logits must equal the first pass's, word for word.  One
  * token back keeps both caches (the sliding ring is read before a chunk is committed, so the slot the dropped row
@@ -8180,6 +8225,7 @@ static const ds4_test_entry test_entries[] = {
     {"--mellum-stream-prefill", "mellum-stream-prefill", "S4: Mellum prefill from a bounded expert-slot cache equals resident last-row logits at 2,200 and 31 tokens (DS4_TEST_MELLUM_MODEL)", test_mellum_stream_prefill_identity},
     {"--mellum-stream-faults", "mellum-stream-faults", "S4: a failed streamed load and a cancellation end the eval and a re-sync recovers resident logits (DS4_TEST_MELLUM_MODEL)", test_mellum_stream_faults},
     {"--mellum-stream-close", "mellum-stream-close", "S4: ds4_engine_close(NULL) leaves an open streamed engine's descriptor and its loads working (DS4_TEST_MELLUM_MODEL)", test_mellum_stream_close_null},
+    {"--mellum-stream-group-memory", "mellum-stream-group-memory", "S5: the streamed prefill group buffer is planned and allocated only for K > 1, and a bad K refuses (DS4_TEST_MELLUM_MODEL)", test_mellum_stream_group_memory},
     {"--mellum-rewind", "mellum-rewind", "Mellum session rewind: one token keeps the caches, deeper replays; logits equal a straight decode (DS4_TEST_MELLUM_MODEL)", test_mellum_rewind},
     {"--mellum-moe", "mellum-moe", "Mellum MoE driver on the real model's layers against a double reference (DS4_TEST_MELLUM_MODEL)", test_mellum_moe_real},
     {"--qwen4-restore-reuse", "qwen4-restore-reuse", "Qwen restore discards old verifier state and rejects truncated payloads", test_qwen_restore_reused_session},
