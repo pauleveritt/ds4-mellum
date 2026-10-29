@@ -258,7 +258,7 @@ Exit: whole-machine memory pressure, with an editor, a browser and a couple of a
 target latency on that machine. Native host integration in `../ds4-engine` follows engine correctness and
 measurements; Python owns workflow policy, while C/Rust owns inference-critical scheduling.
 
-### S6 — 8 GB target with MXFP4 experts: phase A complete, phase B next
+### S6 — 8 GB target with MXFP4 experts: phases A and B complete, phase C (iMac) next
 
 Deferred until 2026-10-28, behind three reopen conditions: a target-class SSD
 read bench, better non-thinking locality, or lower-bit streamed experts.
@@ -299,8 +299,13 @@ Phase A (CPU only, `7160525..ff22dcc`): the loader opens all-MXFP4 experts
 and refuses mixtures, streamed slots follow the file's expert size, and the
 double reference reads MXFP4. Replay at MXFP4 size (n=1 trace): LRU 69.2
 MB/token at 2.5 GiB ([curve](docs/superpowers/research/2026-10-28-mellum-mxfp4-miss-curve.md)).
-Phase B is [preregistered](docs/superpowers/research/2026-10-28-mellum-s6-b-preregistration.md);
-by the owner's call it runs on the SSD tip, before the S4 merge.
+Phase B ([plan](docs/superpowers/plans/2026-10-28-mellum-s6-b-m5.md), on the SSD tip by the owner's
+call) passes its [preregistration](docs/superpowers/research/2026-10-28-mellum-s6-b-preregistration.md) on
+the M5 Max: MXFP4 kernels within tolerance of the double reference; logits agree with llama.cpp on 157/157
+positions (near-ties counted), mean KL <= 2.0e-3 ([logits](docs/superpowers/research/2026-10-28-mellum-s6-b-logits.md));
+Q8_0 unchanged (B/A 0.991/1.000, n=6); streamed MXFP4 at 2.5/3 GiB gives resident ids (n=3), 19.98
+loads/token at 2.5 GiB; resident MXFP4 decodes 1.13-1.20x Q8_0 ([measurement](docs/superpowers/research/2026-10-28-mellum-s6-b-measurement.md)).
+Next: plan C, the M1 iMac bring-up and footprint.
 
 ## Working rules
 
