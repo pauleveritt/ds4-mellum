@@ -38,6 +38,18 @@ first):**
 - **The kit now requires Python 3.10 or later.** The rerun with it is a new run in its own `$OUT`, reported
   beside the first. No source, input or pass rule changed.
 
+**Note 2026-10-29 12:19, after C4's apps-closed runs and before C4's apps-open runs or any C6 run:**
+- **C4's apps-open runs will not be run (owner's decision).** The background load needs PyCharm and Safari
+  on the iMac's desktop, and the owner has no desktop access to it.
+- **So C4 is not decided, and C5 has only its apps-closed half.**
+- **C6 still runs as fixed in the 07:23 addendum,** but it is compared with the apps-closed median (the owner
+  reported 5.90 t/s, n=3; the analysis recomputes it from the captures).
+- **The reasoning, an assumption that is not measured:** a background load can only take memory and GPU time
+  from decode, so the apps-open median would not exceed the apps-closed one.
+  - **If the 27B's median is at or above the apps-closed median,** the design is falsified as the
+    preregistration states it.
+  - **If it is below,** C6 is undecided, since the apps-open runs might still have fallen under it.
+
 **Honesty header.**
 - **Fixed in advance:** the inputs, the cache choice rule, and the pass rules.
 - **Measured:** one 8 GB M1 iMac (macOS 27.1), n stated per item.
