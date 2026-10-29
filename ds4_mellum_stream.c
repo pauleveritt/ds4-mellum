@@ -35,25 +35,36 @@ int ds4_mellum_stream_config(bool streaming, uint64_t cache_bytes, uint64_t expe
     return 0;
 }
 
+/* The end of a pass from `from`: `window` layers on, or the head. */
+static uint32_t stream_window_end(uint32_t from, uint32_t window, uint32_t n_layer) {
+    return window == 0 || window >= n_layer - from ? n_layer : from + window;
+}
+
 int ds4_mellum_stream_decode(const ds4_mellum_stream_ops *ops, uint32_t n_layer, uint32_t *stops) {
     if (!ops || !ops->encode || !ops->finish || !ops->load || !ops->cancelled || !stops || n_layer == 0 ||
         (ops->load_begin && !ops->discard)) {
         return DS4_MELLUM_STREAM_PROTOCOL;
     }
     *stops = 0;
-    uint32_t layer = 0;
+    uint32_t layer = 0, end = stream_window_end(0, ops->window, n_layer);
     uint64_t loaded_here = 0;  /* experts loaded at `layer` since the first stop there */
     bool resume = false, encoded = false;
     for (;;) {
         bool stopped = false;
         ds4_mellum_stream_stop stop;
-        if ((!encoded && !ops->encode(ops->ctx, layer, n_layer, resume)) || !ops->finish(ops->ctx, &stopped, &stop)) {
+        if ((!encoded && !ops->encode(ops->ctx, layer, end, resume)) || !ops->finish(ops->ctx, &stopped, &stop)) {
             return DS4_MELLUM_STREAM_GPU;
         }
         encoded = false;
-        if (!stopped) return DS4_MELLUM_STREAM_OK;
-        if (*stops >= n_layer * 8u || stop.layer >= n_layer || stop.n_missing == 0 || stop.n_missing > 8u ||
-            (resume && stop.layer < layer)) {
+        if (!stopped) {
+            if (end == n_layer) return DS4_MELLUM_STREAM_OK;
+            layer = end;   /* the window ran through: continue from the hidden state it left */
+            end = stream_window_end(layer, ops->window, n_layer);
+            resume = false;
+            continue;
+        }
+        if (*stops >= n_layer * 8u || stop.layer >= end || stop.n_missing == 0 || stop.n_missing > 8u ||
+            stop.layer < layer) {
             return DS4_MELLUM_STREAM_PROTOCOL;
         }
         uint64_t missing = 0;
@@ -67,10 +78,11 @@ int ds4_mellum_stream_decode(const ds4_mellum_stream_ops *ops, uint32_t n_layer,
             loaded_here = 0;
         }
         (*stops)++;
+        const uint32_t next_end = stream_window_end(stop.layer, ops->window, n_layer);
         if (ops->load_begin) {
             /* the reads run while the resumed pass is encoded; the pass is committed only once they finish */
             if (!ops->load_begin(ops->ctx, stop.layer, stop.missing, stop.n_missing)) return DS4_MELLUM_STREAM_LOAD;
-            if (!ops->encode(ops->ctx, stop.layer, n_layer, true)) {
+            if (!ops->encode(ops->ctx, stop.layer, next_end, true)) {
                 ops->discard(ops->ctx);
                 return DS4_MELLUM_STREAM_GPU;
             }
@@ -89,6 +101,7 @@ int ds4_mellum_stream_decode(const ds4_mellum_stream_ops *ops, uint32_t n_layer,
         }
         loaded_here |= missing;
         layer = stop.layer;
+        end = next_end;
         resume = true;
     }
 }
@@ -122,6 +135,9 @@ uint32_t ds4_mellum_stream_group_rows(uint32_t remaining, uint32_t cap, uint32_t
 }
 
 uint32_t ds4_mellum_stream_decode_window(const char *env) {
-    (void)env;
-    return 0u;   /* not yet */
+    if (!env) return DS4_MELLUM_STREAM_WINDOW_DEFAULT;
+    if (env[0] < '0' || env[0] > '9') return 0;
+    char *end = NULL;
+    const unsigned long w = strtoul(env, &end, 10);
+    return *end == 0 && w >= 1ul && w <= 64ul ? (uint32_t)w : 0u;
 }
