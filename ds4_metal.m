@@ -16519,6 +16519,26 @@ static void ds4_gpu_stream_expert_pending_load_release_buffers(
     }
 }
 
+/* A load that will not be installed: return the slab slots its prepared buffers took to the free list (a slot
+ * comes from the free list, a new slab or an evicted victim; no entry holds it yet), then drop the buffers.  Only for
+ * loads none of whose experts were installed. */
+static void ds4_gpu_stream_expert_pending_load_abandon(ds4_gpu_stream_expert_pending_load *p) {
+    if (!p) return;
+    for (uint32_t i = 0; i < DS4_METAL_STREAM_EXPERT_CACHE_MAX_SELECTED; i++) {
+        uint32_t slot = 0;
+        if (p->gate_bufs[i] &&
+            ds4_gpu_stream_expert_slab_slot_for_buffer(p->gate_bufs[i], p->gate_inners[i], &slot)) {
+            ds4_gpu_stream_expert_slab_push_free_slot(slot);
+        }
+    }
+    ds4_gpu_stream_expert_pending_load_release_buffers(p);
+}
+
+static int ds4_gpu_stream_expert_pending_load_reads_ok(const ds4_gpu_stream_expert_pending_load *p) {
+    for (uint32_t i = 0; i < p->n_tasks; i++) if (!p->tasks[i].ok) return 0;
+    return 1;
+}
+
 static int ds4_gpu_stream_expert_pending_load_install(
         ds4_gpu_stream_expert_pending_load *p,
         ds4_gpu_stream_expert_cache_entry *entries[DS4_METAL_STREAM_EXPERT_CACHE_MAX_SELECTED],
@@ -16606,12 +16626,19 @@ static int ds4_gpu_stream_expert_pending_load_finish(
 
     const double start_ms = p->start_ms;
     if (!ds4_gpu_stream_expert_pread_pool_wait()) {
-        ds4_gpu_stream_expert_pending_load_release_buffers(p);
+        ds4_gpu_stream_expert_pending_load_abandon(p);
         p->active = 0;
         return 0;
     }
     const double elapsed_ms = ds4_gpu_now_ms() - start_ms;
     p->active = 0;
+    if (!ds4_gpu_stream_expert_pending_load_reads_ok(p)) {
+        ds4_gpu_stream_expert_pending_load_abandon(p);
+        p->n_tasks = 0;
+        p->n_loads = 0;
+        p->prepare_ms = 0.0;
+        return 0;
+    }
     const int ok = ds4_gpu_stream_expert_pending_load_install(p,
                                                               entries,
                                                               elapsed_ms);
@@ -16871,7 +16898,7 @@ int ds4_gpu_stream_expert_cache_begin_selected_load(
                         ds4_gpu_now_ms() - buffer_t0);
             }
             if (!prepared) {
-                ds4_gpu_stream_expert_pending_load_release_buffers(p);
+                ds4_gpu_stream_expert_pending_load_abandon(p);
                 return 0;
             }
         }
@@ -16885,7 +16912,7 @@ int ds4_gpu_stream_expert_cache_begin_selected_load(
         uint8_t *down_dst = (uint8_t *)[p->down_bufs[load_i] contents] +
                              p->down_inners[load_i];
         if (!gate_dst || !up_dst || !down_dst) {
-            ds4_gpu_stream_expert_pending_load_release_buffers(p);
+            ds4_gpu_stream_expert_pending_load_abandon(p);
             return 0;
         }
         const double task_t0 = load_timing ? ds4_gpu_now_ms() : 0.0;
@@ -16937,8 +16964,9 @@ int ds4_gpu_stream_expert_cache_begin_selected_load(
     if (!ds4_gpu_stream_expert_pread_tasks(p->tasks,
                                            p->n_tasks,
                                            &read_bytes,
-                                           &read_ms)) {
-        ds4_gpu_stream_expert_pending_load_release_buffers(p);
+                                           &read_ms) ||
+        !ds4_gpu_stream_expert_pending_load_reads_ok(p)) {
+        ds4_gpu_stream_expert_pending_load_abandon(p);
         return 0;
     }
     (void)read_bytes;
