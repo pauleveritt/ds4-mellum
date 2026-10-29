@@ -1,0 +1,246 @@
+{
+ "a": "docs/superpowers/research/2026-10-28-mellum-s6-b-evidence/logits/raw/ours.mx.short",
+ "b": "docs/superpowers/research/2026-10-28-mellum-s6-b-evidence/logits/raw/llama.mx.short",
+ "neartie": 0.75,
+ "n": 29,
+ "positions": [
+  {
+   "kl": 1.0580219074185133e-06,
+   "top1_equal": true,
+   "near_tie": false,
+   "top1_a": 60,
+   "top1_b": 60,
+   "position": 0
+  },
+  {
+   "kl": 2.9662076284813724e-06,
+   "top1_equal": true,
+   "near_tie": false,
+   "top1_a": 1397,
+   "top1_b": 1397,
+   "position": 1
+  },
+  {
+   "kl": 5.042293692765469e-06,
+   "top1_equal": true,
+   "near_tie": false,
+   "top1_a": 117,
+   "top1_b": 117,
+   "position": 2
+  },
+  {
+   "kl": 3.6596182773848225e-06,
+   "top1_equal": true,
+   "near_tie": false,
+   "top1_a": 445,
+   "top1_b": 445,
+   "position": 3
+  },
+  {
+   "kl": 0.0017800653226114165,
+   "top1_equal": true,
+   "near_tie": false,
+   "top1_a": 255,
+   "top1_b": 255,
+   "position": 4
+  },
+  {
+   "kl": 3.0304406442889326e-06,
+   "top1_equal": true,
+   "near_tie": false,
+   "top1_a": 99,
+   "top1_b": 99,
+   "position": 5
+  },
+  {
+   "kl": 0.00174324862396904,
+   "top1_equal": true,
+   "near_tie": false,
+   "top1_a": 8478,
+   "top1_b": 8478,
+   "position": 6
+  },
+  {
+   "kl": 3.9885958791198435e-05,
+   "top1_equal": true,
+   "near_tie": false,
+   "top1_a": 16833,
+   "top1_b": 16833,
+   "position": 7
+  },
+  {
+   "kl": 3.053689195723032e-05,
+   "top1_equal": true,
+   "near_tie": false,
+   "top1_a": 48,
+   "top1_b": 48,
+   "position": 8
+  },
+  {
+   "kl": 0.000822901285373535,
+   "top1_equal": true,
+   "near_tie": false,
+   "top1_a": 1718,
+   "top1_b": 1718,
+   "position": 9
+  },
+  {
+   "kl": 2.397821364346111e-06,
+   "top1_equal": true,
+   "near_tie": false,
+   "top1_a": 233,
+   "top1_b": 233,
+   "position": 10
+  },
+  {
+   "kl": 0.004951714713772304,
+   "top1_equal": true,
+   "near_tie": false,
+   "top1_a": 233,
+   "top1_b": 233,
+   "position": 11
+  },
+  {
+   "kl": 0.008295176870904307,
+   "top1_equal": false,
+   "near_tie": true,
+   "top1_a": 895,
+   "top1_b": 233,
+   "position": 12
+  },
+  {
+   "kl": 1.4878623387885307e-06,
+   "top1_equal": true,
+   "near_tie": false,
+   "top1_a": 233,
+   "top1_b": 233,
+   "position": 13
+  },
+  {
+   "kl": 2.287638827097827e-06,
+   "top1_equal": true,
+   "near_tie": false,
+   "top1_a": 3969,
+   "top1_b": 3969,
+   "position": 14
+  },
+  {
+   "kl": 3.2115721100224664e-06,
+   "top1_equal": true,
+   "near_tie": false,
+   "top1_a": 255,
+   "top1_b": 255,
+   "position": 15
+  },
+  {
+   "kl": 5.051579857609565e-08,
+   "top1_equal": true,
+   "near_tie": false,
+   "top1_a": 99,
+   "top1_b": 99,
+   "position": 16
+  },
+  {
+   "kl": 8.18537236707943e-06,
+   "top1_equal": true,
+   "near_tie": false,
+   "top1_a": 2717,
+   "top1_b": 2717,
+   "position": 17
+  },
+  {
+   "kl": 8.160617925811228e-09,
+   "top1_equal": true,
+   "near_tie": false,
+   "top1_a": 12619,
+   "top1_b": 12619,
+   "position": 18
+  },
+  {
+   "kl": 5.396511905317433e-06,
+   "top1_equal": true,
+   "near_tie": false,
+   "top1_a": 901,
+   "top1_b": 901,
+   "position": 19
+  },
+  {
+   "kl": 3.807374766662225e-06,
+   "top1_equal": true,
+   "near_tie": false,
+   "top1_a": 255,
+   "top1_b": 255,
+   "position": 20
+  },
+  {
+   "kl": 6.5830570079259384e-06,
+   "top1_equal": true,
+   "near_tie": false,
+   "top1_a": 48,
+   "top1_b": 48,
+   "position": 21
+  },
+  {
+   "kl": 3.1352762403864686e-06,
+   "top1_equal": true,
+   "near_tie": false,
+   "top1_a": 15205,
+   "top1_b": 15205,
+   "position": 22
+  },
+  {
+   "kl": 9.406294298487448e-06,
+   "top1_equal": true,
+   "near_tie": false,
+   "top1_a": 233,
+   "top1_b": 233,
+   "position": 23
+  },
+  {
+   "kl": 1.1033703925026808e-05,
+   "top1_equal": true,
+   "near_tie": false,
+   "top1_a": 233,
+   "top1_b": 233,
+   "position": 24
+  },
+  {
+   "kl": 1.2613709196157539e-05,
+   "top1_equal": true,
+   "near_tie": false,
+   "top1_a": 23,
+   "top1_b": 23,
+   "position": 25
+  },
+  {
+   "kl": 0.0002596795873771473,
+   "top1_equal": true,
+   "near_tie": false,
+   "top1_a": 307,
+   "top1_b": 307,
+   "position": 26
+  },
+  {
+   "kl": 6.413348292527426e-07,
+   "top1_equal": true,
+   "near_tie": false,
+   "top1_a": 23,
+   "top1_b": 23,
+   "position": 27
+  },
+  {
+   "kl": 5.260192009143966e-10,
+   "top1_equal": true,
+   "near_tie": false,
+   "top1_a": 23,
+   "top1_b": 23,
+   "position": 28
+  }
+ ],
+ "mean_kl": 0.0006210073299489231,
+ "worst_kl": 0.008295176870904307,
+ "worst_position": 12,
+ "top1_equal": 28,
+ "agree": 29,
+ "agree_rate": 1.0
+}

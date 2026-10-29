@@ -154,3 +154,4 @@ __pycache__/
 /tools/mellum_s4_measure
 /tools/mellum_llama_logits
 /tests/test_mellum_moe_ref
+/docs/superpowers/research/2026-10-28-mellum-s6-b-evidence/*/raw/
