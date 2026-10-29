@@ -177,6 +177,8 @@ int ds4_gpu_tensor_read_after_selected_event(const ds4_gpu_tensor *tensor,
                                              const char *label);
 #endif
 int ds4_gpu_end_commands(void);
+/* Drops the open command batch without committing it: none of its work runs.  No-op without one. */
+void ds4_gpu_discard_commands(void);
 int ds4_gpu_synchronize(void);
 
 int ds4_gpu_set_model_map(const void *model_map, uint64_t model_size);
@@ -3832,6 +3834,10 @@ void ds4_gpu_mellum_stream_set_readahead(bool enabled);
 int ds4_gpu_mellum_stream_layer_tables(uint32_t layer, ds4_gpu_tensor **gate, ds4_gpu_tensor **up, ds4_gpu_tensor **down);
 /* load takes up to 64 ids (a prefill chunk's layer) and fails if the cache cannot hold them all at once. */
 int ds4_gpu_mellum_stream_load(const ds4_gpu_stream_expert_table *t, const int32_t *ids, uint32_t n, uint32_t *n_loaded);
+/* load_begin: start the reads of a load that ds4_gpu_mellum_stream_load will make as one group (at most 8 ids), and
+ * return before they finish; the later load with the same ids, in order, finishes them and publishes the addresses.
+ * More ids, or DS4_METAL_DISABLE_STREAMING_EXPERT_EARLY_LOAD, start nothing and leave the whole load to load. */
+int ds4_gpu_mellum_stream_load_begin(const ds4_gpu_stream_expert_table *t, const int32_t *ids, uint32_t n);
 int ds4_gpu_mellum_stream_check_tensor(ds4_gpu_tensor *gate, const ds4_gpu_tensor *selected,
                                        const ds4_gpu_tensor *weights, const ds4_gpu_tensor *attn_res,
                                        const ds4_gpu_tensor *ffn_norm, ds4_gpu_tensor *save,

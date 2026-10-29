@@ -61035,6 +61035,23 @@ static bool mellum_stream_load(void *ctx, uint32_t layer, const int32_t *ids, ui
     return mellum_stream_load_ids(c->m, &c->w->layer[layer], layer, ids, n, &c->g->mellum_stream_loads);
 }
 
+/* Starts the stop's reads (the load that follows finishes them); see ds4_gpu_mellum_stream_load_begin. */
+static bool mellum_stream_load_begin(void *ctx, uint32_t layer, const int32_t *ids, uint32_t n) {
+    mellum_stream_ctx *c = ctx;
+    const ds4_layer_weights *l = &c->w->layer[layer];
+    uint64_t gate_bytes = 0, down_bytes = 0;
+    if (!streaming_layer_gate_down_expert_bytes(l, &gate_bytes, &down_bytes)) return false;
+    const ds4_gpu_stream_expert_table table = graph_stream_expert_table_make(c->m, l, layer, gate_bytes, down_bytes);
+    return ds4_gpu_mellum_stream_load_begin(&table, ids, n) != 0;
+}
+
+/* Drops an encoded resumed pass whose experts did not load, or whose token was cancelled: it must not run. */
+static void mellum_stream_discard(void *ctx) {
+    (void)ctx;
+    ds4_gpu_discard_commands();
+    (void)ds4_gpu_stream_gate_bind(NULL);
+}
+
 static bool mellum_stream_cancelled(void *ctx) {
     const ds4_qwen4_gpu_graph *g = ((mellum_stream_ctx *)ctx)->g;
     return g->mellum_stream_cancel && g->mellum_stream_cancel(g->mellum_stream_cancel_ud);
@@ -61044,7 +61061,7 @@ static bool mellum_stream_decode(ds4_qwen4_gpu_graph *g, const ds4_model *m, con
                                  float *logits_out) {
     mellum_stream_ctx c = { g, m, w, token };
     const ds4_mellum_stream_ops ops = { &c, mellum_stream_encode, mellum_stream_finish, mellum_stream_load,
-                                        mellum_stream_cancelled, NULL, NULL };
+                                        mellum_stream_cancelled, mellum_stream_load_begin, mellum_stream_discard };
     uint32_t stops = 0;
     const int rc = ds4_mellum_stream_decode(&ops, DS4_N_LAYER, &stops);
     if (ds4_gpu_commands_active()) (void)ds4_gpu_end_commands();

@@ -11600,6 +11600,15 @@ int ds4_gpu_end_commands(void) {
     return ds4_gpu_finish_command_buffer(cb, 1, "command batch");
 }
 
+void ds4_gpu_discard_commands(void) {
+    ds4_gpu_parallel_ffn_reset_state(YES);
+    if (!g_batch_cb) return;
+    ds4_gpu_close_batch_encoder();
+    g_batch_cb = nil;   /* never committed: released with none of its work run */
+    g_batch_has_work = NO;
+    g_stream_expert_cache_batch_seq = 0;
+}
+
 static int ds4_gpu_flash_attn_stage_profile_boundary(
         id<MTLCommandBuffer> __strong *cbp,
         const char           *mode,
@@ -51396,6 +51405,18 @@ int ds4_gpu_mellum_stream_load(const ds4_gpu_stream_expert_table *t, const int32
     }
     if (n_loaded) *n_loaded = loaded;
     return 1;
+}
+
+int ds4_gpu_mellum_stream_load_begin(const ds4_gpu_stream_expert_table *t, const int32_t *ids, uint32_t n) {
+    if (!g_ssd_streaming_mode || !t || !ids || n == 0 || n > 64u || !t->model_map) return 0;
+    if (n > DS4_METAL_MAX_ROUTED_EXPERT_USED) return 1;   /* load splits these into groups: no single group to match */
+    if (!ds4_gpu_stream_expert_cache_ensure_addr_buffers(t->layer)) return 0;
+    g_mellum_stream_protect_layer = t->layer;
+    memcpy(g_mellum_stream_protect_ids, ids, (size_t)n * sizeof(int32_t));
+    g_mellum_stream_protect_n = n;
+    const int ok = ds4_gpu_stream_expert_cache_begin_selected_load(t, ids, n);
+    g_mellum_stream_protect_n = 0;
+    return ok;
 }
 
 static id<MTLComputePipelineState> g_mellum_stream_check_pipeline, g_mellum_stream_restore_pipeline;
