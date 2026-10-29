@@ -16981,6 +16981,28 @@ int ds4_gpu_stream_expert_cache_begin_selected_load(
     return 1;
 }
 
+/* A synchronous load that fails before installing: return the slab slots its prepared buffers took and those of the
+ * victims take_reusable_batch handed over but the load had not reached yet (neither is held by an entry; see
+ * ds4_gpu_stream_expert_pending_load_abandon).  Non-slab buffers are skipped. */
+static void ds4_gpu_stream_expert_abandon_slots(
+        __strong id<MTLBuffer> *gate_bufs,
+        const NSUInteger *gate_inners,
+        const ds4_gpu_stream_expert_reusable_buffers *batch_reuse,
+        uint32_t batch_reuse_count) {
+    for (uint32_t i = 0; i < DS4_METAL_STREAM_EXPERT_CACHE_MAX_SELECTED; i++) {
+        id<MTLBuffer> b = gate_bufs[i];
+        NSUInteger inner = gate_inners[i];
+        if (!b && i < batch_reuse_count) {
+            b = batch_reuse[i].gate_buffer;
+            inner = batch_reuse[i].gate_inner;
+        }
+        uint32_t slot = 0;
+        if (b && ds4_gpu_stream_expert_slab_slot_for_buffer(b, inner, &slot)) {
+            ds4_gpu_stream_expert_slab_push_free_slot(slot);
+        }
+    }
+}
+
 static int ds4_gpu_stream_expert_cache_load_selected_missing_with_source(
         const void    *model_map,
         uint64_t       model_size,
@@ -17191,14 +17213,14 @@ static int ds4_gpu_stream_expert_cache_load_selected_missing_with_source(
                         ds4_gpu_now_ms() - buffer_t0);
             }
             if (!prepared) {
-                return 0;
+                { ds4_gpu_stream_expert_abandon_slots(gate_bufs, gate_inners, batch_reuse, batch_reuse_count); return 0; }
             }
         }
         if (!force_reuse && reserved_entries < UINT32_MAX) {
             reserved_entries++;
         }
         if (!gate_bufs[load_i] || !up_bufs[load_i] || !down_bufs[load_i]) {
-            return 0;
+            { ds4_gpu_stream_expert_abandon_slots(gate_bufs, gate_inners, batch_reuse, batch_reuse_count); return 0; }
         }
 
         uint8_t *gate_dst = (uint8_t *)[gate_bufs[load_i] contents] +
@@ -17207,7 +17229,7 @@ static int ds4_gpu_stream_expert_cache_load_selected_missing_with_source(
                            up_inners[load_i];
         uint8_t *down_dst = (uint8_t *)[down_bufs[load_i] contents] +
                              down_inners[load_i];
-        if (!gate_dst || !up_dst || !down_dst) return 0;
+        if (!gate_dst || !up_dst || !down_dst) { ds4_gpu_stream_expert_abandon_slots(gate_bufs, gate_inners, batch_reuse, batch_reuse_count); return 0; }
         if (gpu_copy_source &&
             (gate_abs_offsets[slot] > model_size ||
              gate_expert_bytes > model_size - gate_abs_offsets[slot] ||
@@ -17217,7 +17239,7 @@ static int ds4_gpu_stream_expert_cache_load_selected_missing_with_source(
              down_expert_bytes > model_size - down_abs_offsets[slot])) {
             fprintf(stderr,
                     "ds4: Metal streaming mapped expert source is outside the model mapping\n");
-            return 0;
+            { ds4_gpu_stream_expert_abandon_slots(gate_bufs, gate_inners, batch_reuse, batch_reuse_count); return 0; }
         }
         const double task_t0 = load_timing ? ds4_gpu_now_ms() : 0.0;
         tasks[n_tasks++] = (ds4_gpu_stream_expert_pread_task) {
@@ -17255,7 +17277,7 @@ static int ds4_gpu_stream_expert_cache_load_selected_missing_with_source(
         if (!g_batch_cb ||
             gate_expert_bytes > (uint64_t)NSUIntegerMax ||
             down_expert_bytes > (uint64_t)NSUIntegerMax) {
-            return 0;
+            { ds4_gpu_stream_expert_abandon_slots(gate_bufs, gate_inners, batch_reuse, batch_reuse_count); return 0; }
         }
         __strong id<MTLBuffer> gate_srcs[DS4_METAL_STREAM_EXPERT_CACHE_MAX_SELECTED];
         __strong id<MTLBuffer> up_srcs[DS4_METAL_STREAM_EXPERT_CACHE_MAX_SELECTED];
@@ -17287,7 +17309,7 @@ static int ds4_gpu_stream_expert_cache_load_selected_missing_with_source(
                 gate_inner > (uint64_t)NSUIntegerMax ||
                 up_inner > (uint64_t)NSUIntegerMax ||
                 down_inner > (uint64_t)NSUIntegerMax) {
-                return 0;
+                { ds4_gpu_stream_expert_abandon_slots(gate_bufs, gate_inners, batch_reuse, batch_reuse_count); return 0; }
             }
             gate_src_inners[load_i] = (NSUInteger)gate_inner;
             up_src_inners[load_i] = (NSUInteger)up_inner;
@@ -17296,7 +17318,7 @@ static int ds4_gpu_stream_expert_cache_load_selected_missing_with_source(
 
         ds4_gpu_close_batch_encoder();
         id<MTLBlitCommandEncoder> blit = ds4_gpu_blit_encoder(g_batch_cb, "expert_cache_fill", n_loads * 3u);
-        if (!blit) return 0;
+        if (!blit) { ds4_gpu_stream_expert_abandon_slots(gate_bufs, gate_inners, batch_reuse, batch_reuse_count); return 0; }
         for (uint32_t load_i = 0; load_i < n_loads; load_i++) {
             [blit copyFromBuffer:gate_srcs[load_i]
                     sourceOffset:gate_src_inners[load_i]
@@ -17327,7 +17349,7 @@ static int ds4_gpu_stream_expert_cache_load_selected_missing_with_source(
                                                &read_bytes,
                                                &read_ms);
     }
-    if (!ok) return 0;
+    if (!ok) { ds4_gpu_stream_expert_abandon_slots(gate_bufs, gate_inners, batch_reuse, batch_reuse_count); return 0; }
     if (load_timing) {
         load_t0 = ds4_gpu_now_ms();
     }
