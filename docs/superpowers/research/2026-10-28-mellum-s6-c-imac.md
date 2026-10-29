@@ -40,6 +40,13 @@ bring-ups, as the preregistration allowed on 8 GB. The logs show memory failures
 So those tests compared against a reference that was never produced. That is a reading of the logs; it was
 not diagnosed further. On this machine C3 is the correctness gate, and it passed.
 
+**Added 2026-10-29, after Fable's review: what C3 cannot see.** C3 compares the iMac's *streamed* logits with the
+M5's *resident* ones, across two kernel paths (the M1 runs without the Metal 4 tensor API). That difference already
+shows as mean KL 2.6e-4 and 3.7e-4 and worst 1.05e-2 on the longer files. A streamed-against-resident defect at
+about the 1e-3 KL scale would hide inside it. And the iMac's own streamed-against-resident identity tests failed for
+memory, so on this machine streamed exactness is not shown directly; the M5's identity tests (0 differing words)
+are the evidence for it.
+
 ## C5, apps closed (streamed MXFP4, 2 GiB)
 
 Decode t/s is the preregistered metric, (n − 1) / the summed ns of tokens 1-511.
