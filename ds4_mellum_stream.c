@@ -47,9 +47,11 @@ int ds4_mellum_stream_decode(const ds4_mellum_stream_ops *ops, uint32_t n_layer,
     for (;;) {
         bool stopped = false;
         ds4_mellum_stream_stop stop;
-        if ((!encoded && !ops->encode(ops->ctx, layer, resume)) || !ops->finish(ops->ctx, &stopped, &stop)) {
+        if (!encoded && !ops->encode(ops->ctx, layer, resume)) {
+            if (ops->discard) ops->discard(ops->ctx);   /* a partly encoded pass must not run */
             return DS4_MELLUM_STREAM_GPU;
         }
+        if (!ops->finish(ops->ctx, &stopped, &stop)) return DS4_MELLUM_STREAM_GPU;
         encoded = false;
         if (!stopped) return DS4_MELLUM_STREAM_OK;
         if (*stops >= n_layer * 8u || stop.layer >= n_layer || stop.n_missing == 0 || stop.n_missing > 8u ||
