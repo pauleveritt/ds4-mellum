@@ -98,7 +98,8 @@ static void test_config_refuses_unknown_expert_type(void) {
 typedef struct {
     ds4_mellum_stream_stop stops[300];
     uint32_t n_stops, next;
-    bool load_fails, cancel_after_load, cancelled, begin_fails;
+    bool load_fails, cancel_after_load, cancelled, begin_fails, ignore_window;
+    uint32_t end;   /* the last encode's end layer: a scripted stop at or past it is not reached */
     char log[16384];
 } fake_t;
 
@@ -106,10 +107,12 @@ static void fake_log(fake_t *f, const char *s) {
     strncat(f->log, s, sizeof(f->log) - strlen(f->log) - 1u);
 }
 
-static bool fake_encode(void *ctx, uint32_t from_layer, bool resume_at_experts) {
+static bool fake_encode(void *ctx, uint32_t from_layer, uint32_t end_layer, bool resume_at_experts) {
     fake_t *f = ctx;
     char b[32];
-    snprintf(b, sizeof(b), "E%u%s ", from_layer, resume_at_experts ? "x" : "");
+    f->end = end_layer;
+    if (end_layer == 28u) snprintf(b, sizeof(b), "E%u%s ", from_layer, resume_at_experts ? "x" : "");
+    else snprintf(b, sizeof(b), "E%u%s>%u ", from_layer, resume_at_experts ? "x" : "", end_layer);
     fake_log(f, b);
     return true;
 }
@@ -117,7 +120,7 @@ static bool fake_encode(void *ctx, uint32_t from_layer, bool resume_at_experts) 
 static bool fake_finish(void *ctx, bool *stopped, ds4_mellum_stream_stop *stop) {
     fake_t *f = ctx;
     fake_log(f, "F ");
-    *stopped = f->next < f->n_stops;
+    *stopped = f->next < f->n_stops && (f->ignore_window || f->stops[f->next].layer < f->end);
     if (*stopped) *stop = f->stops[f->next++];
     return true;
 }
@@ -149,7 +152,7 @@ static void fake_stop(fake_t *f, uint32_t layer, uint32_t n, const int32_t *ids)
 }
 
 static int fake_run(fake_t *f, uint32_t *stops) {
-    const ds4_mellum_stream_ops ops = { f, fake_encode, fake_finish, fake_load, fake_cancelled, NULL, NULL };
+    const ds4_mellum_stream_ops ops = { f, fake_encode, fake_finish, fake_load, fake_cancelled, NULL, NULL, 0u };
     *stops = 12345u;
     return ds4_mellum_stream_decode(&ops, 28u, stops);
 }
@@ -175,7 +178,16 @@ static void fake_discard(void *ctx) {
 
 static int fake_run_overlap(fake_t *f, uint32_t *stops) {
     const ds4_mellum_stream_ops ops = { f, fake_encode, fake_finish, fake_load, fake_cancelled, fake_load_begin,
-                                        fake_discard };
+                                        fake_discard, 0u };
+    *stops = 12345u;
+    return ds4_mellum_stream_decode(&ops, 28u, stops);
+}
+
+/* windowed passes: a pass encodes at most `window` layers; one that ends without a stop continues at its end
+ * layer from the hidden state the GPU holds, and a resumed pass takes a fresh window from its stop layer */
+static int fake_run_window(fake_t *f, uint32_t window, bool overlap, uint32_t *stops) {
+    const ds4_mellum_stream_ops ops = { f, fake_encode, fake_finish, fake_load, fake_cancelled,
+                                        overlap ? fake_load_begin : NULL, overlap ? fake_discard : NULL, window };
     *stops = 12345u;
     return ds4_mellum_stream_decode(&ops, 28u, stops);
 }
@@ -312,10 +324,69 @@ static void test_overlap_begin_failure_encodes_nothing(void) {
 
 static void test_overlap_needs_discard(void) {
     fake_t f = { 0 };
-    const ds4_mellum_stream_ops ops = { &f, fake_encode, fake_finish, fake_load, fake_cancelled, fake_load_begin, NULL };
+    const ds4_mellum_stream_ops ops = { &f, fake_encode, fake_finish, fake_load, fake_cancelled, fake_load_begin, NULL, 0u };
     uint32_t stops = 0;
     CHECK(ds4_mellum_stream_decode(&ops, 28u, &stops) == DS4_MELLUM_STREAM_PROTOCOL && f.log[0] == 0,
           "load_begin without discard is a protocol error before any encode (log \"%s\")", f.log);
+}
+
+static void test_window_no_stops(void) {
+    fake_t f = { 0 };
+    uint32_t stops;
+    const int rc = fake_run_window(&f, 4u, false, &stops);
+    CHECK(rc == DS4_MELLUM_STREAM_OK && stops == 0u, "window 4, all-hit: ok with no stops (rc %d, stops %u)", rc, stops);
+    CHECK(!strcmp(f.log, "E0>4 F E4>8 F E8>12 F E12>16 F E16>20 F E20>24 F E24 F "),
+          "window 4, all-hit: seven passes, the last to the head (log \"%s\")", f.log);
+}
+
+static void test_window_stop_takes_a_fresh_window(void) {
+    fake_t f = { 0 };
+    fake_stop(&f, 9u, 1u, (const int32_t[]){ 3 });
+    uint32_t stops;
+    const int rc = fake_run_window(&f, 4u, false, &stops);
+    CHECK(rc == DS4_MELLUM_STREAM_OK && stops == 1u, "window 4, one stop: ok (rc %d, stops %u)", rc, stops);
+    CHECK(!strcmp(f.log, "E0>4 F E4>8 F E8>12 F L9:3 E9x>13 F E13>17 F E17>21 F E21>25 F E25 F "),
+          "window 4, one stop: resume at layer 9's experts for four layers (log \"%s\")", f.log);
+}
+
+static void test_window_with_overlap(void) {
+    fake_t f = { 0 };
+    fake_stop(&f, 2u, 1u, (const int32_t[]){ 5 });
+    uint32_t stops;
+    const int rc = fake_run_window(&f, 4u, true, &stops);
+    CHECK(rc == DS4_MELLUM_STREAM_OK && stops == 1u, "window 4, overlap: ok (rc %d, stops %u)", rc, stops);
+    CHECK(!strcmp(f.log, "E0>4 F B2:5 E2x>6 L2:5 F E6>10 F E10>14 F E14>18 F E18>22 F E22>26 F E26 F "),
+          "window 4, overlap: the resumed window is encoded while its reads run (log \"%s\")", f.log);
+}
+
+static void test_window_stop_past_its_end_is_protocol(void) {
+    fake_t f = { 0 };
+    f.ignore_window = true;
+    fake_stop(&f, 10u, 1u, (const int32_t[]){ 3 });
+    uint32_t stops;
+    const int rc = fake_run_window(&f, 4u, false, &stops);
+    CHECK(rc == DS4_MELLUM_STREAM_PROTOCOL && strstr(f.log, "L10") == NULL,
+          "a stop past the encoded window is a protocol error and is not loaded (rc %d, log \"%s\")", rc, f.log);
+}
+
+static void test_window_whole_token(void) {
+    fake_t f = { 0 };
+    uint32_t stops;
+    CHECK(fake_run_window(&f, 28u, false, &stops) == DS4_MELLUM_STREAM_OK && !strcmp(f.log, "E0 F "),
+          "window 28 is the whole token (log \"%s\")", f.log);
+    fake_t g = { 0 };
+    CHECK(fake_run_window(&g, 64u, false, &stops) == DS4_MELLUM_STREAM_OK && !strcmp(g.log, "E0 F "),
+          "a window past the layer count is the whole token (log \"%s\")", g.log);
+}
+
+/* the window from DS4_MELLUM_STREAM_DECODE_WINDOW: unset gives the default, 1-64 themselves, else 0 (refuse) */
+static void test_decode_window_setting(void) {
+    CHECK(ds4_mellum_stream_decode_window(NULL) == DS4_MELLUM_STREAM_WINDOW_DEFAULT, "unset must give the default");
+    CHECK(ds4_mellum_stream_decode_window("1") == 1u && ds4_mellum_stream_decode_window("4") == 4u &&
+          ds4_mellum_stream_decode_window("64") == 64u, "1, 4 and 64 must be taken as they are");
+    CHECK(ds4_mellum_stream_decode_window("0") == 0u && ds4_mellum_stream_decode_window("65") == 0u &&
+          ds4_mellum_stream_decode_window("") == 0u && ds4_mellum_stream_decode_window("4x") == 0u &&
+          ds4_mellum_stream_decode_window("-1") == 0u, "0, 65, empty, 4x and -1 must refuse (0)");
 }
 
 /* ---- streamed prefill: one layer's chunk needs the unique experts its rows chose ---- */
@@ -387,6 +458,12 @@ int main(void) {
     test_overlap_cancel_discards();
     test_overlap_begin_failure_encodes_nothing();
     test_overlap_needs_discard();
+    test_window_no_stops();
+    test_window_stop_takes_a_fresh_window();
+    test_window_with_overlap();
+    test_window_stop_past_its_end_is_protocol();
+    test_window_whole_token();
+    test_decode_window_setting();
     test_unique_sorted();
     test_unique_rejects_out_of_range();
     test_prefill_group_setting();

@@ -47,7 +47,7 @@ int ds4_mellum_stream_decode(const ds4_mellum_stream_ops *ops, uint32_t n_layer,
     for (;;) {
         bool stopped = false;
         ds4_mellum_stream_stop stop;
-        if ((!encoded && !ops->encode(ops->ctx, layer, resume)) || !ops->finish(ops->ctx, &stopped, &stop)) {
+        if ((!encoded && !ops->encode(ops->ctx, layer, n_layer, resume)) || !ops->finish(ops->ctx, &stopped, &stop)) {
             return DS4_MELLUM_STREAM_GPU;
         }
         encoded = false;
@@ -70,7 +70,7 @@ int ds4_mellum_stream_decode(const ds4_mellum_stream_ops *ops, uint32_t n_layer,
         if (ops->load_begin) {
             /* the reads run while the resumed pass is encoded; the pass is committed only once they finish */
             if (!ops->load_begin(ops->ctx, stop.layer, stop.missing, stop.n_missing)) return DS4_MELLUM_STREAM_LOAD;
-            if (!ops->encode(ops->ctx, stop.layer, true)) {
+            if (!ops->encode(ops->ctx, stop.layer, n_layer, true)) {
                 ops->discard(ops->ctx);
                 return DS4_MELLUM_STREAM_GPU;
             }
@@ -119,4 +119,9 @@ uint32_t ds4_mellum_stream_group_rows(uint32_t remaining, uint32_t cap, uint32_t
     uint32_t rows = most < remaining ? (uint32_t)most : remaining;
     if (rows == remaining && rows > 1u && rows % cap == 1u) rows--;
     return rows;
+}
+
+uint32_t ds4_mellum_stream_decode_window(const char *env) {
+    (void)env;
+    return 0u;   /* not yet */
 }
