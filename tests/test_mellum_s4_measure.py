@@ -31,6 +31,26 @@ def repo(root: Path) -> Path:
     return root
 
 
+def sparse_gguf(path: Path, kind: int, name: str = 'blk.0.ffn_gate_exps.weight'):
+    """A GGUF v3 file holding one Mellum gate-experts tensor of type `kind`, its data left sparse."""
+    import struct
+
+    def string(value):
+        raw = value.encode()
+        return struct.pack('<Q', len(raw)) + raw
+    meta = [('general.architecture', 8, string('mellum')), ('general.alignment', 4, struct.pack('<I', 32))]
+    data = b'GGUF' + struct.pack('<IQQ', 3, 1, len(meta))
+    for key, k, value in meta:
+        data += string(key) + struct.pack('<I', k) + value
+    dims = (2304, 896, 64)
+    data += string(name) + struct.pack('<I', 3) + struct.pack('<QQQ', *dims) + struct.pack('<IQ', kind, 0)
+    start = (len(data) + 31) // 32 * 32
+    row = {8: 34, 39: 17, 12: 144}[kind] * (2304 // (256 if kind == 12 else 32))
+    with open(path, 'wb') as f:
+        f.write(data.ljust(start, b'\0'))
+        f.truncate(start + row * 896 * 64)
+
+
 class Prompt(unittest.TestCase):
     def test_deterministic_and_excludes_research_and_ac_demo(self):
         m = load()
@@ -107,6 +127,19 @@ class Regression(unittest.TestCase):
         self.assertTrue(v['pass'])
         slow = runs[:6] + [dict(arm='B', prefill=97.0, gen=50.0)] * 6
         self.assertFalse(m.regression_verdict(slow)['pass'])
+
+    def test_expert_bytes_come_from_the_model(self):
+        m = load()
+        with tempfile.TemporaryDirectory() as d:
+            for kind, want in ((8, 6_580_224), (39, 3_290_112)):
+                path = Path(d) / f'{kind}.gguf'
+                sparse_gguf(path, kind)
+                self.assertEqual(m.expert_bytes_for(path), want)
+            self.assertEqual(m.EXPERT_BYTES, 6_580_224)
+            bad = Path(d) / 'q4k.gguf'
+            sparse_gguf(bad, 12)
+            with self.assertRaisesRegex(ValueError, 'blk.0.ffn_gate_exps'):
+                m.expert_bytes_for(bad)
 
     def test_cli_line_parse(self):
         m = load()
