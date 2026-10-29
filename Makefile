@@ -1740,6 +1740,18 @@ tests/test_mellum_stream: tests/test_mellum_stream.c ds4_mellum_stream.c ds4_mel
 test-mellum-stream: tests/test_mellum_stream
 	./tests/test_mellum_stream
 test-mellum: test-mellum-stream
+# S6: the double reference's MXFP4 experts against hand blocks and the engine's CPU dot; no GPU, no model
+tests/test_mellum_moe_ref.o: tests/test_mellum_moe_ref.c tests/mellum_moe_ref.inc ds4.c ds4.h
+	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -Wno-unused-function -DDS4_NO_GPU -I. -c -o $@ $<
+tests/test_mellum_moe_ref: tests/test_mellum_moe_ref.o $(filter-out ds4_cpu.o,$(CPU_CORE_OBJS))
+	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -o $@ $^ $(LDLIBS)
+.PHONY: test-mellum-moe-ref clean-mellum-moe-ref
+test-mellum-moe-ref: tests/test_mellum_moe_ref
+	./tests/test_mellum_moe_ref
+test-mellum: test-mellum-moe-ref
+clean-mellum-moe-ref:
+	rm -f tests/test_mellum_moe_ref tests/test_mellum_moe_ref.o
+clean: clean-mellum-moe-ref
 # S4 measurement driver: built here, run only with the model (tests/test_mellum_s4_driver.py)
 test-mellum: tools/mellum_s4_measure
 .PHONY: test-mellum-s4-measure
