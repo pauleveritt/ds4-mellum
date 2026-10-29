@@ -38,6 +38,20 @@ The routing is the M5's: 20.8 stops and 21.8 GPU rounds per token, a median of 2
   spans 2.3 ms, about 1.4 GB/s; of 2, 3.4 ms; of 8, 8.5 ms, about 3.1 GB/s. These are the SSD's: 8 GB cannot
   cache the 7 GB file. (The M5's 6-11 GB/s came from its page cache.)
 
+**Corrected 2026-10-29, after Fable's review** (the original text above is kept):
+- **The round fit left out the head.** Refit with four terms (`refit.py`, output in `imac/refit.txt`): fixed
+  1.00-1.18 ms per round, 2.02-2.13 ms per executed layer, 0.038-0.047 ms per suppressed layer, and 7.8 ms for the
+  final round's output head (r² 0.39-0.74; final rounds' median 11.5-11.7 ms against 3.7-3.8 for stopped ones).
+  The two-term fit's "2.1 ms fixed" carried the head.
+- **So an avoided stop is worth about 5.1 ms, not 6.4:** the round's fixed 1.1, its 14.7 suppressed dispatches
+  (0.6), the resumed pass's encode (2.1, mean), the read wait (1.2, mean) and the read start (0.1). n=2 runs.
+- **The small-read rates are bounds, not the SSD's speed.** A 1-expert stop's median wait after the 2.0 ms encode
+  is 0.11 ms, so its read finished during the encode: 2.3 ms is an upper bound on its time, 1.4 GB/s a lower bound
+  on its rate. Only the 8-expert figure (8.5 ms, about 3.1 GB/s) is mostly read time. The asynchronous read path
+  prints no pread timing, so the true small-read latency is not measured here.
+- **The 59 ms of executed layers stands.** The per-layer slope barely moved (2.0-2.1 ms), so the gap to the
+  27 ms bandwidth estimate is not the head; it remains unexplained.
+
 **Why encoding costs so much.** Each pass is encoded from its layer to the head, and the gate suppresses
 what follows the next stop. That is 335 layers encoded per token for 28 executed. On the M5 that costs
 0.24 ms per pass; here 2.0 ms. But after a stop the encode runs while the reads are in flight, and it is
@@ -49,17 +63,18 @@ shorter than they are, so cutting it would mostly expose read wait.
    8 experts, all 8 in 45.7% of layer pairs (the [M5 screen](2026-10-29-mellum-stream-decode.md)). Hiding a
    stop's reads alone saves only the exposed wait, about 1.2 ms per stop on average (25-26 ms per token),
    because the resumed pass must be encoded either way. A prefetch that lands before the GPU reaches the next
-   layer's check avoids that stop entirely, about 6.4 ms. That is S5 step 4 in the backlog; see the
+   layer's check avoids that stop entirely, about 5.1 ms (first written as 6.4; see the correction above). That is S5 step 4 in the backlog; see the
    [prefetch design](../specs/2026-10-29-mellum-stream-prefetch-design.md).
 
    **Corrected 2026-10-29, after writing that design.** This item first read: hiding the reads "could remove
    most of the ~2.7 ms per stop, up to about 55 ms of 180 per token". That counted the resumed pass's encode
    (about 2 ms per stop) as read time, though it is on the critical path with or without reads.
-2. **The fixed cost of a GPU round, 2.1 ms × 21.8 rounds, about 45 ms per token.** Its parts are not split:
+2. **The fixed cost of a GPU round, about 1.1 ms × 21.8 rounds, about 24 ms per token** (first written as 2.1 ms
+   and 45 ms; see the correction above). Its parts are not split:
    suppressed-layer dispatches, command-buffer latency (0.8 ms between commit-to-done and GPU span) and the
    gate read. Shorter passes cut the suppressed dispatches; windowed passes lost on the M5, whose costs are
    balanced differently.
-3. **Fewer stops** (S5 step 3) save about 6.4 ms each, on both of the above.
+3. **Fewer stops** (S5 step 3) save about 5.1 ms each (first written as 6.4), on both of the above.
 4. **Faster encoding** pays only once reads stop being the critical path.
 
 Executed layers cost 2.1 ms each, about 59 ms per token, roughly twice the bandwidth estimate of 27 ms in the
