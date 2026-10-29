@@ -1754,7 +1754,7 @@ clean-mellum-moe-ref:
 clean: clean-mellum-moe-ref
 # S6: the trace driver's streaming setting (MELLUM_TRACE_STREAM_BYTES), CPU only
 tests/test_mellum_trace_stream: tests/test_mellum_trace_stream.c tests/mellum_trace_context.h
-	$(CC) -std=c99 -O2 -Wall -Wextra -Werror -Itests tests/test_mellum_trace_stream.c -o $@
+	$(CC) -std=c99 -O2 -Wall -Wextra -Werror -Wno-unused-function -Itests tests/test_mellum_trace_stream.c -o $@
 .PHONY: test-mellum-trace-stream
 test-mellum-trace-stream: tests/test_mellum_trace_stream
 	./tests/test_mellum_trace_stream

@@ -114,7 +114,7 @@ Safari with the ten URLs fixed in the preregistration, then waits for the owner'
 
 ### Task 6 (owner, iMac): correctness against the M5 Max
 
-- [ ] Run `tests/mellum_trace $MX FILE prefill` with `MELLUM_TRACE_STREAM_BYTES` set to the cache the preregistration's rule
+- [ ] Run `tests/mellum_trace $MX FILE decode` with `MELLUM_TRACE_STREAM_BYTES` set to the cache, and `MELLUM_TRACE_SESSION_AT` set to the oracle positions; the engine refuses to *trace* a streamed run, so the driver copies the session's logits per position (done 2026-10-28: on the M5, streamed equals resident byte for byte at 157/157). The reference is the M5's resident decode-mode files (`s6-c-evidence/raw/m5-decode-resident.mx.*`). The cache is the one the preregistration's rule
   picks, on the three oracle token files at the oracle positions. Then run `tools/mellum_logits_agree.py`
   against the M5 reference files. The bound is the preregistration's.
 
