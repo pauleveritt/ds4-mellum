@@ -57,7 +57,7 @@ def gguf(tensors=None, metadata=None, alignment=64):
     return data.ljust(start, b'\0') + b'x' * 128
 
 
-def fabricated_directory():
+def fabricated_directory(kind=8, part=PART, odd_layer=None, odd_kind=39):
     api = module('mellum_gguf')
     tensors = []
     offset = 1024
@@ -65,8 +65,8 @@ def fabricated_directory():
         for role in ('gate', 'up', 'down'):
             dims = (896, 2304, 64) if role == 'down' else (2304, 896, 64)
             tensors.append(api.Tensor(name=f'blk.{layer}.ffn_{role}_exps.weight', dims=dims,
-                                      type=8, offset=offset, bytes=PART * 64))
-            offset += PART * 64
+                                      type=odd_kind if layer == odd_layer else kind, offset=offset, bytes=part * 64))
+            offset += part * 64
     return api.Directory(data_start=1024, alignment=32, tensors=tuple(tensors), architecture='mellum')
 
 
@@ -79,6 +79,53 @@ def fabricated_index():
                 geometry=dict(layers=28, experts_per_layer=64, expert_bytes=6580224),
                 tool={'sha256':'c' * 64}, source_identity={'source_state_id':'d' * 64},
                 experts=api.expert_entries(directory))
+
+
+MXFP4_PART = 1096704
+
+
+def test_directory_sizes_mxfp4_blocks():
+    api = module('mellum_gguf')
+    raw = gguf([('m', (64, 2), 39, 0)])
+    assert api.read_directory(io.BytesIO(raw), len(raw)).tensors[0].bytes == 68   # 2 rows of 2 blocks of 17 B
+    with rejected():
+        raw = gguf([('m', (33,), 39, 0)])
+        api.read_directory(io.BytesIO(raw), len(raw))
+
+
+def test_mxfp4_experts_index_at_their_own_size():
+    api = module('mellum_expert_index')
+    directory = fabricated_directory(kind=39, part=MXFP4_PART)
+    entries = api.expert_entries(directory)
+    assert len(entries) == 1792 and all(r['bytes'] == MXFP4_PART for e in entries for r in e['ranges'])
+    assert api.geometry_for(directory) == dict(layers=28, experts_per_layer=64, expert_bytes=3290112)
+    assert api.geometry_for(fabricated_directory()) == api.GEOMETRY == dict(layers=28, experts_per_layer=64,
+                                                                           expert_bytes=6580224)
+
+
+def test_mixed_or_unknown_expert_types_are_refused():
+    api = module('mellum_expert_index')
+    for directory, name in ((fabricated_directory(odd_layer=2), 'blk.2.'),
+                            (fabricated_directory(kind=12), 'blk.0.')):
+        try:
+            api.expert_entries(directory)
+        except ValueError as exc:
+            assert name in str(exc), str(exc)
+        else:
+            raise AssertionError(f'{name} accepted')
+
+
+def test_mxfp4_index_validates_and_a_q8_index_is_unchanged():
+    api = module('mellum_expert_index')
+    index = fabricated_index()
+    assert api.validate_index(index)['geometry'] == api.GEOMETRY
+    mx = deepcopy(index)
+    mx['geometry'] = dict(layers=28, experts_per_layer=64, expert_bytes=3290112)
+    mx['experts'] = api.expert_entries(fabricated_directory(kind=39, part=MXFP4_PART))
+    assert api.validate_index(mx)['geometry']['expert_bytes'] == 3290112
+    mx['geometry'] = dict(api.GEOMETRY)   # MXFP4 spans under a Q8_0 geometry
+    with rejected():
+        api.validate_index(mx)
 
 
 def test_directory_padding_types_and_nonexpert_overlap():
