@@ -408,9 +408,20 @@ def distribution(values: Sequence[int]) -> dict[str, int] | None:
     }
 
 
-def replay(trace: Trace, capacity_bytes: int, policy: str) -> dict:
-    """Replay a complete trace. Only expert-cache residency counts toward this budget."""
-    expert_bytes = trace.header.geometry.expert_bytes
+def check_expert_bytes(expert_bytes: int | None) -> None:
+    if expert_bytes is not None and (type(expert_bytes) is not int or expert_bytes < 1):
+        raise ValueError(f"expert_bytes must be a positive integer or None, got {expert_bytes!r}")
+
+
+def replay(trace: Trace, capacity_bytes: int, policy: str, *, expert_bytes: int | None = None) -> dict:
+    """Replay a complete trace. Only expert-cache residency counts toward this budget.
+
+    expert_bytes, when given, costs the trace's routes at another expert size (another quantization of
+    the same model); routing is assumed unchanged.  None means the trace's own geometry."""
+    check_expert_bytes(expert_bytes)
+    override = expert_bytes
+    if expert_bytes is None:
+        expert_bytes = trace.header.geometry.expert_bytes
     if type(capacity_bytes) is not int or capacity_bytes < expert_bytes:
         raise ValueError(f"capacity must be integer bytes >= one expert ({expert_bytes})")
     slots = capacity_bytes // expert_bytes
@@ -457,7 +468,7 @@ def replay(trace: Trace, capacity_bytes: int, policy: str) -> dict:
         blocked_layers=item["group_misses"],
     ) for item in forwards if item["phase"] == "decode"]
     totals["distinct_experts"] = len(distinct)
-    return {
+    report = {
         "policy": policy,
         "interpretation": {
             "kind": "lower-bound" if policy == "relaxed-optimal" else "causal-policy",
@@ -480,6 +491,9 @@ def replay(trace: Trace, capacity_bytes: int, policy: str) -> dict:
             blocked_layers=distribution([t["blocked_layers"] for t in tokens]),
         ),
     }
+    if override is not None:
+        report["expert_bytes"] = {"value": override, "source": "override"}
+    return report
 
 
 def report_identity(trace: Trace, trace_sha256: str | None) -> dict:
@@ -498,13 +512,14 @@ def report_identity(trace: Trace, trace_sha256: str | None) -> dict:
 
 
 def run_sweep(trace: Trace, capacities: Sequence[int] = DEFAULT_CAPACITIES, *,
-              trace_sha256: str | None = None) -> dict:
+              trace_sha256: str | None = None, expert_bytes: int | None = None) -> dict:
     if not capacities:
         raise ValueError("at least one capacity is required")
+    check_expert_bytes(expert_bytes)
     metadata = asdict(trace.header)
     if trace.header.capture_manifest is None:
         del metadata["capture_manifest"]
-    return {
+    report = {
         "trace": metadata,
         "evidence": report_identity(trace, trace_sha256),
         "assumptions": {
@@ -521,9 +536,12 @@ def run_sweep(trace: Trace, capacities: Sequence[int] = DEFAULT_CAPACITIES, *,
             "percentiles": "nearest rank over all decode tokens, including cold start",
             "throughput_prediction": None,
         },
-        "results": [replay(trace, capacity, policy) for capacity in capacities
+        "results": [replay(trace, capacity, policy, expert_bytes=expert_bytes) for capacity in capacities
                     for policy in ("lru", "relaxed-optimal")],
     }
+    if expert_bytes is not None:
+        report["assumptions"]["routing"] = "unchanged by quantization (expert_bytes override)"
+    return report
 
 
 def gib_bytes(text: str) -> int:
@@ -548,12 +566,16 @@ def main() -> None:
         "--cache-gib", type=gib_bytes, nargs="+", metavar="GIB", default=DEFAULT_CAPACITIES,
         help="expert-cache capacities in GiB (default: 2 2.5 3 3.5); excludes staging and other memory",
     )
+    parser.add_argument(
+        "--expert-bytes", type=int, metavar="N", default=None,
+        help="cost the trace's routes at N bytes per expert (another quantization; routing assumed unchanged)",
+    )
     args = parser.parse_args()
     try:
         raw = args.trace.read_bytes()
         digest = hashlib.sha256(raw).hexdigest()
         trace = load_trace(io.StringIO(raw.decode("utf-8"), newline=None))
-        report = run_sweep(trace, args.cache_gib, trace_sha256=digest)
+        report = run_sweep(trace, args.cache_gib, trace_sha256=digest, expert_bytes=args.expert_bytes)
     except (OSError, ValueError) as exc:
         parser.error(str(exc))
     # No partial success document if a later capacity or policy fails.
