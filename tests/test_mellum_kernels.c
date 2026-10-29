@@ -1839,6 +1839,54 @@ static void test_moe_q8_tiles_mellum_only(const moe_arena_t *a) {
     free(x); free(plain); free(flash); free(tiles); free(sel);
 }
 
+/* S6: the tiled expert GEMMs (moe_mm mid and down) on the arena's experts for T rows, each routed to the experts in
+ * sel; part is [T][8][2304]. */
+static void moe_tiled_part(const moe_arena_t *a, const float *x, const int32_t *sel, uint32_t T, float *part) {
+    const uint32_t K = MREF_USED;
+    ds4_gpu_tensor *xt = upload(x, (uint64_t)T * MREF_E), *st = zeroed((uint64_t)T * K * 4u);
+    ds4_gpu_tensor *lists = zeroed((uint64_t)MREF_NEXP * T * 4u), *counts = zeroed(MREF_NEXP * 4u);
+    ds4_gpu_tensor *mid = zeroed((uint64_t)T * K * MREF_FF * 4u), *pt = zeroed((uint64_t)T * K * MREF_E * 4u);
+    require_ok(ds4_gpu_tensor_write(st, 0, sel, (uint64_t)T * K * 4u), "selected upload");
+    require_ok(ds4_gpu_qwen4_moe_build_lists_tensor(lists, counts, st, T, K, MREF_NEXP, T), "build lists");
+    require_ok(ds4_gpu_qwen4_moe_mm_mid_tensor(mid, xt, lists, counts, a->base, a->size, a->gate, a->up, a->expert_type,
+                                               MREF_NEXP, T, K, K, MREF_E, MREF_FF, T), "moe_mm mid");
+    require_ok(ds4_gpu_qwen4_moe_mm_down_tensor(pt, mid, lists, counts, a->base, a->size, a->down, a->expert_type,
+                                                MREF_NEXP, T, K, K, MREF_FF, MREF_E, T), "moe_mm down");
+    require_ok(ds4_gpu_tensor_read(pt, 0, part, (uint64_t)T * K * MREF_E * 4u), "part download");
+    ds4_gpu_tensor_free(xt); ds4_gpu_tensor_free(st); ds4_gpu_tensor_free(lists); ds4_gpu_tensor_free(counts);
+    ds4_gpu_tensor_free(mid); ds4_gpu_tensor_free(pt);
+}
+
+/* The tiled path's per-slot partials against the staged double reference (half weights, half input, half SwiGLU
+ * output, wider sums), at 64 and 100 rows with eight distinct experts per row. */
+static void test_moe_tiled_staged_reference(const moe_arena_t *a) {
+    static const uint32_t Ts[] = { 64, 100 };
+    const uint32_t K = MREF_USED;
+    const mref_weights w = { a->base, a->router, a->gate, a->up, a->down, a->expert_type };
+    double worst = 0.0;
+    for (size_t ti = 0; ti < sizeof(Ts) / sizeof(Ts[0]); ti++) {
+        const uint32_t T = Ts[ti];
+        float *x = rand_vec((uint64_t)T * MREF_E, 1.7f), *part = malloc((uint64_t)T * K * MREF_E * 4u);
+        int32_t *sel = malloc((uint64_t)T * K * 4u);
+        double *xh = malloc(MREF_E * sizeof(double)), *ref = malloc(MREF_E * sizeof(double));
+        require_ok(part && sel && xh && ref, "malloc");
+        for (uint32_t t = 0; t < T; t++)
+            for (uint32_t k = 0; k < K; k++) sel[t * K + k] = (int32_t)((t * 7u + k * 9u) % MREF_NEXP);
+        moe_tiled_part(a, x, sel, T, part);
+        for (uint32_t t = 0; t < T; t++) {
+            for (uint32_t i = 0; i < MREF_E; i++) xh[i] = (double)(__fp16)x[(uint64_t)t * MREF_E + i];
+            for (uint32_t k = 0; k < K; k++) {
+                mref_expert_staged(&w, (uint64_t)sel[t * K + k], xh, ref);
+                const double d = max_rel(part + ((uint64_t)t * K + k) * MREF_E, ref, MREF_E);
+                if (!(d <= worst)) worst = d;
+            }
+        }
+        free(x); free(part); free(sel); free(xh); free(ref);
+    }
+    CHECK(worst <= MOE_TOL, "tiled experts vs the staged reference: worst slot %.3e (tol %.0e)", worst, MOE_TOL);
+    printf("  moe    tiled mid/down, T 64/100, vs staged double reference: worst slot %.2e (tol %.0e)\n", worst, MOE_TOL);
+}
+
 /* ---- S4 address-table variants: each expert in its own slot buffer, reached through a uint64 GPU-address
  * table, must give the resident kernels' bits; a zero address reads nothing and writes nothing ---- */
 
@@ -2096,6 +2144,7 @@ static void test_moe(void) {
     test_moe_refusals(a);
     test_moe_addr_decode(a);
     test_moe_addr_tiled(a, 0u);   /* the tensor-tile levels apply to Q8_0 only */
+    test_moe_tiled_staged_reference(a);
     for (int batched = 0; batched <= 1; batched++) {
         g_batched = batched != 0;
         test_moe_rows_equal_singles(a);
