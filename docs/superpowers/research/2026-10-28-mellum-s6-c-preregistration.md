@@ -9,6 +9,23 @@ items that changed are marked (amended). Plan:
 [`2026-10-28-mellum-s6-c-imac.md`](../plans/2026-10-28-mellum-s6-c-imac.md). Design: Goals 4 and 5 and section C.
 The owner runs every step by hand. The agent analyzes the captures afterwards, and only them.
 
+**Amended 2026-10-29 03:20, still before any iMac run (the owner's instruction to bring in the SSD work
+first):**
+- **The build is the merge `633fd23`.** It brings in the SSD branch at `9fb27ad` (S5 grouped prefill) and
+  the cheaper streamed decode stops
+  ([`2026-10-29-mellum-stream-decode.md`](2026-10-29-mellum-stream-decode.md)). So engine sources did
+  change after `471b902`.
+- **The decode references were rechecked at the merge.** The resident references, regenerated there,
+  match all 160 sha256s in `m5-reference-sha256.txt`. The kit's `correct` stage, dry-run at 2.5 GiB on the
+  M5, agrees at 157/157 positions with KL 0.
+- **The workload reference is now the speed run at the merge**
+  ([`2026-10-29-mellum-speed-run/`](2026-10-29-mellum-speed-run/), n=3):
+  - resident: first token 0.95 s, decode 142.8 t/s;
+  - streamed at 2.5 GiB: first token 1.19 s, decode 40.7 t/s, 22.62 loads/token;
+  - streamed at 3 GiB: 53.1 t/s.
+  The old `workload-m5/` reference is kept as the pre-merge build's.
+- No pass rule changed.
+
 **Honesty header.**
 - **Fixed in advance:** the inputs, the cache choice rule, and the pass rules.
 - **Measured:** one 8 GB M1 iMac (macOS 27.1), n stated per item.
@@ -20,8 +37,8 @@ The owner runs every step by hand. The agent analyzes the captures afterwards, a
 
 - **Model:** the MXFP4 GGUF, SHA-256 `cf09584a30423f6f80b0c9fe2f42e152520dabf08fecd1cad641ce21a7588166`.
 - **Build:** the kit's named commit. The M5 references were made at `471b902` (decode logits) and `614eb33`
-  (workload); no engine, Metal or driver source changed after `471b902` (`git diff --stat 471b902 HEAD --
-  '*.c' '*.m' '*.h' '*.metal'` lists only the tool and test sources of phase C's agent tasks).
+  (workload). Until the 2026-10-29 amendment, no engine, Metal or driver source changed after `471b902`.
+  The merge `633fd23` changes them, and the amendment above records the recheck.
 - **Correctness reference:** the M5 Max's resident MXFP4 decode-mode logits at the oracle positions of
   `tests/mellum_oracle_{short,1100,2200}.tokens`. Their SHA-256s are in
   `2026-10-28-mellum-s6-c-evidence/m5-reference-sha256.txt`. On the M5, streamed equals resident byte for
@@ -92,8 +109,8 @@ with it running. `vm_stat` is sampled before and after each run. The order and t
 ## C5. Speed (Goal 5, reported only)
 
 - From C4: time to first token and decode t/s, as medians with ranges, n=3 per condition.
-- The M5's figures for the same workload, resident and streamed at 815 slots, are reported beside them,
-  not compared with them.
+- The M5's figures for the same workload, resident and streamed at 815 slots, from the speed run at the merge
+  (amended 2026-10-29), are reported beside them, not compared with them.
 
 ## C6. The falsifier's comparison
 

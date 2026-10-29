@@ -39,6 +39,25 @@ experts on the Metal 4 tensor tiles), about 2,880 t/s at 2,200 tokens and 2,060 
 Max was not measured. Session save/load refuses by name, and ds4-server
 and ds4-agent refuse a Mellum engine at startup (no Hermes tool syntax yet).
 
+**Speed run, 2026-10-29** (M5 Max, merge `633fd23`). The workload is S6 phase C's flattened coding-agent
+request: 2,686 prompt tokens, then 512 greedy, context 32,768, through `tools/mellum_s4_measure`; n=3 per
+row, rotated.
+
+| Model file and mode | Decode t/s (ms/token) | First token | Metal peak |
+|---|---|---|---|
+| Q8_0, resident | 122.1 (8.19) | 0.97 s | 12.78 GiB |
+| MXFP4 experts, resident | 142.8 (7.00) | 0.95 s | 7.29 GiB |
+| Q8_0, streamed, 6 GiB cache | 43.8 (22.84) | 1.41 s | 7.88 GiB |
+| MXFP4, streamed, 3 GiB cache | 53.1 (18.82) | 1.60 s | 4.88 GiB |
+| MXFP4, streamed, 2.5 GiB cache | 40.7 (24.59) | 1.19 s | 4.37 GiB |
+
+- In every row the three runs give the same 512 ids, and the rows of each file agree with each other.
+- Streamed decode was 23 t/s at 2.5 GiB before that day's cheaper stops
+  ([result](docs/superpowers/research/2026-10-29-mellum-stream-decode.md)).
+- Streaming is opt-in (`--ssd-streaming`). Nothing here is measured on a smaller Mac.
+- The table, its ranges and its commands are in
+  [`2026-10-29-mellum-speed-run/`](docs/superpowers/research/2026-10-29-mellum-speed-run/summary.md).
+
 Model-free tests: `make test-mellum`. With `DS4_TEST_MELLUM_MODEL` set,
 `./tests/test_mellum_config` also validates, binds and renders against the real
 GGUF, `./tests/test_mellum_tokenizer` checks token ids through its vocabulary,

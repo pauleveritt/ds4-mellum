@@ -3,7 +3,8 @@
 The rules are in [the preregistration](../2026-10-28-mellum-s6-c-preregistration.md), and the steps in
 [plan C](../../plans/2026-10-28-mellum-s6-c-imac.md). `run_imac.sh` was dry-run on the M5 Max on
 2026-10-29: its `correct` stage reproduced the M5 reference exactly (157/157 positions, KL 0), and its
-`cache` stage recorded swap-outs around each run.
+`cache` stage recorded swap-outs around each run. After the merge `633fd23` (amendment of 2026-10-29), the
+`correct` stage was dry-run again, with the same result.
 
 ## Copy to the iMac
 
@@ -11,7 +12,10 @@ The rules are in [the preregistration](../2026-10-28-mellum-s6-c-preregistration
    the iMac, run `git clone s6.bundle ds4-mellum-s6`.
 2. **The model**, `Mellum2.1-12B-A2.5B-Thinking-MXFP4_MOE.gguf`. Its SHA-256 must be `cf09584a…`;
    `bringup` records it.
-3. **The reference logits.** They are git-ignored, so copy them by hand:
+3. **The background-load project.** Copy a small Python project to `../mellum-demo` next to the clone, or
+   name another in the preregistration before the run. `tools/mellum_background_load.sh` refuses a missing
+   directory.
+4. **The reference logits.** They are git-ignored, so copy them by hand:
    - copy `docs/superpowers/research/2026-10-28-mellum-s6-c-evidence/raw/m5-decode-resident.mx.*` to the
      same path in the clone;
    - in that directory, run `shasum -a 256 -c ../m5-reference-sha256.txt`. Every line must say OK.
