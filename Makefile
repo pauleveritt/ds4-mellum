@@ -1752,6 +1752,9 @@ test-mellum: test-mellum-moe-ref
 clean-mellum-moe-ref:
 	rm -f tests/test_mellum_moe_ref tests/test_mellum_moe_ref.o
 clean: clean-mellum-moe-ref
+# S6: the Metal device facts that bound a streamed run (phase C, the iMac); runs nothing on the GPU
+tools/mellum_metal_limit: tools/mellum_metal_limit.m
+	$(CC) -O2 -Wall -Wextra -Werror -fobjc-arc $< -framework Metal -framework Foundation -o $@
 # S6: the trace driver's streaming setting (MELLUM_TRACE_STREAM_BYTES), CPU only
 tests/test_mellum_trace_stream: tests/test_mellum_trace_stream.c tests/mellum_trace_context.h
 	$(CC) -std=c99 -O2 -Wall -Wextra -Werror -Wno-unused-function -Itests tests/test_mellum_trace_stream.c -o $@

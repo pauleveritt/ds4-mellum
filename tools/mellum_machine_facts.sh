@@ -16,5 +16,6 @@ out=${1:?usage: tools/mellum_machine_facts.sh OUT.txt}
     echo "## memory pressure"; memory_pressure -Q 2>&1 | tail -1
     echo "## swap"; sysctl vm.swapusage 2>&1
     echo "## power"; pmset -g batt 2>&1; pmset -g therm 2>&1
+    echo "## metal"; if [ -x "$(dirname "$0")/mellum_metal_limit" ]; then "$(dirname "$0")/mellum_metal_limit" 2>&1; else echo "tools/mellum_metal_limit not built (make tools/mellum_metal_limit)"; fi
 } > "$out"
 echo "wrote $out"
