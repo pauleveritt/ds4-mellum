@@ -1899,13 +1899,13 @@ static void test_moe_addr_decode(const moe_arena_t *a) {
             res[2u * k] = s.gate[sel_h[k]]; res[2u * k + 1u] = s.up[sel_h[k]]; dres[k] = s.down[sel_h[k]];
         }
         ds4_gpu_tensor *mid_r = zeroed(mid_bytes), *mid_a = zeroed(mid_bytes), *part_r = zeroed(part_bytes), *part_a = zeroed(part_bytes);
-        require_ok(ds4_gpu_qwen4_moe_mid_tensor(mid_r, xt, sel, a->base, a->size, a->gate, a->up, 8u, MREF_NEXP, 1, MREF_USED,
+        require_ok(ds4_gpu_qwen4_moe_mid_tensor(mid_r, xt, sel, a->base, a->size, a->gate, a->up, a->expert_type, MREF_NEXP, 1, MREF_USED,
                                                 MREF_E, MREF_FF, 0u, 0u, UINT32_MAX), "resident mid");
-        require_ok(ds4_gpu_qwen4_moe_mid_addr_tensor(mid_a, xt, sel, s.ga, s.ua, res, 2u * MREF_USED, 8u, MREF_NEXP, 1, MREF_USED,
+        require_ok(ds4_gpu_qwen4_moe_mid_addr_tensor(mid_a, xt, sel, s.ga, s.ua, res, 2u * MREF_USED, a->expert_type, MREF_NEXP, 1, MREF_USED,
                                                      MREF_E, MREF_FF), "addr mid");
-        require_ok(ds4_gpu_qwen4_moe_down_tensor(part_r, mid_r, sel, a->base, a->size, a->down, 8u, MREF_NEXP, 1, MREF_USED,
+        require_ok(ds4_gpu_qwen4_moe_down_tensor(part_r, mid_r, sel, a->base, a->size, a->down, a->expert_type, MREF_NEXP, 1, MREF_USED,
                                                  MREF_FF, MREF_E, 0u, UINT32_MAX), "resident down");
-        require_ok(ds4_gpu_qwen4_moe_down_addr_tensor(part_a, mid_r, sel, s.da, dres, MREF_USED, 8u, MREF_NEXP, 1, MREF_USED,
+        require_ok(ds4_gpu_qwen4_moe_down_addr_tensor(part_a, mid_r, sel, s.da, dres, MREF_USED, a->expert_type, MREF_NEXP, 1, MREF_USED,
                                                       MREF_FF, MREF_E), "addr down");
         float *mr = download(mid_r, mid_bytes / 4u), *ma = download(mid_a, mid_bytes / 4u);
         float *pr = download(part_r, part_bytes / 4u), *pa = download(part_a, part_bytes / 4u);
@@ -1920,9 +1920,9 @@ static void test_moe_addr_decode(const moe_arena_t *a) {
         float *sent = malloc(part_bytes);
         for (uint64_t i = 0; i < part_bytes / 4u; i++) sent[i] = 12345.0f;
         require_ok(ds4_gpu_tensor_write(mid_a, 0, sent, mid_bytes) && ds4_gpu_tensor_write(part_a, 0, sent, part_bytes), "sentinel");
-        require_ok(ds4_gpu_qwen4_moe_mid_addr_tensor(mid_a, xt, sel, s.ga, s.ua, res, 2u * MREF_USED, 8u, MREF_NEXP, 1, MREF_USED,
+        require_ok(ds4_gpu_qwen4_moe_mid_addr_tensor(mid_a, xt, sel, s.ga, s.ua, res, 2u * MREF_USED, a->expert_type, MREF_NEXP, 1, MREF_USED,
                                                      MREF_E, MREF_FF), "addr mid, zero address");
-        require_ok(ds4_gpu_qwen4_moe_down_addr_tensor(part_a, mid_r, sel, s.da, dres, MREF_USED, 8u, MREF_NEXP, 1, MREF_USED,
+        require_ok(ds4_gpu_qwen4_moe_down_addr_tensor(part_a, mid_r, sel, s.da, dres, MREF_USED, a->expert_type, MREF_NEXP, 1, MREF_USED,
                                                       MREF_FF, MREF_E), "addr down, zero address");
         float *mz = download(mid_a, mid_bytes / 4u), *pz = download(part_a, part_bytes / 4u);
         mid_untouched = mid_untouched && memcmp(mz, sent, (uint64_t)MREF_FF * 4u) == 0;
@@ -1966,13 +1966,13 @@ static void test_moe_addr_tiled(const moe_arena_t *a, uint32_t level) {
         ds4_gpu_tensor *mid_r = zeroed(mid_n * 4u), *mid_a = zeroed(mid_n * 4u), *part_r = zeroed(part_n * 4u), *part_a = zeroed(part_n * 4u);
         require_ok(ds4_gpu_tensor_write(st, 0, sel_h, (uint64_t)T * K * 4u) &&
                    ds4_gpu_qwen4_moe_build_lists_tensor(lists, counts, st, T, K, MREF_NEXP, T), "lists");
-        require_ok(ds4_gpu_qwen4_moe_mm_mid_tensor(mid_r, xt, lists, counts, a->base, a->size, a->gate, a->up, 8u, MREF_NEXP, T,
+        require_ok(ds4_gpu_qwen4_moe_mm_mid_tensor(mid_r, xt, lists, counts, a->base, a->size, a->gate, a->up, a->expert_type, MREF_NEXP, T,
                                                    K, K, MREF_E, MREF_FF, T), "resident mm mid");
-        require_ok(ds4_gpu_qwen4_moe_mm_mid_addr_tensor(mid_a, xt, lists, counts, s.ga, s.ua, gres, 2u * MREF_NEXP, 8u, MREF_NEXP,
+        require_ok(ds4_gpu_qwen4_moe_mm_mid_addr_tensor(mid_a, xt, lists, counts, s.ga, s.ua, gres, 2u * MREF_NEXP, a->expert_type, MREF_NEXP,
                                                         T, K, K, MREF_E, MREF_FF, T), "addr mm mid");
-        require_ok(ds4_gpu_qwen4_moe_mm_down_tensor(part_r, mid_r, lists, counts, a->base, a->size, a->down, 8u, MREF_NEXP, T, K, K,
+        require_ok(ds4_gpu_qwen4_moe_mm_down_tensor(part_r, mid_r, lists, counts, a->base, a->size, a->down, a->expert_type, MREF_NEXP, T, K, K,
                                                     MREF_FF, MREF_E, T), "resident mm down");
-        require_ok(ds4_gpu_qwen4_moe_mm_down_addr_tensor(part_a, mid_r, lists, counts, s.da, dres, MREF_NEXP, 8u, MREF_NEXP, T, K, K,
+        require_ok(ds4_gpu_qwen4_moe_mm_down_addr_tensor(part_a, mid_r, lists, counts, s.da, dres, MREF_NEXP, a->expert_type, MREF_NEXP, T, K, K,
                                                          MREF_FF, MREF_E, T), "addr mm down");
         float *mr = download(mid_r, mid_n), *ma = download(mid_a, mid_n), *pr = download(part_r, part_n), *pa = download(part_a, part_n);
         mid_eq = mid_eq && memcmp(mr, ma, mid_n * 4u) == 0;
@@ -1986,9 +1986,9 @@ static void test_moe_addr_tiled(const moe_arena_t *a, uint32_t level) {
         float *sent = malloc(part_n * 4u);
         for (uint64_t i = 0; i < part_n; i++) sent[i] = 12345.0f;
         require_ok(ds4_gpu_tensor_write(mid_a, 0, sent, mid_n * 4u) && ds4_gpu_tensor_write(part_a, 0, sent, part_n * 4u), "sentinel");
-        require_ok(ds4_gpu_qwen4_moe_mm_mid_addr_tensor(mid_a, xt, lists, counts, s.ga, s.ua, gres, 2u * MREF_NEXP, 8u, MREF_NEXP,
+        require_ok(ds4_gpu_qwen4_moe_mm_mid_addr_tensor(mid_a, xt, lists, counts, s.ga, s.ua, gres, 2u * MREF_NEXP, a->expert_type, MREF_NEXP,
                                                         T, K, K, MREF_E, MREF_FF, T), "addr mm mid, zero address");
-        require_ok(ds4_gpu_qwen4_moe_mm_down_addr_tensor(part_a, mid_r, lists, counts, s.da, dres, MREF_NEXP, 8u, MREF_NEXP, T, K, K,
+        require_ok(ds4_gpu_qwen4_moe_mm_down_addr_tensor(part_a, mid_r, lists, counts, s.da, dres, MREF_NEXP, a->expert_type, MREF_NEXP, T, K, K,
                                                          MREF_FF, MREF_E, T), "addr mm down, zero address");
         float *mz = download(mid_a, mid_n), *pz = download(part_a, part_n);
         for (uint64_t pair = 0; pair < (uint64_t)T * K; pair++) {
@@ -2094,6 +2094,8 @@ static void test_moe(void) {
     test_moe_reference(a);
     test_moe_no_shared(a);
     test_moe_refusals(a);
+    test_moe_addr_decode(a);
+    test_moe_addr_tiled(a, 0u);   /* the tensor-tile levels apply to Q8_0 only */
     for (int batched = 0; batched <= 1; batched++) {
         g_batched = batched != 0;
         test_moe_rows_equal_singles(a);
