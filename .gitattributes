@@ -17,4 +17,5 @@ docs/superpowers/research/2026-10-28-mellum-s6-c-evidence/imac/** -whitespace
 
 # Stop-profile screen: captured stderr and the patch kept byte for byte (binding rule 5).
 docs/superpowers/research/2026-10-29-mellum-imac-stop-profile/m5-dryrun/** -whitespace
+docs/superpowers/research/2026-10-29-mellum-imac-stop-profile/imac/** -whitespace
 docs/superpowers/research/2026-10-29-mellum-imac-stop-profile/profile.patch -whitespace

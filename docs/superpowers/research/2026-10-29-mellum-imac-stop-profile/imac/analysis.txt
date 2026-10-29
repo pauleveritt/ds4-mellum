@@ -1,0 +1,47 @@
+| run | decode ms/token | swap-out growth |
+|---|---|---|
+| base-1 | 178.0 | 8456 |
+| base-2 | 178.1 | 0 |
+| prof-1 | 180.7 | 0 |
+| prof-2 | 179.6 | 0 |
+| reads | 182.7 | 0 |
+
+## prof-1.stderr
+mellum_stream_profile tokens 128 encodes 2792 finishes 2792 stops 2664 layers_encoded 42823 experts_loaded 5209 | per token ms: total 182.566 encode 50.142 finish 102.189 load_begin 2.051 load_wait 25.225 other 2.958
+stops 2664: median experts loaded 2.0, read start 0.101 ms, encode 2.018 ms, read wait 0.661 ms
+  1 loaded: n 1197, median read wait 0.112 ms, read span 2.343 ms (1.40 GB/s)
+  2 loaded: n 842, median read wait 0.736 ms, read span 3.378 ms (1.95 GB/s)
+  3 loaded: n 376, median read wait 2.303 ms, read span 4.312 ms (2.29 GB/s)
+  4 loaded: n 143, median read wait 3.404 ms, read span 5.292 ms (2.49 GB/s)
+  5 loaded: n 58, median read wait 4.212 ms, read span 6.218 ms (2.65 GB/s)
+  6 loaded: n 20, median read wait 5.790 ms, read span 6.993 ms (2.82 GB/s)
+  7 loaded: n 6, median read wait 6.774 ms, read span 7.650 ms (3.01 GB/s)
+  8 loaded: n 22, median read wait 7.917 ms, read span 8.641 ms (3.05 GB/s)
+rounds 2792 (n_layer 28): finish median 3.718 ms; fit finish = 1.942 ms + 2.136 ms per executed layer; mean layers executed 1.28
+
+## prof-2.stderr
+mellum_stream_profile tokens 128 encodes 2792 finishes 2792 stops 2664 layers_encoded 42823 experts_loaded 5209 | per token ms: total 180.614 encode 48.529 finish 101.304 load_begin 2.026 load_wait 26.027 other 2.728
+stops 2664: median experts loaded 2.0, read start 0.101 ms, encode 1.938 ms, read wait 0.772 ms
+  1 loaded: n 1197, median read wait 0.157 ms, read span 2.335 ms (1.41 GB/s)
+  2 loaded: n 842, median read wait 0.949 ms, read span 3.368 ms (1.95 GB/s)
+  3 loaded: n 376, median read wait 2.410 ms, read span 4.330 ms (2.28 GB/s)
+  4 loaded: n 143, median read wait 3.336 ms, read span 5.246 ms (2.51 GB/s)
+  5 loaded: n 58, median read wait 4.247 ms, read span 6.071 ms (2.71 GB/s)
+  6 loaded: n 20, median read wait 5.725 ms, read span 6.676 ms (2.96 GB/s)
+  7 loaded: n 6, median read wait 6.566 ms, read span 7.591 ms (3.03 GB/s)
+  8 loaded: n 22, median read wait 7.815 ms, read span 8.530 ms (3.09 GB/s)
+rounds 2792 (n_layer 28): finish median 3.740 ms; fit finish = 1.992 ms + 2.066 ms per executed layer; mean layers executed 1.28
+
+## reads.stderr
+mellum_stream_profile tokens 64 encodes 1405 finishes 1405 stops 1341 layers_encoded 21795 experts_loaded 2791 | per token ms: total 185.741 encode 47.781 finish 104.639 load_begin 2.046 load_wait 29.092 other 2.183
+stops 1341: median experts loaded 2.0, read start 0.103 ms, encode 1.874 ms, read wait 0.840 ms
+  1 loaded: n 590, median read wait 0.121 ms, read span 2.327 ms (1.41 GB/s)
+  2 loaded: n 397, median read wait 0.710 ms, read span 3.381 ms (1.95 GB/s)
+  3 loaded: n 188, median read wait 2.413 ms, read span 4.263 ms (2.32 GB/s)
+  4 loaded: n 82, median read wait 3.585 ms, read span 5.181 ms (2.54 GB/s)
+  5 loaded: n 39, median read wait 4.832 ms, read span 5.991 ms (2.75 GB/s)
+  6 loaded: n 17, median read wait 5.828 ms, read span 6.692 ms (2.95 GB/s)
+  7 loaded: n 6, median read wait 6.768 ms, read span 7.463 ms (3.09 GB/s)
+  8 loaded: n 22, median read wait 7.745 ms, read span 8.420 ms (3.13 GB/s)
+rounds 1405 (n_layer 28): finish median 3.818 ms; fit finish = 2.107 ms + 2.085 ms per executed layer; mean layers executed 1.28
+  decode command buffers 1404: median commit->done 3.700 ms, gpu span 2.900 ms, gap 0.800 ms
