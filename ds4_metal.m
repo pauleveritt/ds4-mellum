@@ -49899,7 +49899,7 @@ int ds4_gpu_qwen4_moe_mid_addr_tensor(
                             0u, 0u, 0u, n_total_expert, 0u, 0u };
     qwen4_bind b[5], res[QWEN4_ATTN_ROWS_MAX * 5u];
     int n_res = 0;
-    if (weight_type != 8u || n_tokens == 0 || n_slots == 0 || n_total_expert == 0 || row_bytes == 0 || ff_dim == 0 ||
+    if ((weight_type != 8u && weight_type != 39u) || n_tokens == 0 || n_slots == 0 || n_total_expert == 0 || row_bytes == 0 || ff_dim == 0 ||
         !qwen4_bind_tensor(&b[0], gate_addrs, (uint64_t)n_total_expert * sizeof(uint64_t), "moe gate addresses") ||
         !qwen4_bind_tensor(&b[1], up_addrs, (uint64_t)n_total_expert * sizeof(uint64_t), "moe up addresses") ||
         !qwen4_bind_tensor(&b[2], selected, (uint64_t)n_tokens * n_slots * sizeof(int32_t), "moe selected") ||
@@ -49908,7 +49908,7 @@ int ds4_gpu_qwen4_moe_mid_addr_tensor(
         (n_res = qwen4_moe_addr_resident(res, resident, n_resident)) < 0) {
         return 0;
     }
-    /* the resident encoder's Q8_0 geometry */
+    /* the resident encoder's geometry for this weight type (Q8_0 or MXFP4) */
     const bool specialize = qwen4_moe_mv_specialize(weight_type);
     const uint32_t nr = specialize ? qwen4_moe_mv_rows() : 2u;
     const uint32_t nsg = specialize ? qwen4_moe_mv_groups(weight_type) : 4u;
@@ -49929,7 +49929,7 @@ int ds4_gpu_qwen4_moe_down_addr_tensor(
                             0u, 0u, 0u, n_total_expert, 0u, 0u };
     qwen4_bind b[4], res[QWEN4_ATTN_ROWS_MAX * 5u];
     int n_res = 0;
-    if (weight_type != 8u || n_tokens == 0 || n_slots == 0 || n_total_expert == 0 || row_bytes == 0 ||
+    if ((weight_type != 8u && weight_type != 39u) || n_tokens == 0 || n_slots == 0 || n_total_expert == 0 || row_bytes == 0 ||
         (ff_dim % 32u) != 0 || out_dim == 0 ||
         !qwen4_bind_tensor(&b[0], down_addrs, (uint64_t)n_total_expert * sizeof(uint64_t), "moe down addresses") ||
         !qwen4_bind_tensor(&b[1], selected, (uint64_t)n_tokens * n_slots * sizeof(int32_t), "moe selected") ||
@@ -50471,7 +50471,7 @@ int ds4_gpu_qwen4_moe_mm_mid_addr_tensor(
         ds4_gpu_tensor *const *resident, uint32_t n_resident,
         uint32_t weight_type, uint32_t n_expert, uint32_t n_tokens, uint32_t n_slots, uint32_t n_out,
         uint32_t in_dim, uint32_t ff_dim, uint32_t list_cap) {
-    if (weight_type != 8u || !gate_addrs || !up_addrs) return 0;
+    if ((weight_type != 8u && weight_type != 39u) || !gate_addrs || !up_addrs) return 0;
     g_qwen4_mm_addr = (qwen4_mm_addr_mode){ true, { gate_addrs, up_addrs }, resident, n_resident };
     const int ok = ds4_gpu_qwen4_moe_mm_mid_tensor(mid, x, lists, counts, NULL, 0u, 0u, 0u, weight_type, n_expert,
                                                    n_tokens, n_slots, n_out, in_dim, ff_dim, list_cap);
@@ -50484,7 +50484,7 @@ int ds4_gpu_qwen4_moe_mm_down_addr_tensor(
         const ds4_gpu_tensor *down_addrs, ds4_gpu_tensor *const *resident, uint32_t n_resident,
         uint32_t weight_type, uint32_t n_expert, uint32_t n_tokens, uint32_t n_slots, uint32_t n_out,
         uint32_t ff_dim, uint32_t out_dim, uint32_t list_cap) {
-    if (weight_type != 8u || !down_addrs) return 0;
+    if ((weight_type != 8u && weight_type != 39u) || !down_addrs) return 0;
     g_qwen4_mm_addr = (qwen4_mm_addr_mode){ true, { down_addrs, NULL }, resident, n_resident };
     const int ok = ds4_gpu_qwen4_moe_mm_down_tensor(part, mid, lists, counts, NULL, 0u, 0u, weight_type, n_expert,
                                                     n_tokens, n_slots, n_out, ff_dim, out_dim, list_cap);
