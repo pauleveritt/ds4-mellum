@@ -72,6 +72,8 @@ def validate_packed(value: dict) -> dict:
         if common.integer(value['schema_version']) != 1 or value['kind'] != 'packed-experts':
             raise ValueError('unsupported packed manifest')
         expert_bytes = 3 * index_tools.part_for(value['geometry'])   # Q8_0 or MXFP4 (S6)
+        for number in value['geometry'].values():
+            common.integer(number, number, number)
         payload = value['payload']
         if payload['path'] != 'experts.bin' or len(value['experts']) != 1792:
             raise ValueError('invalid packed path/count')
