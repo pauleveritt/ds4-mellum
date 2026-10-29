@@ -5727,8 +5727,22 @@ static void weights_validate_qwen4_layout(
     }
 }
 
-/* Mellum layout: every projection and routed expert tensor is Q8_0 (the only
- * quantization the Mellum kernels exist for), norms and the router are F32. */
+/* The routed experts' type, read from blk.<layer>.ffn_gate_exps: Q8_0 or MXFP4
+ * (S6), the two the Mellum MoE path supports.  Anything else exits 1. */
+static uint32_t mellum_expert_type(const ds4_weights *w, uint32_t layer) {
+    const ds4_tensor *t = w->layer[layer].ffn_gate_exps;
+    if (!t) ds4_die("internal error: missing Mellum expert tensor");
+    if (t->type != DS4_TENSOR_Q8_0 && t->type != DS4_TENSOR_MXFP4) {
+        fprintf(stderr, "ds4: Mellum routed experts must be q8_0 or mxfp4: %.*s is %s\n",
+                (int)t->name.len, t->name.ptr, tensor_type_name(t->type));
+        exit(1);
+    }
+    return t->type;
+}
+
+/* Mellum layout: every projection is Q8_0 (the only quantization the Mellum
+ * attention kernels exist for); the routed experts are Q8_0 or MXFP4,
+ * uniform across all 84; norms and the router are F32. */
 static void weights_validate_mellum_layout(
         const ds4_weights *w,
         uint32_t           layer_start,
@@ -5757,12 +5771,14 @@ static void weights_validate_mellum_layout(
         tensor_expect_layout(w->output, Q8, 2, E, DS4_N_VOCAB, 0);
     }
 
+    uint32_t X = Q8;   /* the experts' type, from the first layer checked */
     for (uint32_t il = layer_start; il <= layer_end; il++) {
         const ds4_layer_weights *l = &w->layer[il];
         if (!weights_mellum_layer_has_required(l, il)) {
             fprintf(stderr, "ds4: required Mellum tensors for layer %u are missing\n", il);
             exit(1);
         }
+        if (il == layer_start) X = mellum_expert_type(w, il);
         tensor_expect_layout(l->attn_norm, F32, 1, E, 0, 0);
         tensor_expect_layout(l->ffn_norm, F32, 1, E, 0, 0);
         tensor_expect_layout(l->attn_q, Q8, 2, E, q_dim, 0);
@@ -5772,9 +5788,9 @@ static void weights_validate_mellum_layout(
         tensor_expect_layout(l->attn_q_norm, F32, 1, DS4_N_HEAD_DIM, 0, 0);
         tensor_expect_layout(l->attn_k_norm, F32, 1, DS4_N_HEAD_DIM, 0, 0);
         tensor_expect_layout(l->ffn_gate_inp, F32, 2, E, DS4_N_EXPERT, 0);
-        tensor_expect_layout(l->ffn_gate_exps, Q8, 3, E, DS4_N_FF_EXP, DS4_N_EXPERT);
-        tensor_expect_layout(l->ffn_up_exps, Q8, 3, E, DS4_N_FF_EXP, DS4_N_EXPERT);
-        tensor_expect_layout(l->ffn_down_exps, Q8, 3, DS4_N_FF_EXP, E, DS4_N_EXPERT);
+        tensor_expect_layout(l->ffn_gate_exps, X, 3, E, DS4_N_FF_EXP, DS4_N_EXPERT);
+        tensor_expect_layout(l->ffn_up_exps, X, 3, E, DS4_N_FF_EXP, DS4_N_EXPERT);
+        tensor_expect_layout(l->ffn_down_exps, X, 3, DS4_N_FF_EXP, E, DS4_N_EXPERT);
     }
 }
 
@@ -7361,7 +7377,7 @@ static void config_validate_mellum_model(const ds4_model *m) {
     g_ds4_shape.n_ff_exp = required_u32(m, "mellum.expert_feed_forward_length");
     config_mellum_range("mellum.expert_feed_forward_length", g_ds4_shape.n_ff_exp, 32u, DS4_MAX_FF_EXP);
     if (g_ds4_shape.n_ff_exp % 32u) {
-        config_refuse_mellum_key("mellum.expert_feed_forward_length", "must be a multiple of 32 (Q8_0 blocks)");
+        config_refuse_mellum_key("mellum.expert_feed_forward_length", "must be a multiple of 32 (32-value quantization blocks)");
     }
 
     config_expect_u32("mellum.attention.sliding_window", required_u32(m, "mellum.attention.sliding_window"), 1024u);
