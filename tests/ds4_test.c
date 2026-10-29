@@ -948,6 +948,7 @@ static void test_mellum_stream_group(void) {
         { "700 then 1,281 tokens, chunk 256, K 2", "2", 256, 8192, 700, 1281, false, false, 0 },
         { "a second session, 1,100 tokens, chunk 256, K 2", "2", 256, 8192, 0, 1100, true, false, 0 },
         { "1,100 tokens, rewind to 1,000, sync again, chunk 256, K 2", "2", 256, 8192, 0, 1100, false, false, 1000 },
+        { "6 tokens, chunk 1, K 2 (every chunk one row)", "2", 1, 8192, 0, 6, false, false, 0 },
     };
     for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
         TEST_ASSERT(mellum_group_run(model, NULL, 0, 0, cases[i].chunk, cases[i].ctx, cases[i].n_first, cases[i].n, false,
