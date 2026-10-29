@@ -1,0 +1,7 @@
+engine ebdcb0f
+model e00082f779fa385cee8c68a3ec8833a75778cc87272240b942f74e0b8243e520
+Apple M5 Max
+137438953472
+ProductName:		macOS
+ProductVersion:		27.2
+BuildVersion:		26B123
