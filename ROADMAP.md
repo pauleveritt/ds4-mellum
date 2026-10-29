@@ -1,6 +1,6 @@
 # Mellum roadmap
 
-Updated 2026-10-28. [MELLUM.md](MELLUM.md) records the port, measurements and
+Updated 2026-10-29. [MELLUM.md](MELLUM.md) records the port, measurements and
 numbered checkpoints. This roadmap tracks the separate SSD investigation.
 
 ## Current baseline
@@ -239,6 +239,12 @@ exact against resident:
    K = 8 chunks per layer pass, streaming only. [Measurement 02](docs/superpowers/research/2026-10-28-mellum-s5-measurement-02.md)
    (C n=3, device-true, exact, no regression at n=6): cold first token 60.6 → 37.7 s median, prefill loads
    50,806 → 7,416, Metal 7.94 GiB. The preregistered load ceiling (7,168) was exceeded by 3.5%.
+2b. **Cheaper stops: done (2026-10-29, owner's overnight instruction; reopens S4's set-aside load overlap).**
+   A stop's reads now run while the resumed pass is encoded, and the cache's victim scans stop at the
+   installed area. [Result](docs/superpowers/research/2026-10-29-mellum-stream-decode.md) (preregistered,
+   MXFP4 at 2.5 GiB on the M5, n=3): 43.5 → 25.3 ms/token, identical ids; 3 GiB 30.8 → 18.9 ms (n=1).
+   Chunked reads, windowed passes and synchronous next-layer prefetch were screened and lost; pre-gating
+   predicts 7.0 of the next layer's 8 experts, so an asynchronous prefetch stays a candidate for step 4.
 3. **Fewer stops per token:** hotness for layers that hit, and the eviction policy. Choose on a fresh
    trace, never the held-out -02 trace or ac-demo. After the append, stops rose from 8.7 to 12.7 per
    token. Wait for the M1 Pro's baseline, whose cost per stop
