@@ -22624,8 +22624,8 @@ int ds4_gpu_add_rms_norm_weight_tensor(
         [enc setBuffer:sumbuf offset:ds4_gpu_tensor_offset(sum_out) atIndex:4];
         [enc setBuffer:normbuf offset:ds4_gpu_tensor_offset(norm_out) atIndex:5];
         [enc setThreadgroupMemoryLength:32u * sizeof(float) atIndex:0];
-        [enc dispatchThreadgroups:MTLSizeMake(1, 1, 1)
-             threadsPerThreadgroup:MTLSizeMake(ds4_gpu_rms_norm_threads(n), 1, 1)];
+        /* gated: Mellum's streamed decode uses it, and a stopped token must not run it past the stop */
+        (void)ds4_gpu_dispatch_gated(enc, MTLSizeMake(1, 1, 1), MTLSizeMake(ds4_gpu_rms_norm_threads(n), 1, 1));
         ds4_gpu_end_compute_encoder(cb, enc);
 
         if (!ds4_gpu_finish_command_buffer(cb, owned, "add+RMS norm")) return 0;
