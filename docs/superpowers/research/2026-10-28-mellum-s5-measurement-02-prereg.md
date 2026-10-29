@@ -5,7 +5,11 @@ Date: 2026-10-28, committed before any timing. Branch `codex/mellum-ssd-replay`.
 - **Why:** [S5 measurement 01](2026-10-28-mellum-s5-measurement-01.md) left the cold first token at 60.6 s
   (median, n=3) against resident's 29.6 s, with 50,806 prefill loads (334 GB). Grouped prefill should
   load each layer's experts about once per group.
-- **The measured build** is the commit that closes the final review's fixes on top of `e26b6cc`. Its
+- **The measured build** is this file's amendment commit, which follows the final review's fix
+  (`21848ca`).
+- **Amended before any timing,** after the final review: the A/B arms now run the CLI's session path
+  (`DS4_CLI_FORCE_SESSION=1`). The default CLI path (`generate_qwen4_metal_argmax`) never enters the session
+  sync this change touches. The prefill-loads definition is also stated more precisely. Its
   engine changes since S5 measurement 01's build (`4d0349c`) are the grouped prefill and its plan
   (`git diff 4d0349c..<build> -- ds4.c`), plus the `ds4_engine_close(NULL)` fix (`3a63836`).
 
@@ -32,12 +36,15 @@ Date: 2026-10-28, committed before any timing. Branch `codex/mellum-ssd-replay`.
 
 | Arm | Build | Tool | Runs |
 |---|---|---|---|
-| A | pre-S4 baseline `b1994c6` | `ds4` CLI: `-c 8192 --temp 0 -n 256 -p "Explain how a hash map works, with an example in C."` | 6 |
-| B | measured build, streaming off | the same CLI command | 6 |
+| A | pre-S4 baseline `b1994c6` | `DS4_CLI_FORCE_SESSION=1 ds4 -c 8192 --temp 0 -n 256 -p "Explain how a hash map works, with an example in C."` | 6 |
+| B | measured build, streaming off | the same command | 6 |
 | R | measured build, resident | `tools/mellum_s4_measure` with `--append` | 1 |
 | C | measured build, streamed at 6 GiB, K = 8 | the driver with `--append` and `--stream-bytes`, each from a fresh write-only `F_NOCACHE` copy | 3 |
 
-- **A/B runs** because the session sync's chunk loop, shared with resident Mellum, changed.
+- **A/B runs** because the session sync's chunk loop, shared with resident Mellum, changed. Both builds'
+  session path prints `ds4: prefill: X t/s, generation: Y t/s`, and the runner parses that line (smoke run,
+  n=1 per build, 517.6 and 519.1 t/s prefill). The rates are not comparable with measurement 01's A/B, which
+  used the default path.
 - **Order:** A/B/B/A blocks (`regression_order(6)`) with 30 s rests, then R, then C, with 30 s rests.
 - **Each C process:** bracketed by block-driver read counters; its copy is verified after the run and
   then deleted.
@@ -56,8 +63,9 @@ Date: 2026-10-28, committed before any timing. Branch `codex/mellum-ssd-replay`.
 - **Read class per C run:** device-observed when device bytes are at least 0.99 × (loads × 6,580,224);
   otherwise cache-contaminated. Over 600 GB of expert bytes is a recorded failure.
 - **Predictions, reported against:**
-  - prefill loads (the first decode token's cumulative loads) at most 7,168 (4 groups × 1,792). That is a
-    ceiling, not a point: a count above it contradicts the design;
+  - prefill loads at most 7,168 (4 groups × 1,792). That is a ceiling, not a point: a count above it
+    contradicts the design. The driver records cumulative loads after each decode token, so the figure is
+    the first decode token's cumulative count: prefill plus that one token's loads (about 11 in 01);
   - cold first token near 34 s;
   - the append's loads below measurement 01's 1,642.
 - **Reported, not gated:**
