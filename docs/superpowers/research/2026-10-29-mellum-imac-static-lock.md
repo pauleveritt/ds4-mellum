@@ -1,5 +1,15 @@
 # On the 8 GB iMac, `ds4 --ssd-streaming` at a short context locks its static weights, and prefill collapses
 
+**Corrected 2026-10-29 ~21:25, the same evening: the lock is not shown to be the cause.** The note below (kept as
+written) read three locked and two unlocked processes, run in that order, as cause and effect. Then the README
+runner, with the lock off (`A_ENV=DS4_METAL_DISABLE_STREAMING_STATIC_LOCK=1`, no "locked" line in its log),
+prefilled at **2.79 t/s** ([capture](2026-10-29-mellum-readme-speed/imac-static-lock/unlocked-aborted/)). That run
+followed the runner's token count, an 8-minute non-streamed load of the 7 GB model. So on this machine prefill
+swings from about 3 to 121 t/s under the same flags, and the order of runs and the memory state (1.4 GB of swap
+in use since phase D's bringup, high page-outs) are confounded with the lock. What is measured: the five rates
+below and the 2.79. What is not: their cause. A controlled check needs a rebooted iMac and alternated locked and
+unlocked processes.
+
 Date: 2026-10-29. A screen, found while measuring the README's iMac rows. Captures:
 [`2026-10-29-mellum-readme-speed/imac-static-lock/`](2026-10-29-mellum-readme-speed/imac-static-lock/).
 

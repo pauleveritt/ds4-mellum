@@ -1,0 +1,1 @@
+aborted by hand 2026-10-29 ~21:20: static lock off (A_ENV), yet process 1 prefilled at 2.79 t/s after the runner's 8-minute --dump-tokens count (a non-streamed model load)
