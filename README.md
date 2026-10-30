@@ -1,4 +1,4 @@
-> **This fork: Mellum 2.1 on a Mac.** The [`mellum` branch](https://github.com/pauleveritt/ds4/tree/mellum#readme)
+> **This fork: Mellum 2.1 on a Mac.** The [`mellum` branch](https://github.com/pauleveritt/ds4-mellum/tree/mellum#readme)
 > runs JetBrains' Mellum 2.1 coding model on Apple Silicon, from an M5 Max down to an 8 GB M1 iMac (experts
 > streamed from the SSD), and serves it to coding agents such as Pi. Its README has setup, measured speeds per Mac
 > and what is next. This `main` branch is antirez's [DwarfStar](https://github.com/antirez/ds4), unchanged apart
