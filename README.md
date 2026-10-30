@@ -30,7 +30,7 @@ Details, run counts and ranges are under [Pick your Mac](#pick-your-mac).
 ## Build and get the model
 
 ```bash
-git clone -b mellum https://github.com/pauleveritt/ds4 ds4-mellum
+git clone https://github.com/pauleveritt/ds4-mellum
 cd ds4-mellum
 make
 ```
