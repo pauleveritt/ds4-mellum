@@ -13,16 +13,10 @@ This branch of a fork of antirez's [DwarfStar](https://github.com/antirez/ds4) (
 | M1 Pro, 32 GB | Q8_0, resident | 370 t/s | 38 t/s |
 | iMac M1, 8 GB | MXFP4 experts, streamed from the SSD, 2 GiB cache | not settled | 5.9 t/s |
 
+*Note: speed inside the engine, not server → Pi; 2K context; no thermal load; one simple request. Thus, a
+ceiling.*
+
 Details, run counts and ranges are under [Pick your Mac](#pick-your-mac).
-
-**Prefill up to 4,055 tokens per second** (M5 Max, Q8_0, n = 6).
-
-Treat that as a ceiling, not what a session in Pi will see:
-
-- Measured inside the engine, not over the server to Pi.
-- A 2K-token prompt.
-- No thermal load.
-- One simple request.
 
 **Before you start**
 
