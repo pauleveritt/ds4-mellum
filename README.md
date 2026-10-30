@@ -110,8 +110,24 @@ off saves little and mixes the reasoning into the reply.
 
 ## Speed
 
-Prefill and generation tables will come from one fresh measured run at a named commit; they are not published
-yet. They will be measured with the `ds4` command on single prompts, not through `ds4-server` or Pi. A Pi session feels different: each turn adds HTTP and template overhead and a tool call and
+Measured with the `ds4` command on single prompts, not through `ds4-server` or Pi, by the runners below (each
+cell: n = 6 processes, median, range in brackets; [captures](docs/superpowers/research/2026-10-29-mellum-readme-speed/m5/)).
+Apple M5 Max, 128 GB, on AC power, commit `67b4670`, models fully resident:
+
+| Model file | Prompt tokens | Prefill t/s | Generation t/s |
+|---|---|---|---|
+| Q8_0 | 2,056 | 4,026 (4,000-4,033) | 123.3 (113.9-129.8) |
+| Q8_0 | 8,195 | 3,474 (3,468-3,478) | 124.5 (124.0-125.0) |
+| Q8_0 | 32,778 | 1,826 (1,610-1,929) | 91.3 (89.6-102.2) |
+| MXFP4 experts | 2,056 | 4,170 (4,158-4,173) | 138.5 (117.4-154.9) |
+| MXFP4 experts | 8,195 | 3,577 (3,572-3,580) | 147.5 (145.9-147.9) |
+| MXFP4 experts | 32,778 | 1,920 (1,877-2,015) | 98.6 (92.0-113.6) |
+
+Generation is 256 greedy tokens after each prompt. On an 8 GB M1 iMac, streamed MXFP4 (`--ssd-streaming`, a 2 GiB
+expert cache) decoded at about 5.9 t/s on a 2,686-token agent request
+([S6 phase C](docs/superpowers/research/2026-10-28-mellum-s6-c-imac.md), another tool); its rows from these runners
+are not published yet, because prefill there varied from about 3 to 120 t/s between runs
+([note](docs/superpowers/research/2026-10-29-mellum-imac-static-lock.md)). A Pi session feels different: each turn adds HTTP and template overhead and a tool call and
 its result, and most prefills are small, because earlier turns stay cached.
 
 ### Measure on your own Mac
@@ -128,7 +144,8 @@ ARMS=AA tests/mellum_cli_prefill_abba.sh ~/ds4-runs/prefill ~/models/Mellum2.1-1
 ARMS=AA tests/mellum_cli_decode_abba.sh ~/ds4-runs/decode ~/models/Mellum2.1-12B-A2.5B-Thinking-Q8_0.gguf tests/mellum_measurements/d1_decode_profile 2048
 ```
 
-Add `8192 32768` after `2048` for longer prompts (a 32K prompt takes a few minutes per block). The decode runner
+For a streamed row, set `DS4_ARGS="--ssd-streaming --ssd-streaming-cache-experts 2GB"` (any `ds4` arguments for
+every measured process; recorded in `setup.txt`). Add `8192 32768` after `2048` for longer prompts (a 32K prompt takes a few minutes per block). The decode runner
 also accepts `100`. Each output directory gets `summary.txt` (the median and range per length), `runs.txt`
 (every process's rate), every process's log, and `events.txt` (the power source and thermal state before and
 after each block). Run on AC power, with nothing else on the GPU, and keep the power mode the same between runs.
