@@ -15,6 +15,15 @@ This branch of a fork of antirez's [DwarfStar](https://github.com/antirez/ds4) (
 
 Details, run counts and ranges are under [Pick your Mac](#pick-your-mac).
 
+**Prefill up to 4,055 tokens per second** (M5 Max, Q8_0, n = 6).
+
+Treat that as a ceiling, not what a session in Pi will see:
+
+- Measured inside the engine, not over the server to Pi.
+- A 2K-token prompt.
+- No thermal load.
+- One simple request.
+
 **Before you start**
 
 - **Mac only.** Metal on Apple Silicon. CUDA, ROCm, the CPU path and distributed inference are not built or
@@ -101,6 +110,20 @@ Then, with `ds4-server` running: `pi --model ds4/mellum-2.1`. The key is a place
 - Thinking: leave it on. With `--nothink`, Mellum still reasons in plain text inside its coding answers.
 - Context: keep Pi's `contextWindow` equal to the server's `-c`. Mellum is trained to 131,072 tokens; 32,768 is
   the size measured here.
+
+## Or skip the server: ds4-agent
+
+`ds4-agent` is DwarfStar's own coding agent. It runs the model in the same process, with no HTTP hop, and on
+this branch it drives Mellum with Pi's four tools:
+
+```bash
+./ds4-agent -m ~/models/Mellum2.1-12B-A2.5B-Thinking-Q8_0.gguf -c 32768 --temp 0.6 --top-p 0.95
+```
+
+It is the other path to speedups, because the agent and the engine change together. Today the next user turn
+reuses the live KV cache instead of prefilling the conversation again, and one tool result is capped at a quarter
+of the context. The agent also repairs Mellum's bare quotes in `write` and `edit` arguments. It has not been
+measured against Pi. It has no top-k option.
 
 ## Pick your Mac
 
@@ -203,6 +226,9 @@ with nothing else on the GPU.
 ## Speed work
 
 Each area lists what worked (measured), what did not, and what is next. Figures are from the M5 Max unless noted.
+
+Read the prefill peak (4,055 t/s) as a ceiling: it was measured inside the engine, not over the server to Pi, on
+a 2K-token prompt, with no thermal load and one simple request.
 
 ### Prefill
 
