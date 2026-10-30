@@ -1,0 +1,12 @@
+state before 2048 1A: 20:16:45 'AC Power' powermode=0 No thermal warning level has been recorded No performance warning level has been recorded No CPU power status has been recorded
+state after 2048 1A: 20:17:27 'AC Power' powermode=0 No thermal warning level has been recorded No performance warning level has been recorded No CPU power status has been recorded
+state before 2048 2A: 20:17:58 'AC Power' powermode=0 No thermal warning level has been recorded No performance warning level has been recorded No CPU power status has been recorded
+state after 2048 2A: 20:18:39 'AC Power' powermode=0 No thermal warning level has been recorded No performance warning level has been recorded No CPU power status has been recorded
+state before 8192 1A: 20:19:10 'AC Power' powermode=0 No thermal warning level has been recorded No performance warning level has been recorded No CPU power status has been recorded
+state after 8192 1A: 20:19:59 'AC Power' powermode=0 No thermal warning level has been recorded No performance warning level has been recorded No CPU power status has been recorded
+state before 8192 2A: 20:20:29 'AC Power' powermode=0 No thermal warning level has been recorded No performance warning level has been recorded No CPU power status has been recorded
+state after 8192 2A: 20:21:18 'AC Power' powermode=0 No thermal warning level has been recorded No performance warning level has been recorded No CPU power status has been recorded
+state before 32768 1A: 20:21:48 'AC Power' powermode=0 No thermal warning level has been recorded No performance warning level has been recorded No CPU power status has been recorded
+state after 32768 1A: 20:23:43 'AC Power' powermode=0 No thermal warning level has been recorded No performance warning level has been recorded No CPU power status has been recorded
+state before 32768 2A: 20:24:13 'AC Power' powermode=0 No thermal warning level has been recorded No performance warning level has been recorded No CPU power status has been recorded
+state after 32768 2A: 20:26:22 'AC Power' powermode=0 No thermal warning level has been recorded No performance warning level has been recorded No CPU power status has been recorded

@@ -1,0 +1,6 @@
+length 2048: 2056 tokens, 5795 bytes, ctx 3072
+length 8192: 8195 tokens, 22819 bytes, ctx 9216
+length 32768: 32778 tokens, 90008 bytes, ctx 33792
+2048 (2056 tokens) this build: n 6, median 4026 t/s, range 4000-4033
+8192 (8195 tokens) this build: n 6, median 3474 t/s, range 3468-3478
+32768 (32778 tokens) this build: n 6, median 1826 t/s, range 1610-1929

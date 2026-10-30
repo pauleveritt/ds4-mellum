@@ -1,0 +1,17 @@
+ds4: Metal device Apple M5 Max, 128.00 GiB RAM
+ds4: Metal 4 tensor API enabled for Tensor kernels
+ds4: drift-patch flags hc_stable=on norm_unify=on kv_raw_f32=off rope_exp2_log2=off math_safe=off tensor_matmul=on
+ds4: Metal model views created in 0.252 ms, residency requested in 49.222 ms, warmup 3.964 ms (mapped 6700.47 MiB from offset 3.42 MiB)
+ds4: Metal mapped mmaped model as 1 overlapping shared buffers
+ds4: metal backend initialized for graph diagnostics
+ds4: memory: KV 0.12 GiB (raw 0.12 + compressed 0.00) + buffers 0.25 GiB + resident model 6.54 GiB = 6.92 GiB planned
+ds4: memory detail: ctx=3072 prefill_cap=1024 raw_kv_rows=3072 compressed_kv_rows=0 backend=metal
+ds4: memory: KV 0.12 GiB (raw 0.12 + compressed 0.00) + buffers 0.25 GiB = 0.38 GiB context
+ds4: memory detail: ctx=3072 prefill_cap=1024 raw_kv_rows=3072 compressed_kv_rows=0 backend=metal
+ds4: using GPU graph generation with graph prefill
+mellum: session allocated 403222784 bytes, planned 403222784 bytes
+processing 2056 input tokens: 1024/2056 (49.8%)
+processing 2056 input tokens: 2048/2056 (99.6%)
+processing 2056 input tokens: 2056/2056 (100.0%)
+ds4: Mellum prefill: 4167.65 t/s, generation: 58823.53 t/s
+ds4: stopped at the -n cap of 1 tokens

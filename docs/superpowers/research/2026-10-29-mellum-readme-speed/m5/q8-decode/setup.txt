@@ -1,0 +1,9 @@
+machine: Apple M5 Max 137438953472 bytes
+tree: /Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/owed head ccc1f71, 0 changed tracked files
+PER=4 COOL=30 GAP=10 GEN=256 ARMS=AA
+A: (no variables), ./ds4 (Oct 29 20:05:24 2026)
+B: (no variables), ./ds4 (Oct 29 20:05:24 2026)
+ds4 args: (none)
+length 2048: 2056 tokens, ctx 3072
+length 8192: 8195 tokens, ctx 9216
+length 32768: 32778 tokens, ctx 33792

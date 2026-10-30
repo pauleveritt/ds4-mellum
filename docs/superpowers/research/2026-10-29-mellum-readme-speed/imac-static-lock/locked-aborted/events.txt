@@ -1,0 +1,1 @@
+state before 2048 1A: 20:15:39 'AC Power' powermode= No thermal warning level has been recorded No performance warning level has been recorded No CPU power status has been recorded

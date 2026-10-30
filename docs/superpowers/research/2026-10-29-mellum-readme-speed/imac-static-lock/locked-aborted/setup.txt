@@ -1,0 +1,7 @@
+machine: Apple M1 8589934592 bytes
+head: 67b4670  ds4: Oct 29 20:08:27 2026
+PER=4 COOL=45 GAP=10 ARMS=AA
+ds4 args: --ssd-streaming --ssd-streaming-cache-experts 2GB
+A (this build): (no variables)
+B (E1 on (default)): (no variables)
+length 2048: 2056 tokens, 5795 bytes, ctx 3072
