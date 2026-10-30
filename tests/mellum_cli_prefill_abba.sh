@@ -11,6 +11,9 @@
 # prefill per process (after its own GPU warmup), so a block's first process is dropped, not a process's first run.
 # Every process's stderr is kept; power and thermal state go to events.txt before and after each block.
 set -u
+# DS4_ARGS: extra ds4 arguments for every measured process (a streamed row: "--ssd-streaming --ssd-streaming-cache-experts 2GB"),
+# recorded in setup.txt.
+read -r -a EXTRA <<< "${DS4_ARGS-}"
 OUT=$1; MODEL=$2; shift 2
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 DS4=${DS4:-$ROOT/ds4}
@@ -54,6 +57,7 @@ PY
 { echo "machine: $(sysctl -n machdep.cpu.brand_string) $(sysctl -n hw.memsize) bytes"
   echo "head: $(git -C "$ROOT" rev-parse --short HEAD)  ds4: $(stat -f %Sm "$DS4")"
   echo "PER=$PER COOL=$COOL GAP=$GAP ARMS=$ARMS"
+  echo "ds4 args: ${EXTRA[*]:-(none)}"
   echo "A ($A_NAME): ${A_ARM[*]:-(no variables)}"; echo "B ($B_NAME): ${B_ARM[*]:-(no variables)}"; } > "$OUT/setup.txt"
 
 for target in "$@"; do
@@ -76,7 +80,7 @@ for target in "$@"; do
         for p in $(seq 1 "$PER"); do
             [ "$p" -gt 1 ] && sleep "$GAP"
             log=$OUT/l${target}_b$b${arm}_p$p.err
-            env ${envs[@]+"${envs[@]}"} "$DS4" -m "$MODEL" -c "$ctx" --temp 0 -n 1 --prompt-file "$prompt" \
+            env ${envs[@]+"${envs[@]}"} "$DS4" ${EXTRA[@]+"${EXTRA[@]}"} -m "$MODEL" -c "$ctx" --temp 0 -n 1 --prompt-file "$prompt" \
                 > /dev/null 2> "$log" || { echo "process $target $b$arm $p failed"; tail -3 "$log"; exit 1; }
             tps=$(sed -n 's/.*ds4: Mellum prefill: \([0-9.]*\) t\/s.*/\1/p' "$log" | tail -1)
             [ -n "$tps" ] || { echo "no prefill line in $log"; exit 1; }

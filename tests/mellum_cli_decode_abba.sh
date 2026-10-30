@@ -10,6 +10,9 @@
 # stdout (the generated text) and stderr are kept, runs.txt has every process's rate, and power and thermal
 # state before and after each block go to events.txt.
 set -u
+# DS4_ARGS: extra ds4 arguments for every measured process (a streamed row: "--ssd-streaming --ssd-streaming-cache-experts 2GB"),
+# recorded in setup.txt.
+read -r -a EXTRA <<< "${DS4_ARGS-}"
 OUT=$1; MODEL=$2; PD=$3; shift 3
 DS4=${DS4:-./ds4}
 A_DS4=${A_DS4:-$DS4}; B_DS4=${B_DS4:-$DS4}
@@ -28,7 +31,8 @@ state() {
   echo "tree: $(pwd) head $(git rev-parse --short HEAD), $(git status --porcelain --untracked-files=no | wc -l | tr -d " ") changed tracked files"
   echo "PER=$PER COOL=$COOL GAP=$GAP GEN=$GEN ARMS=$ARMS"
   echo "A: ${A_ARM[*]:-(no variables)}, $A_DS4 ($(stat -f %Sm "$A_DS4"))"
-  echo "B: ${B_ARM[*]:-(no variables)}, $B_DS4 ($(stat -f %Sm "$B_DS4"))"; } > "$OUT/setup.txt"
+  echo "B: ${B_ARM[*]:-(no variables)}, $B_DS4 ($(stat -f %Sm "$B_DS4"))"
+  echo "ds4 args: ${EXTRA[*]:-(none)}"; } > "$OUT/setup.txt"
 for target in "$@"; do
     prompt=$PD/prompt_$target.txt
     ntok=$("$DS4" -m "$MODEL" --prompt-file "$prompt" --dump-tokens 2>/dev/null | head -1 |
@@ -44,7 +48,7 @@ for target in "$@"; do
         for p in $(seq 1 "$PER"); do
             [ "$p" -gt 1 ] && sleep "$GAP"
             log=$OUT/l${target}_b$b${arm}_p$p
-            env ${envs[@]+"${envs[@]}"} "$bin" -m "$MODEL" -c "$ctx" --temp 0 -n "$GEN" --prompt-file "$prompt" \
+            env ${envs[@]+"${envs[@]}"} "$bin" ${EXTRA[@]+"${EXTRA[@]}"} -m "$MODEL" -c "$ctx" --temp 0 -n "$GEN" --prompt-file "$prompt" \
                 > "$log.out" 2> "$log.err" || { echo "process $log failed"; exit 1; }
             tps=$(sed -n 's/.*generation: \([0-9.]*\) t\/s.*/\1/p' "$log.err" | tail -1)
             echo "$target $ntok $arm $b $p $tps" >> "$OUT/runs.txt"
