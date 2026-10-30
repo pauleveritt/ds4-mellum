@@ -329,12 +329,14 @@ Phase D ([design](docs/superpowers/specs/2026-10-29-mellum-stream-prefetch-desig
 [plan](docs/superpowers/plans/2026-10-29-mellum-s6-d-prefetch.md)) **paused 2026-10-29 by the owner** after Task 1's cache
 stage and Task 2b:
 - On the merged build 2.5 GiB is 68,976,640 B over the C2 limit (n=1; [reference](docs/superpowers/research/2026-10-29-mellum-s6-d-reference.md)).
-- A failed expert read no longer loses slab slots on the early-load path (`--mellum-stream-read-fault`); the
-  synchronous load path, prefill and two others still do (review, in the plan's ledger).
-- The synchronous prefetch's M5 dry run avoided 1.94 stops per token and was 2.2 ms/token slower (n=2 per arm,
-  [kit](docs/superpowers/research/2026-10-29-mellum-s6-d-sync-screen/)); the earlier M5 screen avoided about 3.7.
-Reopen: re-measure that M5 difference first; then free about 69 MB for 2.5 GiB (+25% measured), and run the iMac
-screen. Prefetch alone is unlikely to reach the 20 ms/token bar.
+- A failed expert read no longer loses slab slots, on the early-load path, the synchronous path or a prefill
+  (`--mellum-stream-read-fault`, `cb9cefd`, `be265cd`). Not changed: the GLM/DeepSeek batch path and seeding.
+- The M5 prefetch-screen anomaly (1.94 stops avoided against about 3.7) was a dispatch the S6 merge left ungated:
+  the fused add + norm ran past every stop (`--mellum-stream-stop-scratch`, fix `4e6450a`). After it the screen
+  avoids 3.72 stops per token, prefetch off is about 0.7 ms/token faster, and prefetch on is still 1.3 ms/token
+  slower (n=2 per arm, [note](docs/superpowers/research/2026-10-29-mellum-prefetch-screen-anomaly.md)).
+Reopen: free about 69 MB for 2.5 GiB (+25% measured), then the iMac screen; 3.72 avoided stops are worth about
+19 ms/token gross there, at or under the 20 ms/token bar before the extra reads.
 
 ## Working rules
 
