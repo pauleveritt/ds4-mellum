@@ -1,0 +1,47 @@
+ds4: Metal device Apple M1 Pro, 32.00 GiB RAM
+ds4: Metal 4 tensor API disabled for pre-M5/pre-A19 devices
+ds4: drift-patch flags hc_stable=on norm_unify=on kv_raw_f32=off rope_exp2_log2=off math_safe=off tensor_matmul=off
+ds4: Metal model views created in 0.540 ms, residency requested in 315.644 ms, warmup 1.653 ms (mapped 12323.22 MiB from offset 3.42 MiB)
+ds4: Metal mapped mmaped model as 1 overlapping shared buffers
+ds4: metal backend initialized for graph diagnostics
+ds4: memory: KV 0.53 GiB (raw 0.53 + compressed 0.00) + buffers 0.25 GiB + resident model 12.03 GiB = 12.82 GiB planned
+ds4: memory detail: ctx=33792 prefill_cap=1024 raw_kv_rows=33792 compressed_kv_rows=0 backend=metal
+ds4: memory: KV 0.53 GiB (raw 0.53 + compressed 0.00) + buffers 0.25 GiB = 0.79 GiB context
+ds4: memory detail: ctx=33792 prefill_cap=1024 raw_kv_rows=33792 compressed_kv_rows=0 backend=metal
+ds4: using GPU graph generation with graph prefill
+mellum: session allocated 843624704 bytes, planned 843624704 bytes
+processing 32778 input tokens: 1024/32778 (3.1%)
+processing 32778 input tokens: 2048/32778 (6.2%)
+processing 32778 input tokens: 3072/32778 (9.4%)
+processing 32778 input tokens: 4096/32778 (12.5%)
+processing 32778 input tokens: 5120/32778 (15.6%)
+processing 32778 input tokens: 6144/32778 (18.7%)
+processing 32778 input tokens: 7168/32778 (21.9%)
+processing 32778 input tokens: 8192/32778 (25.0%)
+processing 32778 input tokens: 9216/32778 (28.1%)
+processing 32778 input tokens: 10240/32778 (31.2%)
+processing 32778 input tokens: 11264/32778 (34.4%)
+processing 32778 input tokens: 12288/32778 (37.5%)
+processing 32778 input tokens: 13312/32778 (40.6%)
+processing 32778 input tokens: 14336/32778 (43.7%)
+processing 32778 input tokens: 15360/32778 (46.9%)
+processing 32778 input tokens: 16384/32778 (50.0%)
+processing 32778 input tokens: 17408/32778 (53.1%)
+processing 32778 input tokens: 18432/32778 (56.2%)
+processing 32778 input tokens: 19456/32778 (59.4%)
+processing 32778 input tokens: 20480/32778 (62.5%)
+processing 32778 input tokens: 21504/32778 (65.6%)
+processing 32778 input tokens: 22528/32778 (68.7%)
+processing 32778 input tokens: 23552/32778 (71.9%)
+processing 32778 input tokens: 24576/32778 (75.0%)
+processing 32778 input tokens: 25600/32778 (78.1%)
+processing 32778 input tokens: 26624/32778 (81.2%)
+processing 32778 input tokens: 27648/32778 (84.3%)
+processing 32778 input tokens: 28672/32778 (87.5%)
+processing 32778 input tokens: 29696/32778 (90.6%)
+processing 32778 input tokens: 30720/32778 (93.7%)
+processing 32778 input tokens: 31744/32778 (96.8%)
+processing 32778 input tokens: 32768/32778 (100.0%)
+processing 32778 input tokens: 32778/32778 (100.0%)
+ds4: Mellum prefill: 224.37 t/s, generation: 23255.83 t/s
+ds4: stopped at the -n cap of 1 tokens

@@ -1,70 +1,78 @@
 # Mellum 2.1 on DwarfStar (ds4-mellum)
 
-This is a fork of antirez's [DwarfStar](https://github.com/antirez/ds4) (ds4) that runs JetBrains' Mellum 2.1
-(12B parameters, 2.5B active per token, a thinking coding model) on a Mac and serves it to a coding agent. Mellum
-mixes 64 routed experts (8 per token) with sliding-window and full attention layers, 3 to 1; this branch adds
-Metal kernels for that shape.
+This branch of a fork of antirez's [DwarfStar](https://github.com/antirez/ds4) (ds4) runs JetBrains' Mellum 2.1
+(12B parameters, 2.5B active per token, a thinking coding model) on a Mac and serves it to a coding agent such as
+[Pi](https://pi.dev). Mellum mixes 64 routed experts (8 per token) with sliding-window and full attention layers,
+3 to 1; this branch adds Metal kernels for that shape, and can stream experts from the SSD so the model runs on an
+8 GB Mac.
+
+| Mac | Setup | Prefill, 2K prompt | Generation |
+|---|---|---|---|
+| M5 Max, 128 GB | Q8_0, resident | 4,026 t/s | 123 t/s |
+| M5 Max, 128 GB | MXFP4 experts, resident | 4,170 t/s | 139 t/s |
+| M1 Pro, 32 GB | Q8_0, resident | 370 t/s | 38 t/s |
+| iMac M1, 8 GB | MXFP4 experts, streamed from the SSD, 2 GiB cache | not settled | 5.9 t/s |
+
+Details, run counts and ranges are under [Pick your Mac](#pick-your-mac).
 
 **Before you start**
 
 - **Mac only.** Metal on Apple Silicon. CUDA, ROCm, the CPU path and distributed inference are not built or
   tested for Mellum.
-- **Q8_0 or MXFP4 experts.** The loader accepts JetBrains' Q8_0 file and its `MXFP4_MOE` file (the routed experts
-  in MXFP4, the rest Q8_0), and refuses every other quant, including the Q4_K_M that JetBrains' model card
-  recommends.
-- **Mostly one machine measured.** Everything here was run on an Apple M5 Max with 128 GB, except streamed MXFP4
-  on an 8 GB M1 iMac ([result](docs/superpowers/research/2026-10-28-mellum-s6-c-imac.md)). Part of the prefill speed
-  comes from Metal 4 tensor tiles that the port uses only on M5-class chips, so an M4 or earlier is untested and
-  will be slower.
+- **Two quants.** JetBrains' Q8_0 file and its `MXFP4_MOE` file (routed experts in MXFP4, the rest Q8_0). Every
+  other quant is refused, including the Q4_K_M that JetBrains' model card recommends.
+- **Three Macs measured.** An M5 Max (128 GB), an M1 Pro (32 GB) and an M1 iMac (8 GB). Part of the M5's prefill
+  speed comes from Metal 4 tensor tiles that only M5-class chips get.
 
-## Get the model
+## Build and get the model
 
 ```bash
-hf download JetBrains/Mellum2.1-12B-A2.5B-Thinking-GGUF \
-  Mellum2.1-12B-A2.5B-Thinking-Q8_0.gguf --local-dir ~/models
-```
-
-This writes `~/models/Mellum2.1-12B-A2.5B-Thinking-Q8_0.gguf`, replacing a file of that name if you have one:
-12,925,417,760 bytes, sha256 `69e0ac02a16586c2c9e991f1e3b8a1eb403882e7ab9e69ea01eb23dbbbc6841f` (Hugging Face
-commit `0af0a45b98`).
-
-## Build
-
-```bash
-git clone https://github.com/pauleveritt/ds4-mellum
+git clone -b mellum https://github.com/pauleveritt/ds4 ds4-mellum
 cd ds4-mellum
 make
 ```
 
-Run the commands below from this directory: `ds4` and `ds4-server` load their Metal kernels from `metal/` at
-startup.
+Run everything below from this directory: `ds4` and `ds4-server` load their Metal kernels from `metal/`.
 
-## Try it
+Download the quant your Mac's section names (both from JetBrains'
+[repository](https://huggingface.co/JetBrains/Mellum2.1-12B-A2.5B-Thinking-GGUF)):
+
+```bash
+hf download JetBrains/Mellum2.1-12B-A2.5B-Thinking-GGUF \
+  Mellum2.1-12B-A2.5B-Thinking-Q8_0.gguf --local-dir ~/models
+hf download JetBrains/Mellum2.1-12B-A2.5B-Thinking-GGUF \
+  Mellum2.1-12B-A2.5B-Thinking-MXFP4_MOE.gguf --local-dir ~/models
+```
+
+| File | Bytes | sha256 |
+|---|---|---|
+| `Mellum2.1-12B-A2.5B-Thinking-Q8_0.gguf` | 12,925,417,760 | `69e0ac02a16586c2c9e991f1e3b8a1eb403882e7ab9e69ea01eb23dbbbc6841f` |
+| `Mellum2.1-12B-A2.5B-Thinking-MXFP4_MOE.gguf` | 7,029,537,056 | `cf09584a30423f6f80b0c9fe2f42e152520dabf08fecd1cad641ce21a7588166` |
+
+Q8_0 is closer to the original weights; MXFP4 is smaller, and on the M5 decodes faster. JetBrains' own figures against BF16:
+KL divergence 0.008 for Q8_0 and 0.115 for MXFP4.
+
+Quick check (the last line on stderr gives the prefill and generation rates):
 
 ```bash
 ./ds4 -m ~/models/Mellum2.1-12B-A2.5B-Thinking-Q8_0.gguf -c 32768 \
   -p "Write a Python function that checks whether a string is a palindrome."
 ```
 
-Mellum thinks first: its reasoning prints as plain text, then the answer. The last line on stderr gives the
-prefill and generation rates.
+Mellum thinks first: its reasoning prints as plain text, then the answer.
 
-## Serve it
+## Serve it and connect Pi
 
 ```bash
 ./ds4-server -m ~/models/Mellum2.1-12B-A2.5B-Thinking-Q8_0.gguf -c 32768 --port 8099
 ```
 
-The server speaks the OpenAI chat-completions API, with tools and streaming, and returns Mellum's reasoning
-separately as `reasoning_content`. `curl http://127.0.0.1:8099/v1/models` lists `mellum-2.1`. Any
-OpenAI-compatible client can use it; the next section connects Pi.
+Use the server command from your Mac's section. The server speaks the OpenAI chat-completions API, with tools and
+streaming, and returns Mellum's reasoning separately as `reasoning_content`; `curl
+http://127.0.0.1:8099/v1/models` lists `mellum-2.1`.
 
-## Connect Pi
-
-Mellum was trained on [Pi](https://pi.dev)'s four tools (`read`, `write`, `edit`, `bash`), which is why Pi is the
-suggested client. Pi has no command-line option for a server URL, so add a `ds4` provider to
-`~/.pi/agent/models.json`. If the file exists, add the `"ds4"` entry to its `"providers"` rather than replacing
-the file; if not, create it with:
+Mellum was trained on Pi's four tools (`read`, `write`, `edit`, `bash`). Add a `ds4` provider to
+`~/.pi/agent/models.json` (merge it into `"providers"` if the file exists):
 
 ```json
 {
@@ -85,34 +93,36 @@ the file; if not, create it with:
 }
 ```
 
-Then, with `ds4-server` running:
+Then, with `ds4-server` running: `pi --model ds4/mellum-2.1`. The key is a placeholder.
+
+**Settings for every Mac.**
+- Sampling: temperature 0.6, top-p 0.95, top-k 20 (JetBrains' model card), set in Pi's `samplingParams`. A
+  client that sends none gets temperature 1.0 and no top-k, because Mellum's `generation_config.json` sets none.
+- Thinking: leave it on. With `--nothink`, Mellum still reasons in plain text inside its coding answers.
+- Context: keep Pi's `contextWindow` equal to the server's `-c`. Mellum is trained to 131,072 tokens; 32,768 is
+  the size measured here.
+
+## Pick your Mac
+
+Three settings matter: the **quant** (Q8_0 or MXFP4), **SSD streaming** (off, or on with an expert-cache size)
+and the **context** (`-c`). Every speed below comes from the runners in [Measure on your own Mac](#measure-on-your-own-mac)
+unless it says otherwise: 256 greedy tokens after real prose, n = 6 processes per cell, median and range.
+
+### M5 Max, more than 32 GB
+
+| Setting | Use |
+|---|---|
+| Quant | Q8_0, or MXFP4 for faster decode |
+| SSD streaming | off |
+| Context | `-c 32768` |
 
 ```bash
-pi --model ds4/mellum-2.1
+./ds4-server -m ~/models/Mellum2.1-12B-A2.5B-Thinking-Q8_0.gguf -c 32768 --port 8099
 ```
 
-The key is a placeholder; `ds4-server` ignores it. Pi shows Mellum's reasoning as thinking blocks, separate from
-its answer.
-
-## Settings
-
-| Setting | Value | Why |
-|---|---|---|
-| Context | `-c 32768` on the server, `"contextWindow": 32768` in Pi | A practical default. Mellum is trained to 131,072 tokens; longer contexts work but run slower and were not measured here. Pi caps one reply at half the window (16,384 tokens). |
-| Sampling | temperature 0.6, top-p 0.95, top-k 20, set in Pi's `samplingParams` | JetBrains' [model card](https://huggingface.co/JetBrains/Mellum2.1-12B-A2.5B-Thinking-GGUF). A client that sends none gets temperature 1.0, top-p 1.0 and no top-k or min-p, because Mellum's `generation_config.json` sets no sampler. |
-| Quant | Q8_0 | The only one this port loads. |
-| Memory at `-c 32768` | 12.9 GB of weights (the file, mapped) plus 0.83 GB for the context (828,944,640 bytes allocated) | Measured with `ds4 -c 32768` (the session's own allocation line). |
-| Thinking | on (the default) | See below. |
-
-**Thinking.** Leave it on. `./ds4 --nothink` (the template's `enable_thinking=false`) makes simple questions get
-a direct answer, but on coding tasks Mellum still reasons in plain text inside its answer, so turning thinking
-off saves little and mixes the reasoning into the reply.
-
-## Speed
-
-Measured with the `ds4` command on single prompts, not through `ds4-server` or Pi, by the runners below (each
-cell: n = 6 processes, median, range in brackets; [captures](docs/superpowers/research/2026-10-29-mellum-readme-speed/m5/)).
-Apple M5 Max, 128 GB, on AC power, commit `67b4670`, models fully resident:
+Memory at `-c 32768` (Metal peak, 2,686-token request): Q8_0 12.78 GiB, MXFP4 7.29 GiB (n = 3 each). Apple
+M5 Max, 128 GB, AC power, commit `67b4670`
+([captures](docs/superpowers/research/2026-10-29-mellum-readme-speed/m5/)):
 
 | Model file | Prompt tokens | Prefill t/s | Generation t/s |
 |---|---|---|---|
@@ -123,39 +133,151 @@ Apple M5 Max, 128 GB, on AC power, commit `67b4670`, models fully resident:
 | MXFP4 experts | 8,195 | 3,577 (3,572-3,580) | 147.5 (145.9-147.9) |
 | MXFP4 experts | 32,778 | 1,920 (1,877-2,015) | 98.6 (92.0-113.6) |
 
-Generation is 256 greedy tokens after each prompt. On an 8 GB M1 iMac, streamed MXFP4 (`--ssd-streaming`, a 2 GiB
-expert cache) decoded at about 5.9 t/s on a 2,686-token agent request
-([S6 phase C](docs/superpowers/research/2026-10-28-mellum-s6-c-imac.md), another tool); its rows from these runners
-are not published yet, because prefill there varied from about 3 to 120 t/s between runs
-([note](docs/superpowers/research/2026-10-29-mellum-imac-static-lock.md)). A Pi session feels different: each turn adds HTTP and template overhead and a tool call and
-its result, and most prefills are small, because earlier turns stay cached.
+### M1 Pro, 32 GB
+
+| Setting | Use |
+|---|---|
+| Quant | Q8_0 (MXFP4 is no faster here) |
+| SSD streaming | off |
+| Context | `-c 32768` |
+
+```bash
+./ds4-server -m ~/models/Mellum2.1-12B-A2.5B-Thinking-Q8_0.gguf -c 32768 --port 8099
+```
+
+Memory planned at a 33,792 context: Q8_0 12.82 GiB, MXFP4 7.33 GiB (the engine's startup line). Apple M1 Pro,
+32 GB, AC power, commit `a699e14`, other apps open
+([captures](docs/superpowers/research/2026-10-29-mellum-readme-speed/m1pro/)):
+
+| Model file | Prompt tokens | Prefill t/s | Generation t/s |
+|---|---|---|---|
+| Q8_0 | 2,056 | 370 (368-371) | 37.7 (37.7-37.9) |
+| Q8_0 | 8,195 | 328 (328-329) | 35.5 (35.5-35.5) |
+| Q8_0 | 32,778 | 226 (224-230) | 28.9 (28.9-29.0) |
+| MXFP4 experts | 2,056 | 354 (354-354) | 34.9 (34.7-35.6) |
+| MXFP4 experts | 8,195 | 314 (313-315) | 33.0 (32.9-33.4) |
+| MXFP4 experts | 32,778 | 219 (218-220) | 27.1 (27.1-27.1) |
+
+On this chip MXFP4 is slightly slower than Q8_0 in both prefill and generation, the reverse of the M5; pick it
+only to save memory.
+
+### iMac M1, 8 GB
+
+| Setting | Use |
+|---|---|
+| Quant | MXFP4 (half the bytes per expert read; Q8_0 was not run here) |
+| SSD streaming | `--ssd-streaming --ssd-streaming-cache-experts 2GB` |
+| Context | `-c 32768` |
+
+```bash
+./ds4-server -m ~/models/Mellum2.1-12B-A2.5B-Thinking-MXFP4_MOE.gguf -c 32768 --port 8099 \
+  --ssd-streaming --ssd-streaming-cache-experts 2GB
+```
+
+Quit other apps first. Measured with apps closed, on a 2,686-token coding-agent request through the measure tool
+(not these runners), n = 3: decode 5.85 t/s, first token 19.4 s, Metal peak 3.86 GiB, no swap growth; the
+greedy output matches the M5's resident logits (29/29 and 64/64 top tokens)
+([result](docs/superpowers/research/2026-10-28-mellum-s6-c-imac.md)). A 2.5 GiB cache decodes about 25% faster
+(n = 1) but goes 69 MB over the memory limit, so 2 GiB is the setting.
+
+Keep `-c 32768`. At a short context, streaming locks the shared weights in memory, and on this iMac prefill then
+varied from about 3 to 120 t/s between runs; if you need a short context, set
+`DS4_METAL_DISABLE_STREAMING_STATIC_LOCK=1` ([note](docs/superpowers/research/2026-10-29-mellum-imac-static-lock.md)).
+Prefill rows are not published until that is settled.
 
 ### Measure on your own Mac
 
-The quick check is the "Try it" command above: its last line prints the prefill and generation rates for that
-one prompt.
-
-For numbers you can compare, the repository's runners measure one build on real prose (the start of
-`speed-bench/promessi_sposi.txt` plus a request), in two blocks of four processes per prompt length, with
-cooldowns. Each block's first process is dropped, leaving n = 6 per length:
+The runners measure one build on real prose (the start of `speed-bench/promessi_sposi.txt` plus a request), in
+two blocks of four processes per prompt length, with cooldowns; each block's first process is dropped (n = 6):
 
 ```bash
 ARMS=AA tests/mellum_cli_prefill_abba.sh ~/ds4-runs/prefill ~/models/Mellum2.1-12B-A2.5B-Thinking-Q8_0.gguf 2048
 ARMS=AA tests/mellum_cli_decode_abba.sh ~/ds4-runs/decode ~/models/Mellum2.1-12B-A2.5B-Thinking-Q8_0.gguf tests/mellum_measurements/d1_decode_profile 2048
 ```
 
-For a streamed row, set `DS4_ARGS="--ssd-streaming --ssd-streaming-cache-experts 2GB"` (any `ds4` arguments for
-every measured process; recorded in `setup.txt`). Add `8192 32768` after `2048` for longer prompts (a 32K prompt takes a few minutes per block). The decode runner
-also accepts `100`. Each output directory gets `summary.txt` (the median and range per length), `runs.txt`
-(every process's rate), every process's log, and `events.txt` (the power source and thermal state before and
-after each block). Run on AC power, with nothing else on the GPU, and keep the power mode the same between runs.
+Add `8192 32768` after `2048` for longer prompts. For a streamed row, set
+`DS4_ARGS="--ssd-streaming --ssd-streaming-cache-experts 2GB"`. Each output directory gets `summary.txt`,
+`runs.txt`, every process's log, and `events.txt` (power source and thermal state per block). Run on AC power
+with nothing else on the GPU.
+
+## Speed work
+
+Each area lists what worked (measured), what did not, and what is next. Figures are from the M5 Max unless noted.
+
+### Prefill
+
+Prefill is compute-bound, so the work went into batching rows and tiling.
+
+- **Worked**
+  - Experts as tiled GEMMs and Q8_0 projections as batched GEMMs, for chunks of 32 rows or more (every layer):
+    about 350 to 2,000 t/s at 2,200 tokens.
+  - Routed Q8_0 experts on the M5's Metal 4 tensor tiles (expert layers): +40% at 2,200 tokens (n = 10 per arm).
+  - Tiled attention, 8 tokens per threadgroup sharing staged keys (sliding and full layers): 2,968 to 4,055 t/s at
+    2K, 2,132 to 3,528 at 8K, 939 to 1,908 at 32K (n = 6).
+  - Streamed: grouped, layer-major prefill cut a 30K prompt's cold first token from 60.6 to 37.7 s (n = 3).
+- **Didn't work**
+  - Tiled attention with f32 operands: about twice the attention time of the landed half-input kernel at 8K
+    (n = 1).
+- **Next**
+  - Long contexts: at 32K full attention still dominates; more tiling of full attention.
+  - Pre-M5 chips: measure what the simdgroup path leaves on the table without tensor tiles.
+  - Streamed: grouped prefill loads 3.5% more experts than predicted; check eviction inside a group.
+
+### Decode
+
+Resident decode is GPU-bound at about 53-60% of measured memory bandwidth, so each kernel idea has a small
+ceiling.
+
+- **Worked**
+  - Sliding-window decode attention loading two keys per step: 1.035x at 2K (n = 6).
+  - Four fused small kernels (norm with RoPE, K/V copies, MoE reduce with residual, add with norm): about 1.03x
+    in the screen (n = 6).
+  - MXFP4 experts: 1.13-1.20x Q8_0's decode, at a quality cost.
+- **Didn't work**
+  - Computing K and V in the Q projection's dispatch: 1.008x. Removing dispatches alone buys little.
+- **Next**
+  - Sliding attention with more partitions per head (ceiling 1.14x), full attention at long context (1.12x at
+    32K), GPU idle between steps (1.08x).
+  - A cheaper two-row verify, which prompt lookup and an MTP head both need. Outside reports find speculation
+    rarely helps batch-1 decode on Apple GPUs, so measure first.
+
+### SSD streaming
+
+With experts streamed, decode is limited by how often a token stops to read experts, not by SSD bandwidth.
+
+- **Worked**
+  - Gated stops (dispatches after a stop are suppressed, not re-run): 32K decode 26.2 to 39.0 t/s, Q8_0 (n = 3).
+  - Cheaper stops (reads run while the resumed pass is encoded): MXFP4 at 2.5 GiB, 22 to 40 t/s (n = 3).
+  - MXFP4 experts halve every read, which is what makes 8 GB possible.
+- **Didn't work**
+  - Chunked reads and windowed passes (screens).
+  - Synchronous next-layer prefetch: avoided 3.7 stops per token but ran 1.3 ms/token slower (n = 2).
+  - A 2.5 GiB cache on 8 GB: 69 MB over the memory limit.
+- **Next**
+  - Free about 69 MB so 2.5 GiB fits on 8 GB (+25% decode, n = 1).
+  - Fewer stops per token through hotness and eviction policy; stops rise from 8.7 to 12.7 per token after a
+    tool result is appended.
+  - Cheaper stops: on the iMac each costs about 1 ms fixed plus 2 ms per re-run layer.
+  - Asynchronous prefetch: pre-gating predicts 7.0 of the next layer's 8 experts.
+  - Decide when to lock shared weights on small machines.
+
+### General next steps
+
+- Measure real use: Python coding sessions in Pi, with tool-call success and time per turn.
+- Offer the patches that make sense outside Mellum upstream.
+- Measure a 16 GB Mac.
+- A CUDA version for Nvidia GPUs.
+- A consolidation refactor to shrink the fork: about 24,000 added engine lines across 91 files today.
+- Find people to contribute code or run measurements on their Macs.
+- Make this part of Satyrn AI.
 
 ## More
 
 - [`MELLUM.md`](MELLUM.md): the port's record. Every change, every measurement with its command and run count,
   known divergences from the model's training, and what is not covered.
-- [`tests/`](tests/): the runners above, the oracle comparison against the earlier port, and the model-gated
-  tests (`DS4_TEST_MELLUM_MODEL`).
+- [`ROADMAP.md`](ROADMAP.md): the SSD streaming work, phase by phase.
+- [`tests/`](tests/): the runners, the oracle comparison against the earlier port, and the model-gated tests
+  (`DS4_TEST_MELLUM_MODEL`).
 
 ---
 

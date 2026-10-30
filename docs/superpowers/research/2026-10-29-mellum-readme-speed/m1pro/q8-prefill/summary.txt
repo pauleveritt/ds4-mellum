@@ -1,0 +1,3 @@
+2048 (2056 tokens) this build: n 6, median 370 t/s, range 368-371
+8192 (8195 tokens) this build: n 6, median 328 t/s, range 328-329
+32768 (32778 tokens) this build: n 6, median 226 t/s, range 224-230

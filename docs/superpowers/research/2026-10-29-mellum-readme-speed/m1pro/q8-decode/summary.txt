@@ -1,0 +1,3 @@
+2048 (2056 tokens) A: n 6, generation median 37.72 t/s, range 37.68-37.85
+8192 (8195 tokens) A: n 6, generation median 35.50 t/s, range 35.49-35.52
+32768 (32778 tokens) A: n 6, generation median 28.93 t/s, range 28.87-29.03
