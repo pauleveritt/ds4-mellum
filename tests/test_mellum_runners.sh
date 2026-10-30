@@ -2,7 +2,8 @@
 # Model-free checks of the two A/B/B/A runners (tests/mellum_cli_prefill_abba.sh, tests/mellum_cli_decode_abba.sh)
 # against a stub ds4: --dump-tokens answers a JSON list of (prompt bytes / 3) ids, any other call writes the timing
 # line both runners parse.  The default block order is A B B A; ARMS sets another (A and B only), and ARMS=AA is
-# the single-arm mode: one build, arm A only, no ratio.
+# the single-arm mode: one build, arm A only, no ratio.  DS4_ARGS adds arguments to every measured process (the
+# streamed rows: --ssd-streaming and a cache size), recorded in setup.txt.
 set -u
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 T=$(mktemp -d)
@@ -13,6 +14,7 @@ check() { if eval "$2"; then echo "ok   $1"; else echo "FAIL $1"; fails=$((fails
 cat > "$T/ds4" <<'STUB'
 #!/bin/bash
 prompt=
+all="$*"
 while [ $# -gt 0 ]; do
     case $1 in --prompt-file) prompt=$2; shift ;; --dump-tokens) dump=1 ;; esac
     shift
@@ -22,6 +24,7 @@ if [ -n "${dump:-}" ]; then
 else
     echo "ds4: Mellum prefill: 1000.00 t/s, generation: 100.00 t/s" >&2
     echo "stub env: DS4_MELLUM_MOE_NAX=${DS4_MELLUM_MOE_NAX-unset}" >&2
+    echo "stub args: $all" >&2
 fi
 STUB
 chmod +x "$T/ds4"
@@ -51,6 +54,14 @@ for runner in prefill decode; do
         "! grep -q 'B / A\| B: \|) B\b' '$T/$runner-single/summary.txt'"
     check "$runner: ARMS=AA measures the build as it is, with no variables set" \
         "! grep -qh 'DS4_MELLUM_MOE_NAX=[^u]' '$T/$runner-single'/*.err && grep -q '^A.*(no variables)' '$T/$runner-single/setup.txt'"
+
+    run "$runner-args" $runner "$T/$runner-args" ARMS=AA DS4_ARGS="--ssd-streaming --ssd-streaming-cache-experts 2GB"
+    errs=$(ls "$T/$runner-args"/*.err 2>/dev/null | wc -l | tr -d ' ')
+    with=$(grep -l 'stub args: .*--ssd-streaming --ssd-streaming-cache-experts 2GB' "$T/$runner-args"/*.err 2>/dev/null | wc -l | tr -d ' ')
+    check "$runner: DS4_ARGS reaches every measured process ($with of $errs)" "[ $errs -gt 0 ] && [ $with -eq $errs ]"
+    check "$runner: DS4_ARGS is recorded in setup.txt" \
+        "grep -q 'ds4 args: --ssd-streaming --ssd-streaming-cache-experts 2GB' '$T/$runner-args/setup.txt'"
+    check "$runner: without DS4_ARGS no measured process streams" "! grep -qh 'stub args: .*--ssd-streaming' '$T/$runner-single'/*.err"
 
     run "$runner-bad" $runner "$T/$runner-bad" ARMS=AXA
     rc=$?
