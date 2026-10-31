@@ -15,6 +15,7 @@ import statistics
 import subprocess
 
 EXPERT_BYTES = 6_580_224   # one Q8_0 expert; expert_bytes_for(model) gives the model's own (S6)
+EXPERT_BYTES_BY_TYPE = {8: 6_580_224, 39: 3_290_112}   # GGUF type of the routed experts: Q8_0, MXFP4
 READ_CAP = int(400e9)
 RATE = re.compile(r'Mellum prefill: ([0-9.]+) t/s, generation: ([0-9.]+) t/s')
 F_NOCACHE = getattr(fcntl, 'F_NOCACHE', 48)
@@ -22,14 +23,17 @@ F_NOCACHE = getattr(fcntl, 'F_NOCACHE', 48)
 
 def expert_bytes_for(model: Path) -> int:
     """One routed expert's bytes in this Mellum GGUF: Q8_0 6,580,224 or MXFP4 3,290,112, from the type of
-    blk.0.ffn_gate_exps (tools/mellum_expert_index.py).  Anything else raises ValueError naming the tensor."""
+    blk.0.ffn_gate_exps (tools/mellum_gguf.py).  Anything else raises ValueError naming the tensor."""
     import importlib.util
-    spec = importlib.util.spec_from_file_location('mellum_expert_index', Path(__file__).with_name('mellum_expert_index.py'))
-    index = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(index)
+    spec = importlib.util.spec_from_file_location('mellum_gguf', Path(__file__).with_name('mellum_gguf.py'))
+    gguf = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(gguf)
     with open(model, 'rb') as f:
-        directory = index.gguf.read_directory(f, os.fstat(f.fileno()).st_size)
-    return index.geometry_for(directory)['expert_bytes']
+        directory = gguf.read_directory(f, os.fstat(f.fileno()).st_size)
+    first = next((t for t in directory.tensors if t.name == 'blk.0.ffn_gate_exps.weight'), None)
+    if first is None or first.type not in EXPERT_BYTES_BY_TYPE:
+        raise ValueError('missing/unsupported Mellum expert tensor: blk.0.ffn_gate_exps.weight')
+    return EXPERT_BYTES_BY_TYPE[first.type]
 
 
 class Busy(RuntimeError):

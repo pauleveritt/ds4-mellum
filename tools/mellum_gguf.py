@@ -5,10 +5,10 @@ from pathlib import Path
 import struct
 from typing import BinaryIO
 
-_spec = importlib.util.spec_from_file_location('mellum_capture_identity', Path(__file__).with_name('mellum_capture_identity.py'))
-identity = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(identity)
-Reader = identity.sibling('mellum_gguf_reader').Reader
+_spec = importlib.util.spec_from_file_location('mellum_gguf_reader', Path(__file__).with_name('mellum_gguf_reader.py'))
+_reader = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_reader)
+Reader = _reader.Reader
 
 
 @dataclass(frozen=True, kw_only=True)
