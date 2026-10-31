@@ -84,7 +84,6 @@
 /tests/test_rocm_memory
 /tests/test_qwen4_kernels
 /tests/test_mellum_kernels
-/tests/mellum_copy_bandwidth
 /tests/test_mellum_config
 /tests/test_mellum_tokenizer
 /tests/test_mellum_frontends_cli
