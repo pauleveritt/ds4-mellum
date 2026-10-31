@@ -67,6 +67,8 @@ def run_table(run_dir: Path, run: dict, requests: list[Request]) -> str:
     verdict = 'passed' if run.get('passed') else 'failed'
     if run.get('deadline_hit'):
         verdict += ' (deadline)'
+    if run.get('stalled'):
+        verdict += ' (stalled)'
     lines = [f'### {run_dir.name}: {verdict}, {len(requests)} requests', '',
              '| # | context at start | new tokens | prefill t/s | generated | decode t/s | finish | marks |',
              '|---|---|---|---|---|---|---|---|']
