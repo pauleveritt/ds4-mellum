@@ -34,7 +34,7 @@ was published with guessed kernel metadata.
    matching uninstrumented run. Complete buffered/reference spools match,
    covering 13,191 positions and 743 forwards per capture mode across cases.
    Source: per-case logs and spool hashes in `summary.json`; harness
-   [mellum_routes_gpu.c](../../../tests/mellum_routes_gpu.c). Assessment: fact.
+   [mellum_routes_gpu.c](https://github.com/pauleveritt/ds4-mellum/tree/mellum-evidence-2026-10-31/tests/mellum_routes_gpu.c). Assessment: fact.
 
 2. **Buffered capture adds no per-layer host wait in its hooks.**
    Evidence: the hook copies before scratch reuse using command-buffer blits;
