@@ -93,7 +93,7 @@ exact spool digest and stores used profile descriptions/counts under
 `execution.route_capture`, with `effective_kernel="native-profile-catalog"`.
 Retain the spool to associate each forward with its execution profile later.
 Supplied computed values must match; conflicts are errors. Other manifest
-fields/extensions are preserved. All other required [S1 fields](MELLUM_SSD_REPLAY.md#version-2-capture-manifest)
+fields/extensions are preserved. All other required [S1 fields](https://github.com/pauleveritt/ds4-mellum/tree/mellum-evidence-2026-10-31/docs/MELLUM_SSD_REPLAY.md#version-2-capture-manifest)
 come from the producer; the exporter does not verify their truth or infer
 actual hardware paths. Real measured producers must observe encoding branches.
 
@@ -311,7 +311,7 @@ C access helpers, repeated ordinary/owned sessions return to the same device
 allocation baseline. These checks do not establish physical 8 GB memory limits.
 See the [roadmap](../ROADMAP.md),
 [live evidence](superpowers/research/2026-10-27-mellum-owned-live-proof.md) and
-[evaluation protocol](MELLUM_SSD_EVALUATION.md).
+[evaluation protocol](https://github.com/pauleveritt/ds4-mellum/tree/mellum-evidence-2026-10-31/docs/MELLUM_SSD_EVALUATION.md).
 
 On macOS, an optional allocation/cancellation test uses the real model:
 

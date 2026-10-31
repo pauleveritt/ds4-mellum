@@ -71,7 +71,7 @@ was published with guessed kernel metadata.
    long release cases yield the following outcomes across *all* captured
    decode tokens, including post-prefill recovery. No steady-state window was
    selected afterward. Source: `exploratory-raw-replay.json`,
-   [replay implementation](../../../tools/mellum_ssd_replay.py). Assessment:
+   [replay implementation](https://github.com/pauleveritt/ds4-mellum/tree/mellum-evidence-2026-10-31/tools/mellum_ssd_replay.py). Assessment:
    deterministic policy outcomes under the declared model; not a feasibility bound.
 
 | Case | Decode tokens | LRU reference hits | Mean demand MB/token | Whole-trace LRU / relaxed GB |

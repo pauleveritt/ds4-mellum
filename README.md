@@ -296,10 +296,6 @@ With experts streamed, decode is limited by how often a token stops to read expe
 - [`MELLUM.md`](MELLUM.md): the port's record. Every change, every measurement with its command and run count,
   known divergences from the model's training, and what is not covered.
 - [`ROADMAP.md`](ROADMAP.md): the SSD streaming work, phase by phase.
-- SSD streaming research tools, for contributors: the
-  [evaluation protocol](docs/MELLUM_SSD_EVALUATION.md),
-  [storage evidence](docs/MELLUM_STORAGE_EVIDENCE.md), [route capture](docs/MELLUM_ROUTE_CAPTURE.md) and
-  [routing trace replay](docs/MELLUM_SSD_REPLAY.md).
 - [`tests/`](tests/): the runners, the oracle comparison against the earlier port, and the model-gated tests
   (`DS4_TEST_MELLUM_MODEL`).
 

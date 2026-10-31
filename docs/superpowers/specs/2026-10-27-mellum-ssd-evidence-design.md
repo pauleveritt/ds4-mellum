@@ -9,7 +9,7 @@ Implements S1 of the [roadmap](../../../ROADMAP.md), building on the
 Make offline replay evidence interpretable and reproducible before real
 routing capture. Keep the existing policies; add precise claim metadata,
 a versioned capture manifest, completeness checks and report identities.
-Freeze the [evaluation protocol](../../MELLUM_SSD_EVALUATION.md).
+Freeze the [evaluation protocol](https://github.com/pauleveritt/ds4-mellum/tree/mellum-evidence-2026-10-31/docs/MELLUM_SSD_EVALUATION.md).
 
 Python 3.14+, standard library only; preserve standalone `python3 -I`
 execution. Use synthetic fixtures only. No GPU use, model loading, inference,

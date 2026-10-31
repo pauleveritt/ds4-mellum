@@ -136,23 +136,8 @@ __pycache__/
 
 /tests/test_mellum_observer
 /tests/test_mellum_capture_receipt
-/tests/test_mellum_read_plan
-/tools/mellum_read_bench
-/tests/test_mellum_read_io
-/tests/test_mellum_read_run
-/tests/mellum_read_bench_fault
 
-/tests/test_mellum_read_gate
-/tools/mellum_stage_bench
-/tests/test_mellum_stage
-/tests/mellum_stage_fault
-/tests/test_mellum_generate_io
 /tests/test_mellum_stream
-/tests/test_mellum_generate_loop
-/tools/mellum_generate_cpu
-/tools/mellum_generate
-/tests/test_mellum_generate_driver
-/tests/test_mellum_generate_prepare
 /tools/mellum_s4_measure
 /tools/mellum_llama_logits
 /tests/test_mellum_moe_ref
