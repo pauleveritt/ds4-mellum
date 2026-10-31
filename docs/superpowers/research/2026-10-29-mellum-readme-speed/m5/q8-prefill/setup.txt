@@ -1,9 +1,0 @@
-machine: Apple M5 Max 137438953472 bytes
-head: 67b4670  ds4: Oct 29 20:05:24 2026
-PER=4 COOL=45 GAP=10 ARMS=AA
-ds4 args: (none)
-A (this build): (no variables)
-B (E1 on (default)): (no variables)
-length 2048: 2056 tokens, 5795 bytes, ctx 3072
-length 8192: 8195 tokens, 22819 bytes, ctx 9216
-length 32768: 32778 tokens, 90008 bytes, ctx 33792

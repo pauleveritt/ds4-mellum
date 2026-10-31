@@ -1,9 +1,0 @@
-machine: Apple M1 Pro 34359738368 bytes
-tree: /Users/pauleveritt/ds4-mellum-release head a699e14, 0 changed tracked files
-PER=4 COOL=30 GAP=10 GEN=256 ARMS=AA
-A: (no variables), ./ds4 (Oct 30 07:35:08 2026)
-B: (no variables), ./ds4 (Oct 30 07:35:08 2026)
-ds4 args: (none)
-length 2048: 2056 tokens, ctx 3072
-length 8192: 8195 tokens, ctx 9216
-length 32768: 32778 tokens, ctx 33792

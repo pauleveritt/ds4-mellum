@@ -1,6 +1,0 @@
-trace short rc 0
-agree short rc 0
-trace 1100 rc 0
-agree 1100 rc 0
-trace 2200 rc 0
-agree 2200 rc 0

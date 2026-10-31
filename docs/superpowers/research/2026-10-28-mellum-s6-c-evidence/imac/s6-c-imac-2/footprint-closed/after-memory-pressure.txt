@@ -1,3 +1,0 @@
-Pageouts: 1397627 
-
-System-wide memory free percentage: 75%

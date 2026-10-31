@@ -1,3 +1,0 @@
-run1 rc 1
-run2 rc 1
-run3 rc 1

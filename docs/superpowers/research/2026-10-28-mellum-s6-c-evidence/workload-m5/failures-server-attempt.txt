@@ -1,3 +1,0 @@
-FAILED resident 1
-FAILED resident 2
-FAILED resident 3

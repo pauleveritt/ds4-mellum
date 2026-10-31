@@ -1,9 +1,0 @@
-A1 rc 0
-B1 rc 0
-B2 rc 0
-A2 rc 0
-A3 rc 0
-B3 rc 0
-B-resident rc 0
-A-3g rc 0
-B-3g rc 0

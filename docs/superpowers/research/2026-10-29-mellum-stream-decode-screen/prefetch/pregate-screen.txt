@@ -1,8 +1,0 @@
-/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-stream-decode/docs/superpowers/research/2026-10-29-mellum-stream-decode-screen/pregate_screen.py:27: RuntimeWarning: invalid value encountered in multiply
-  'rmsnorm(hidden[L]) * ffn_norm[L+k] (after layer L)': lambda x, h, l, k: rms(h[l]) * norm[l + k],
-/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/mellum-stream-decode/docs/superpowers/research/2026-10-29-mellum-stream-decode-screen/pregate_screen.py:27: RuntimeWarning: overflow encountered in multiply
-  'rmsnorm(hidden[L]) * ffn_norm[L+k] (after layer L)': lambda x, h, l, k: rms(h[l]) * norm[l + k],
-ffn_in[L] as is, k=1: 1728 pairs over 64 positions; mean overlap 7.01 of 8; all 8 predicted 45.7%
-ffn_in[L] as is, k=2: 1664 pairs over 64 positions; mean overlap 6.65 of 8; all 8 predicted 33.2%
-rmsnorm(hidden[L]) * ffn_norm[L+k] (after layer L), k=1: 1728 pairs over 64 positions; mean overlap 3.59 of 8; all 8 predicted 5.7%
-rmsnorm(hidden[L]) * ffn_norm[L+k] (after layer L), k=2: 1664 pairs over 64 positions; mean overlap 3.42 of 8; all 8 predicted 2.0%

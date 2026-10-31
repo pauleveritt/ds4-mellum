@@ -1,3 +1,0 @@
-imac/prof-1.stderr: rounds 2792; fixed 1.003 ms, 2.133 ms per executed layer, 0.0416 ms per suppressed layer, head 7.836 ms; r2 0.388; median final round 11.627 ms, stopped round 3.691 ms
-imac/prof-2.stderr: rounds 2792; fixed 1.117 ms, 2.056 ms per executed layer, 0.0376 ms per suppressed layer, head 7.818 ms; r2 0.744; median final round 11.665 ms, stopped round 3.713 ms
-imac/reads.stderr: rounds 1405; fixed 1.176 ms, 2.017 ms per executed layer, 0.0466 ms per suppressed layer, head 7.787 ms; r2 0.400; median final round 11.482 ms, stopped round 3.794 ms
