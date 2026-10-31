@@ -378,170 +378,20 @@ struct ds4_metal_args_mellum_attn_tiled {
 };
 
 #define MELLUM_AT_TB 8u     /* tokens per threadgroup: simdgroup s takes token t0 + s */
-#define MELLUM_AT_KT 16u    /* keys per K/V tile */
 #define MELLUM_AT_D 128u
 
-/* Prefill attention of a sliding or full layer on simdgroup matrices (ds4_gpu.h has the contract).  One
- * threadgroup per (KV head, 8 consecutive tokens); simdgroup s holds token t0 + s's eight query heads as one 8-row
- * tile, so a tile has one query position and one mask, and the eight simdgroups share each tile of 16 keys, staged
- * once from the ring (positions below stage0, tag-checked as in kernel_mellum_attn_swa: a key with the wrong tag makes
- * the rows that read it NaN) or from the staged rows / the full cache.  Every operand is f32 (K and V widened from f16
- * exactly), so only the summation order differs from the decode kernels.  The softmax runs on the score fragments in
- * registers: a lane of an 8x8 simdgroup matrix holds two elements of one row, row (lane & 16) / 4 + (lane / 2) % 4,
- * columns fn = (lane & 8) / 2 + (lane & 1) * 2 and fn + 1, so the lanes of a row differ in bits 0 and 3, and a row's
- * max and sum are two shuffles. */
-kernel void kernel_mellum_attn_tiled(
-        constant ds4_metal_args_mellum_attn_tiled & args,
-        device const float   *q,
-        device const half    *ring_k,
-        device const half    *ring_v,
-        device const int32_t *ring_tag,
-        device const half    *stage_k,
-        device const half    *stage_v,
-        device float         *out,
-        uint3 tgpig [[threadgroup_position_in_grid]],
-        ushort tid [[thread_index_in_threadgroup]],
-        ushort sgitg [[simdgroup_index_in_threadgroup]],
-        ushort tiisg [[thread_index_in_simdgroup]]) {
-    constexpr uint D = MELLUM_AT_D, KT = MELLUM_AT_KT, TB = MELLUM_AT_TB;
-    threadgroup float Ks[KT * D], Vs[KT * D];
-    threadgroup int   kpos[KT];
-    threadgroup uint  kbad[KT];
-    const uint kvh = tgpig.x, t0 = tgpig.y * TB;
-    if (kvh >= args.n_head_kv || t0 >= args.n_tokens) return;
-    const uint H = args.n_head, group = H / args.n_head_kv, width = args.n_head_kv * D;
-    const uint last_tok = min(t0 + TB, args.n_tokens) - 1u;
-    const bool live = t0 + sgitg <= last_tok;
-    const uint tok = min(t0 + sgitg, last_tok);
-    const uint qpos = args.pos0 + tok;
-    const uint qlo = args.pos0 + t0, qhi = args.pos0 + last_tok;
-    const uint first = (args.window != 0u && qlo + 1u > args.window) ? qlo + 1u - args.window : 0u;
-    const uint fn = (tiisg & 8u) / 2u + (tiisg & 1u) * 2u;   /* this lane's first column in a fragment */
+#define MELLUM_AT_KT_HALF 32u   /* keys per K/V tile */
 
-    simdgroup_float8x8 Qm[16], O[16];
-    device const float *qrow = q + ((uint64_t)tok * H + kvh * group) * D;
-#pragma unroll
-    for (uint j = 0; j < 16; j++) {
-        simdgroup_load(Qm[j], qrow + j * 8u, D, 0, false);
-        O[j] = make_filled_simdgroup_matrix<float, 8, 8>(0.0f);
-    }
-    float m_row = -3.0e38f, l_row = 0.0f;
-    uint bad = 0u;
-
-    for (uint k0 = first; k0 <= qhi; k0 += KT) {
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-        if (tid < KT) {
-            const uint p = k0 + tid;
-            int kp = -1;
-            uint kb = 0u;
-            if (p <= qhi) {
-                kp = (int)p;
-                if (p < args.stage0) kb = (uint)(ring_tag[p % args.window] != (int32_t)p);
-            }
-            kpos[tid] = kp;
-            kbad[tid] = kb;
-        }
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-        {
-            const uint key = tid >> 4, seg = tid & 15u;
-            const int p = kpos[key];
-            float4 ka = float4(0.0f), kb = float4(0.0f), va = float4(0.0f), vb = float4(0.0f);
-            if (p >= 0) {
-                const bool ring = (uint)p < args.stage0;
-                const uint64_t at = (ring ? (uint64_t)((uint)p % args.window) : (uint64_t)((uint)p - args.stage0)) * width +
-                                    kvh * D + seg * 8u;
-                device const half *ks = ring ? ring_k : stage_k;
-                device const half *vs = ring ? ring_v : stage_v;
-                ka = float4(*reinterpret_cast<device const half4 *>(ks + at));
-                kb = float4(*reinterpret_cast<device const half4 *>(ks + at + 4u));
-                va = float4(*reinterpret_cast<device const half4 *>(vs + at));
-                vb = float4(*reinterpret_cast<device const half4 *>(vs + at + 4u));
-            }
-            *reinterpret_cast<threadgroup float4 *>(Ks + key * D + seg * 8u) = ka;
-            *reinterpret_cast<threadgroup float4 *>(Ks + key * D + seg * 8u + 4u) = kb;
-            *reinterpret_cast<threadgroup float4 *>(Vs + key * D + seg * 8u) = va;
-            *reinterpret_cast<threadgroup float4 *>(Vs + key * D + seg * 8u + 4u) = vb;
-        }
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-
-        simdgroup_float8x8 S0 = make_filled_simdgroup_matrix<float, 8, 8>(0.0f);
-        simdgroup_float8x8 S1 = make_filled_simdgroup_matrix<float, 8, 8>(0.0f);
-#pragma unroll
-        for (uint j = 0; j < 16; j++) {
-            simdgroup_float8x8 K0, K1;
-            simdgroup_load(K0, Ks + j * 8u, D, 0, true);
-            simdgroup_load(K1, Ks + 8u * D + j * 8u, D, 0, true);
-            simdgroup_multiply_accumulate(S0, Qm[j], K0, S0);
-            simdgroup_multiply_accumulate(S1, Qm[j], K1, S1);
-        }
-        /* this lane's four scores: keys fn, fn + 1 (S0) and 8 + fn, 9 + fn (S1), all of row fm */
-        float sv[4] = { S0.thread_elements()[0], S0.thread_elements()[1], S1.thread_elements()[0], S1.thread_elements()[1] };
-        const uint keys[4] = { fn, fn + 1u, 8u + fn, 9u + fn };
-        bool valid[4];
-        float mx = -3.0e38f;
-#pragma unroll
-        for (uint c = 0; c < 4; c++) {
-            const int p = kpos[keys[c]];
-            valid[c] = p >= 0 && (uint)p <= qpos && (args.window == 0u || qpos - (uint)p < args.window);
-            bad |= (uint)(valid[c] && kbad[keys[c]] != 0u);
-            sv[c] = valid[c] ? sv[c] * args.scale : -3.0e38f;
-            mx = max(mx, sv[c]);
-        }
-        mx = max(mx, simd_shuffle_xor(mx, 1));
-        mx = max(mx, simd_shuffle_xor(mx, 8));
-        const float m_new = max(m_row, mx);
-        const float corr = exp(m_row - m_new);
-        float pv[4], rs = 0.0f;
-#pragma unroll
-        for (uint c = 0; c < 4; c++) {
-            pv[c] = valid[c] ? exp(sv[c] - m_new) : 0.0f;
-            rs += pv[c];
-        }
-        rs += simd_shuffle_xor(rs, 1);
-        rs += simd_shuffle_xor(rs, 8);
-        l_row = l_row * corr + rs;
-        m_row = m_new;
-        if (simd_any(corr != 1.0f)) {
-#pragma unroll
-            for (uint j = 0; j < 16; j++) {
-                O[j].thread_elements()[0] *= corr;
-                O[j].thread_elements()[1] *= corr;
-            }
-        }
-        simdgroup_float8x8 P0, P1;
-        P0.thread_elements()[0] = pv[0]; P0.thread_elements()[1] = pv[1];
-        P1.thread_elements()[0] = pv[2]; P1.thread_elements()[1] = pv[3];
-#pragma unroll
-        for (uint j = 0; j < 16; j++) {
-            simdgroup_float8x8 V0, V1;
-            simdgroup_load(V0, Vs + j * 8u, D, 0, false);
-            simdgroup_load(V1, Vs + 8u * D + j * 8u, D, 0, false);
-            simdgroup_multiply_accumulate(O[j], P0, V0, O[j]);
-            simdgroup_multiply_accumulate(O[j], P1, V1, O[j]);
-        }
-    }
-
-    const bool any_bad = simd_any(bad != 0u);
-    if (!live) return;
-    const float inv = l_row > 0.0f ? 1.0f / l_row : 0.0f;
-    device float *orow = out + ((uint64_t)tok * H + kvh * group) * D;
-#pragma unroll
-    for (uint j = 0; j < 16; j++) {
-        O[j].thread_elements()[0] *= inv;
-        O[j].thread_elements()[1] *= inv;
-        simdgroup_store(O[j], orow + j * 8u, D, 0, false);
-    }
-    if (any_bad) {
-        simdgroup_barrier(mem_flags::mem_device);
-        for (uint i = tiisg; i < 8u * D; i += 32u) orow[i] = as_type<float>(0x7fc00000u);
-    }
-}
-
-#define MELLUM_AT_KT_HALF 32u   /* keys per K/V tile of the half-operand form */
-
-/* kernel_mellum_attn_tiled with half operands (ds4_gpu.h: ds4_gpu_mellum_attn_tiled_half_tensor): the scaled
- * queries rounded to half once, K and V staged as the f16 they are, each tile's probabilities rounded to half for the
- * value product; scores, the softmax and the output accumulate in f32.  32 keys per tile. */
+/* Prefill attention of a sliding or full layer on simdgroup matrices (ds4_gpu.h:
+ * ds4_gpu_mellum_attn_tiled_half_tensor has the contract).  One threadgroup per (KV head, 8 consecutive tokens);
+ * simdgroup s holds token t0 + s's eight query heads as one 8-row tile, so a tile has one query position and one
+ * mask, and the eight simdgroups share each tile of 32 keys, staged once from the ring (positions below stage0,
+ * tag-checked as in kernel_mellum_attn_swa: a key with the wrong tag makes the rows that read it NaN) or from the
+ * staged rows / the full cache.  The scaled queries are rounded to half once, K and V staged as the f16 they are,
+ * each tile's probabilities rounded to half for the value product; scores, the softmax and the output accumulate
+ * in f32.  The softmax runs on the score fragments in registers: a lane of an 8x8 simdgroup matrix holds two
+ * elements of one row, row (lane & 16) / 4 + (lane / 2) % 4, columns fn = (lane & 8) / 2 + (lane & 1) * 2 and
+ * fn + 1, so the lanes of a row differ in bits 0 and 3, and a row's max and sum are two shuffles. */
 kernel void kernel_mellum_attn_tiled_half(
         constant ds4_metal_args_mellum_attn_tiled & args,
         device const float   *q,

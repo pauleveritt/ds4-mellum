@@ -3769,21 +3769,14 @@ int ds4_gpu_mellum_attn_swa_ref_tensor(
         const ds4_gpu_tensor *k16, const ds4_gpu_tensor *v16,
         uint32_t n_tok, uint32_t pos0, uint32_t window,
         uint32_t n_head, uint32_t n_head_kv, uint32_t head_dim, float scale);
-/* Mellum's prefill attention in tiles (metal/mellum.metal, kernel_mellum_attn_tiled), for chunks of 32 rows or
- * more on the release path: 8 tokens and one KV head per threadgroup, so the tokens share each tile of keys.  The
- * operands are f32 (K and V widened from f16 exactly), so only the summation order differs from the decode kernels.
+/* Mellum's prefill attention in tiles (metal/mellum.metal, kernel_mellum_attn_tiled_half), for chunks of 32 rows
+ * or more on the release path: 8 tokens and one KV head per threadgroup, so the tokens share each tile of 32 keys.
+ * The scaled queries and the probabilities are rounded to half, K and V read as the f16 they are, and the scores,
+ * softmax and output accumulate in f32, so the rows are not the decode kernels' arithmetic.
  *   window > 0: a sliding layer, the arguments as for ds4_gpu_mellum_attn_swa_tensor (positions below pos0 from
  *     the ring, tag-checked: a wrong tag makes the rows that need it NaN; the rest from k16/v16).
  *   window 0: a full layer; k16/v16 are the cache, positions 0 .. pos0 + n_tok - 1, and the ring is not read.
  * Head dim 128 with 32 query and 4 KV heads only. */
-int ds4_gpu_mellum_attn_tiled_tensor(
-        ds4_gpu_tensor *out, const ds4_gpu_tensor *q,
-        const ds4_gpu_tensor *ring_k, const ds4_gpu_tensor *ring_v, const ds4_gpu_tensor *ring_tags,
-        const ds4_gpu_tensor *k16, const ds4_gpu_tensor *v16,
-        uint32_t n_tok, uint32_t pos0, uint32_t window,
-        uint32_t n_head, uint32_t n_head_kv, uint32_t head_dim, float scale);
-/* The same with half operands: the scaled queries and the probabilities rounded to half, f32 accumulation, tiles
- * of 32 keys (kernel_mellum_attn_tiled_half).  A precision change against the f32 tiles. */
 int ds4_gpu_mellum_attn_tiled_half_tensor(
         ds4_gpu_tensor *out, const ds4_gpu_tensor *q,
         const ds4_gpu_tensor *ring_k, const ds4_gpu_tensor *ring_v, const ds4_gpu_tensor *ring_tags,

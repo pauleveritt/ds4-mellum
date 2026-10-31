@@ -51338,8 +51338,7 @@ int ds4_gpu_mellum_attn_swa_ref_tensor(
                                     pos0, window, n_head, n_head_kv, head_dim, scale);
 }
 
-/* Mellum's tiled prefill attention (ds4_gpu.h has the contract; metal/mellum.metal the kernels), f32 or half
- * operands: the two kernels take the same arguments and grid. */
+/* Mellum's tiled prefill attention (ds4_gpu.h has the contract; metal/mellum.metal the kernel). */
 static int mellum_attn_tiled_dispatch(
         const char *kernel, ds4_gpu_tensor *out, const ds4_gpu_tensor *q,
         const ds4_gpu_tensor *ring_k, const ds4_gpu_tensor *ring_v, const ds4_gpu_tensor *ring_tags,
@@ -51376,16 +51375,6 @@ static int mellum_attn_tiled_dispatch(
     }
     return mellum_dispatch(kernel, &args, sizeof(args), b, 7,
                            MTLSizeMake(n_head_kv, (n_tok + 7u) / 8u, 1), MTLSizeMake(32 * 8, 1, 1));
-}
-
-int ds4_gpu_mellum_attn_tiled_tensor(
-        ds4_gpu_tensor *out, const ds4_gpu_tensor *q,
-        const ds4_gpu_tensor *ring_k, const ds4_gpu_tensor *ring_v, const ds4_gpu_tensor *ring_tags,
-        const ds4_gpu_tensor *k16, const ds4_gpu_tensor *v16,
-        uint32_t n_tok, uint32_t pos0, uint32_t window,
-        uint32_t n_head, uint32_t n_head_kv, uint32_t head_dim, float scale) {
-    return mellum_attn_tiled_dispatch("kernel_mellum_attn_tiled", out, q, ring_k, ring_v, ring_tags, k16, v16,
-                                      n_tok, pos0, window, n_head, n_head_kv, head_dim, scale);
 }
 
 int ds4_gpu_mellum_attn_tiled_half_tensor(

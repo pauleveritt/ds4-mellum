@@ -570,9 +570,8 @@ typedef struct {
  * rewrites between two ops is seen by the GPU only in its last state.  Outside a batch every op runs to completion
  * before the call returns.  The sessions run both ways; this selects which. */
 static bool g_batched;
-/* The sessions attend with the tiled prefill kernel (kernel_mellum_attn_tiled) instead of kernel_mellum_attn_swa;
- * g_tiled_half with its half-operand form (kernel_mellum_attn_tiled_half). */
-static bool g_tiled, g_tiled_half;
+/* The sessions attend with the tiled prefill kernel (kernel_mellum_attn_tiled_half) instead of kernel_mellum_attn_swa. */
+static bool g_tiled_half;
 /* The sessions attend with ds4_gpu_mellum_attn_swa_ref_tensor, the sliding kernel's reference arithmetic. */
 static bool g_swa_ref;
 
@@ -602,7 +601,6 @@ static void swa_session(const seq_t *s, plan_t plan, bool commit_first, float *o
             require_ok(ds4_gpu_mellum_ring_commit_tensor(ring_k, ring_v, tags, kt, vt, n, KV_W, a, RING), "ring commit");
         }
         require_ok((g_tiled_half ? ds4_gpu_mellum_attn_tiled_half_tensor :
-                    g_tiled ? ds4_gpu_mellum_attn_tiled_tensor :
                     g_swa_ref ? ds4_gpu_mellum_attn_swa_ref_tensor : ds4_gpu_mellum_attn_swa_tensor)(
                        ot, qt, ring_k, ring_v, tags, k16, v16, n, a, RING, MELLUM_N_HEAD, MELLUM_N_HEAD_KV,
                        MELLUM_HEAD_DIM, attn_scale()), "sliding attention");
@@ -2735,68 +2733,6 @@ static void test_prefill_equals_decode(void) {
 
 /* ---- tiled prefill attention ---- */
 
-/* The tiled prefill kernel (ds4_gpu_mellum_attn_tiled_tensor: 8 tokens and one KV head per threadgroup, tiles of 16
- * keys, f32 operands) on sliding sessions chunked 32 then 64, 33 then 1,024, and 1,024 throughout: every row against
- * the window-1,024 reference, within the decode kernels' tolerance.  Its rows are not the decode arithmetic (another
- * summation order), so they are not compared bit for bit.  At 1,057 keys the commit-before-attention control. */
-static void test_tiled_swa_session(uint32_t n) {
-    static const plan_t plans[] = { { 32, 64 }, { 33, 1024 }, { 0, 1024 } };
-    seq_t s = make_seq(n);
-    float *out = malloc((uint64_t)n * Q_W * 4u);
-    require_ok(out != NULL, "malloc");
-    for (size_t i = 0; i < sizeof(plans) / sizeof(plans[0]); i++) {
-        g_tiled = true;
-        swa_session(&s, plans[i], false, out);
-        g_tiled = false;
-        const bool fin = all_finite(out, (uint64_t)n * Q_W);
-        const double e = rows_vs_ref(&s, out, 0, n, RING, true);
-        CHECK(fin && e <= ATTN_TOL, "tiled sliding at %u keys, chunks %u then %u: every row vs the reference %.3e (tol %.0e)%s",
-              n, plans[i].lead, plans[i].size, e, ATTN_TOL, fin ? "" : ", with a non-finite value");
-        printf("  tiled    sliding %4u keys, chunks %4u then %4u: every row vs reference %.2e (tol %.0e)\n",
-               n, plans[i].lead, plans[i].size, e, ATTN_TOL);
-    }
-    if (n == 1057) {
-        /* as in test_swa_session: the chunk [992, 1056) committed before its attention loses positions rows 0..62 need */
-        g_tiled = true;
-        swa_session(&s, plans[0], true, out);
-        g_tiled = false;
-        uint32_t nan_rows = 0, bad_after = 0;
-        for (uint32_t r = 992; r < 1056; r++) {
-            const bool fin = all_finite(out + (uint64_t)r * Q_W, Q_W);
-            if (!fin) nan_rows++;
-            if (r - 992u < 63u && fin) bad_after++;
-        }
-        CHECK(nan_rows == 63 && bad_after == 0, "tiled: committing the chunk before its attention must make rows 0..62 NaN: "
-              "%u rows non-finite, %u of rows 0..62 finite", nan_rows, bad_after);
-        printf("  tiled    control commit before attention: %u of the 64 rows [992,1056) are NaN\n", nan_rows);
-    }
-    free(out);
-    free_seq(&s);
-}
-
-/* The tiled kernel on a full layer (window 0): rows [pos0, n) of a cache holding positions 0 .. n - 1, in one call,
- * every row against the reference without a window. */
-static void test_tiled_full_rows(uint32_t n, uint32_t pos0) {
-    seq_t s = make_seq(n);
-    ds4_gpu_tensor *kc = zeroed((uint64_t)n * KV_W * 2u), *vc = zeroed((uint64_t)n * KV_W * 2u);
-    full_cache_write(kc, vc, &s, 0, n);
-    const uint32_t rows = n - pos0;
-    ds4_gpu_tensor *qt = upload(s.q + (uint64_t)pos0 * Q_W, (uint64_t)rows * Q_W), *ot = ds4_gpu_tensor_alloc((uint64_t)rows * Q_W * 4u);
-    float *out = calloc((uint64_t)n * Q_W, sizeof(float));
-    require_ok(ot && out, "tiled full tensors");
-    require_ok(ds4_gpu_mellum_attn_tiled_tensor(ot, qt, kc, vc, kc, kc, vc, rows, pos0, 0u, MELLUM_N_HEAD, MELLUM_N_HEAD_KV,
-                                                MELLUM_HEAD_DIM, attn_scale()), "tiled full attention");
-    require_ok(ds4_gpu_tensor_read(ot, 0, out + (uint64_t)pos0 * Q_W, (uint64_t)rows * Q_W * 4u), "out download");
-    const bool fin = all_finite(out + (uint64_t)pos0 * Q_W, (uint64_t)rows * Q_W);
-    const double e = rows_vs_ref(&s, out, pos0, n, 0, true);
-    CHECK(fin && e <= ATTN_TOL, "tiled full at %u keys, rows %u..%u: vs the reference %.3e (tol %.0e)%s", n, pos0, n - 1u, e,
-          ATTN_TOL, fin ? "" : ", with a non-finite value");
-    printf("  tiled    full    %4u keys, rows %4u..%4u: every row vs reference %.2e (tol %.0e)\n", n, pos0, n - 1u, e, ATTN_TOL);
-    ds4_gpu_tensor_free(kc); ds4_gpu_tensor_free(vc); ds4_gpu_tensor_free(qt); ds4_gpu_tensor_free(ot);
-    free(out);
-    free_seq(&s);
-}
-
 /* The argument checks of the tiled prefill attention (ds4_gpu_mellum_attn_tiled_half_tensor), each refusal
  * beside a success. */
 static void test_tiled_refusals(void) {
@@ -3201,12 +3137,6 @@ int main(void) {
     test_qwen_sibling();
     test_full_refusals();
     static const uint32_t tiled_counts[] = { 26, 1023, 1025, 1057, 2100 };
-    for (size_t i = 0; i < sizeof(tiled_counts) / sizeof(tiled_counts[0]); i++) test_tiled_swa_session(tiled_counts[i]);
-    test_tiled_full_rows(26, 0);
-    test_tiled_full_rows(1025, 0);
-    test_tiled_full_rows(1025, 900);
-    test_tiled_full_rows(2100, 1076);
-    test_tiled_full_rows(4100, 3076);
     for (size_t i = 0; i < sizeof(tiled_counts) / sizeof(tiled_counts[0]); i++) test_tiled_half_swa_session(tiled_counts[i]);
     test_tiled_half_full_rows(26, 0);
     test_tiled_half_full_rows(1025, 900);
