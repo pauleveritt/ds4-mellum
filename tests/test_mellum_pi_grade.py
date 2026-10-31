@@ -28,6 +28,7 @@ class Verdict(unittest.TestCase):
         self.assertFalse(m.checks_ran(2, 'ERROR grader_tests/t.py\n1 error in 0.1s\n'))
         self.assertFalse(m.checks_ran(1, 'Interrupted: 1 error during collection\n! errors during collection !'))
         self.assertFalse(m.checks_ran(5, 'no tests ran in 0.01s\n'))
+        self.assertFalse(m.checks_ran(1, '!!! Interrupted: 1 error during collection !!!\n'))
 
     def test_checks_ran_when_tests_pass_or_fail(self):
         m = load()
