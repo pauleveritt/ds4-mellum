@@ -320,7 +320,7 @@ Phase C's [plan](https://github.com/pauleveritt/ds4-mellum/tree/mellum-evidence-
 are committed with the iMac kit (`s6-c-prereg/KIT.md`). The kit's build is now the merge `633fd23`, which
 brings in the SSD tip and S5 step 2b (preregistration amended 2026-10-29; references rechecked). The M5's
 reference for the Pi-shaped workload is streamed 2.5 GiB at 40.7 t/s, up from 23-24 (n=3,
-[speed run](docs/superpowers/research/2026-10-29-mellum-speed-run/summary.md)). `ds4-server` does not serve Mellum, so the workload runs flattened.
+[speed run](docs/superpowers/research/2026-10-29-mellum-speed-run/summary.md)). The workload runs flattened, through `tools/mellum_s4_measure`, not `ds4-server`.
 Phase C [result](docs/superpowers/research/2026-10-28-mellum-s6-c-imac.md) (2026-10-29): C1 and C3 pass; C2's rule
 picks 2 GiB, since 2.5 GiB's Metal peak is 24.8 MB over the limit, which fires the preregistration's design falsifier.
 Apps closed, decode 5.85 t/s (n=3), first token 19.4 s, no swap growth at 2 GiB. C4's apps-open runs (no desktop

@@ -287,7 +287,8 @@ With experts streamed, decode is limited by how often a token stops to read expe
 - Offer the patches that make sense outside Mellum upstream.
 - Measure a 16 GB Mac.
 - A CUDA version for Nvidia GPUs.
-- A consolidation refactor to shrink the fork: about 24,000 added engine lines across 91 files today.
+- A consolidation refactor to shrink the fork: about 20,000 added lines of C, Objective-C and Metal across 36 files today, tests included
+  (`git diff --shortstat c97964b mellum -- '*.c' '*.h' '*.m' '*.metal' '*.inc' Makefile`).
 - Find people to contribute code or run measurements on their Macs.
 - Make this part of Satyrn AI.
 

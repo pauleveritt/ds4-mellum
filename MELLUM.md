@@ -565,9 +565,8 @@ fixed in `379aa54` (red) and `cfc9eab`.
   turn (a tool loop) the two agree. Rendered histories follow the template
   (review fix R5): a prompt-prefix file's assistant turns all come before
   the live prompt, so their reasoning is dropped (`ds4_prompt_prefix_append`,
-  pinned against the template's ids). ds4-server still refuses Mellum; its
-  request renderer (step 42) is to drop earlier reasoning and keep it within
-  the current tool cycle, as the template does.
+  pinned against the template's ids). When this was written ds4-server still
+  refused Mellum; it has served Mellum since phase 6 (steps 41-43).
 - Special-token text in user turns: the HF tokenizer would encode a
   `<tool_call>` typed in a user message as token 29; ds4 keeps user text plain
   BPE, as for every model. System text (the tools block, `-sys`) and assistant
@@ -957,7 +956,7 @@ numbers are from the session's output. P = 2 passed:
 S1 takes about a quarter of candidate 1's 1.14x ceiling at 2,056 tokens. The rest would need more partitions
 per head, which changes the merge.
 
-### README checks (phase 9, 2026-10-28; nothing pushed)
+### README checks (phase 9, 2026-10-28)
 
 `README.md` is now the Mellum guide, with upstream's text below a divider (`c692779`, `ebc93df`, `942c6e9`,
 `5c84246`). Each of its command and config blocks was run as written on the M5 Max, at `49bf9eb`; the prefill
@@ -967,8 +966,8 @@ runner was rerun at `ba83406`, which changes only that runner. Raw logs are in
 The checks ran under a scratch home: `HOME` and `PI_CODING_AGENT_DIR` were scratch directories and `HF_HOME`
 was the real cache. So `~/models` and `~/.pi/agent` were scratch paths, and Paul's were never touched. His
 `~/models/Mellum2.1-12B-A2.5B-Thinking-Q8_0.gguf` has sha256 `ea1e4ec7…`, not the published file, so the
-download as written would have replaced it. A local clone of `mellum` stood in for the GitHub clone, which
-waits for Paul's repository and push.
+download as written would have replaced it. A local clone of `mellum` stood in for the GitHub clone; the repository was published as
+`pauleveritt/ds4-mellum` on 2026-10-30.
 
 | check | command (as in the README) | result | n |
 |---|---|---|---|
@@ -983,7 +982,7 @@ waits for Paul's repository and push.
 | memory at 32K | `/usr/bin/time -l ./ds4 -m MODEL -c 32768 -p "…" -n 64` | the engine's plan: KV 0.52 GiB + buffers 0.25 GiB + resident model 12.03 GiB = 12.81 GiB; session allocated 828,944,640 bytes (equal to the plan); `time`: peak memory footprint 1,393,181,584 bytes, maximum resident set 75,022,336 (neither counts the mapped weights) | 1 |
 | measure on your own Mac | `ARMS=AA tests/mellum_cli_prefill_abba.sh ~/ds4-runs/prefill ~/models/… 2048`; `ARMS=AA tests/mellum_cli_decode_abba.sh ~/ds4-runs/decode ~/models/… tests/mellum_prompts 2048` | both run and print a summary. Prefill 3,744 t/s (3,727-3,753), decode 123.30 t/s (122.78-124.47), as checks of the commands, not the README's numbers. The first prefill run, before `ba83406`, measured 2,447 t/s, because arm A still took T1's `DS4_MELLUM_MOE_NAX=0` (red `fff1b44`, fix `ba83406`) | 6 per runner |
 
-Waiting: the clone command, until Paul creates `pauleveritt/ds4-mellum` and pushes; RM2, the speed tables, until
+Waiting then: the clone command (published 2026-10-30); RM2, the speed tables, until
 Paul's SSD-streaming decision.
 
 Overlap with another session's work (Paul's SSD-streaming work in the Codex worktree `mellum-ssd-replay`; times
