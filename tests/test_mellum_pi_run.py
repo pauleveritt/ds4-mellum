@@ -103,8 +103,8 @@ class Runner(unittest.TestCase):
     def test_scratch_home_and_profile_dir(self):
         run = self.run_once()
         seen = json.loads((self.out / 'workspace/fake-pi.json').read_text())
-        self.assertEqual(Path(seen['HOME']).parent, self.out)
-        self.assertEqual(Path(seen['PI_CODING_AGENT_DIR']), self.out / 'pi-agent')
+        self.assertEqual(Path(seen['HOME']).parent, self.out.resolve())
+        self.assertEqual(Path(seen['PI_CODING_AGENT_DIR']), self.out.resolve() / 'pi-agent')
         self.assertNotEqual(seen['HOME'], os.path.expanduser('~'))
         for flag in ('-p', '--no-approve', '--no-extensions', '--no-skills', '--no-prompt-templates', '--no-themes',
                      '--no-context-files'):
