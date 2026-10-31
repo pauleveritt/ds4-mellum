@@ -1,7 +1,7 @@
 #!/bin/bash
 # CLI decode A/B/B/A on D1's prompts (phase 8c; first written for the D3 screens under misc/d-decode/).
 #   tests/mellum_cli_decode_abba.sh OUTDIR MODEL PROMPTDIR TOKENS...    (PROMPTDIR holds prompt_<TOKENS>.txt,
-#   e.g. tests/mellum_measurements/d1_decode_profile)
+#   e.g. tests/mellum_prompts)
 # Run from the tree whose metal/ the ds4 binary should load (DS4, default ./ds4; A_DS4 and B_DS4 override it per
 # arm, for an arm built at another commit).  A_ENV and B_ENV are space-separated assignments.  Blocks A B B A of PER processes, COOL s before a block, GAP s between
 # processes, the first process of each block dropped (ARMS sets the block order, letters A and B, default ABBA;

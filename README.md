@@ -139,7 +139,7 @@ unless it says otherwise: 256 greedy tokens after real prose, n = 6 processes pe
 
 Memory at `-c 32768` (Metal peak, 2,686-token request): Q8_0 12.78 GiB, MXFP4 7.29 GiB (n = 3 each). Apple
 M5 Max, 128 GB, AC power, commit `67b4670`
-([captures](docs/superpowers/research/2026-10-29-mellum-readme-speed/m5/)):
+([captures](https://github.com/pauleveritt/ds4-mellum/tree/mellum-evidence-2026-10-31/docs/superpowers/research/2026-10-29-mellum-readme-speed/m5)):
 
 | Model file | Prompt tokens | Prefill t/s | Generation t/s |
 |---|---|---|---|
@@ -164,7 +164,7 @@ M5 Max, 128 GB, AC power, commit `67b4670`
 
 Memory planned at a 33,792 context: Q8_0 12.82 GiB, MXFP4 7.33 GiB (the engine's startup line). Apple M1 Pro,
 32 GB, AC power, commit `a699e14`, other apps open
-([captures](docs/superpowers/research/2026-10-29-mellum-readme-speed/m1pro/)):
+([captures](https://github.com/pauleveritt/ds4-mellum/tree/mellum-evidence-2026-10-31/docs/superpowers/research/2026-10-29-mellum-readme-speed/m1pro)):
 
 | Model file | Prompt tokens | Prefill t/s | Generation t/s |
 |---|---|---|---|
@@ -209,7 +209,7 @@ two blocks of four processes per prompt length, with cooldowns; each block's fir
 
 ```bash
 ARMS=AA tests/mellum_cli_prefill_abba.sh ~/ds4-runs/prefill ~/models/Mellum2.1-12B-A2.5B-Thinking-Q8_0.gguf 2048
-ARMS=AA tests/mellum_cli_decode_abba.sh ~/ds4-runs/decode ~/models/Mellum2.1-12B-A2.5B-Thinking-Q8_0.gguf tests/mellum_measurements/d1_decode_profile 2048
+ARMS=AA tests/mellum_cli_decode_abba.sh ~/ds4-runs/decode ~/models/Mellum2.1-12B-A2.5B-Thinking-Q8_0.gguf tests/mellum_prompts 2048
 ```
 
 Add `8192 32768` after `2048` for longer prompts. For a streamed row, set

@@ -15,7 +15,7 @@ Date: 2026-10-28, committed before any timing.
 
 ## What is the same as 01
 
-- **Prompt:** the same frozen prompt ([01's `prompt.txt`](2026-10-28-mellum-s4-measurement-prereg/prompt.txt),
+- **Prompt:** the same frozen prompt ([01's `prompt.txt`](https://github.com/pauleveritt/ds4-mellum/tree/mellum-evidence-2026-10-31/docs/superpowers/research/2026-10-28-mellum-s4-measurement-prereg/prompt.txt),
   SHA-256 `2164763c…6344da`, 30,620 tokens).
 - **Run settings:** context 32,768; 2,048 greedy tokens; `--stream-bytes 6442450944` (979 slots).
 - **Arms:** R (resident, n=1), then C (streamed, n=3), with 30 s rests.

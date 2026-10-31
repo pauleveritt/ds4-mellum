@@ -2,7 +2,7 @@
 
 Date: 2026-10-29. Build `69492de` (the kit's commit, recorded in each `bringup/commit.txt`). Rules:
 [the preregistration](2026-10-28-mellum-s6-c-preregistration.md), with its notes of 08:12 and 12:19.
-Captures: [`2026-10-28-mellum-s6-c-evidence/imac/`](2026-10-28-mellum-s6-c-evidence/imac/). Every figure
+Captures: [`2026-10-28-mellum-s6-c-evidence/imac/`](https://github.com/pauleveritt/ds4-mellum/tree/mellum-evidence-2026-10-31/docs/superpowers/research/2026-10-28-mellum-s6-c-evidence/imac). Every figure
 below is recomputed from them by `python3 -I docs/superpowers/research/2026-10-28-mellum-s6-c-evidence/imac/analyze.py`,
 except the logits agreement, which is read from each `correct/agree.*.json`.
 

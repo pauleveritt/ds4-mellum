@@ -143,7 +143,7 @@ greedy, 512 tokens; amended).
 - **Metric, both sides:** decode t/s = (generated tokens − 1) / (seconds from the first generated token to
   the last). On the iMac it comes from `measure.json`'s per-token `ns`, tokens 1 to 511.
 - **The 27B's command (addendum 2026-10-29 07:23, on the owner's instruction that day, before any iMac or
-  C6 run):** [`run_c6_27b.sh`](2026-10-28-mellum-s6-c-prereg/run_c6_27b.sh).
+  C6 run):** [`run_c6_27b.sh`](https://github.com/pauleveritt/ds4-mellum/tree/mellum-evidence-2026-10-31/docs/superpowers/research/2026-10-28-mellum-s6-c-prereg/run_c6_27b.sh).
   - It runs ds4-engine's engine at its pin `ebdcb0f` through `ds4-bench`, built there. The model is
     `Qwen3.8-27B-Q4_K_M.gguf` (sha256 `e00082f7…`, as in ds4-engine's `profile.rs`).
   - The prompt is the same `workload-prompt.txt`, rendered by the engine's chat template as one user turn:

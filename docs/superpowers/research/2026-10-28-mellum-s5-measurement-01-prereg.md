@@ -36,9 +36,9 @@ The measured build is the commit that completes the append phase. It must not ch
 ## Frozen inputs
 
 - **Model:** `~/models/Mellum2.1-12B-A2.5B-Thinking-Q8_0.gguf` (Q8_0, 12,925,417,760 B).
-- **Prompt:** 01's [`prompt.txt`](2026-10-28-mellum-s4-measurement-prereg/prompt.txt), SHA-256
+- **Prompt:** 01's [`prompt.txt`](https://github.com/pauleveritt/ds4-mellum/tree/mellum-evidence-2026-10-31/docs/superpowers/research/2026-10-28-mellum-s4-measurement-prereg/prompt.txt), SHA-256
   `2164763c…6344da`, 30,620 tokens rendered.
-- **Appended text:** [`append.txt`](2026-10-28-mellum-s5-measurement-01-prereg/append.txt), a copy of
+- **Appended text:** [`append.txt`](https://github.com/pauleveritt/ds4-mellum/tree/mellum-evidence-2026-10-31/docs/superpowers/research/2026-10-28-mellum-s5-measurement-01-prereg/append.txt), a copy of
   `ds4_layer_pack.c` at `36ee8c1`.
   - SHA-256 `ed93c59f8f7579e03ee74ffda8e4677653d408b6f2fc53db54270825909f23ce`, 5,975 B.
   - The file is not in the prompt.

@@ -29,9 +29,9 @@ the ceiling.** The S3 assessment's sums stand; its framing understated this.
 
 ## Miss curve and bound (descriptive, decode, cold start)
 
-[`curve.py`](2026-10-28-mellum-ssd-retarget/curve.py) replays the saved trace
+[`curve.py`](https://github.com/pauleveritt/ds4-mellum/tree/mellum-evidence-2026-10-31/docs/superpowers/research/2026-10-28-mellum-ssd-retarget/curve.py) replays the saved trace
 with the unchanged replay tool. Output is in
-[`curve-output.txt`](2026-10-28-mellum-ssd-retarget/curve-output.txt).
+[`curve-output.txt`](https://github.com/pauleveritt/ds4-mellum/tree/mellum-evidence-2026-10-31/docs/superpowers/research/2026-10-28-mellum-ssd-retarget/curve-output.txt).
 
 | Cache | LRU loads/token | LRU MB/token | Relaxed-optimal MB/token |
 |---:|---:|---:|---:|

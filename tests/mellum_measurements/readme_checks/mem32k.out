@@ -1,2 +1,0 @@
-
-We need to write a Python function that checks whether a string is a palindrome. It should handle case and possibly ignore spaces and punctuation? The user didn't specify; the most basic palindrome check is to compare the string with its reverse, possibly ignoring case and non-alphanumeric characters, but perhaps we

@@ -1,9 +1,0 @@
-2048 (2056 tokens) DS4_MELLUM_MOE_NAX=0: n 6, median 1966 t/s, range 1957-1982
-2048 (2056 tokens) E1 on (default): n 6, median 2792 t/s, range 2781-2852
-2048: E1 / NAX=0 median 1.420
-8192 (8195 tokens) DS4_MELLUM_MOE_NAX=0: n 6, median 1623 t/s, range 1599-1638
-8192 (8195 tokens) E1 on (default): n 6, median 2108 t/s, range 2056-2122
-8192: E1 / NAX=0 median 1.299
-32768 (32778 tokens) DS4_MELLUM_MOE_NAX=0: n 6, median 737 t/s, range 681-797
-32768 (32778 tokens) E1 on (default): n 6, median 850 t/s, range 806-881
-32768: E1 / NAX=0 median 1.153

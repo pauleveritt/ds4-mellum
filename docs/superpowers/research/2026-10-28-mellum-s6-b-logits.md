@@ -17,7 +17,7 @@ committed (`ff22dcc`) before any S6 GPU run.
 
 ## Method
 
-`evidence/logits/run_b.sh` (in [`2026-10-28-mellum-s6-b-evidence/`](2026-10-28-mellum-s6-b-evidence/))
+`evidence/logits/run_b.sh` (in [`2026-10-28-mellum-s6-b-evidence/`](https://github.com/pauleveritt/ds4-mellum/tree/mellum-evidence-2026-10-31/docs/superpowers/research/2026-10-28-mellum-s6-b-evidence))
 runs, for each file and artifact:
 - `tests/mellum_trace MODEL TOKENS prefill`, with `DS4_MELLUM_TRACE_AT` set to the oracle's positions (64
   spread over the file, or all of them below 64);

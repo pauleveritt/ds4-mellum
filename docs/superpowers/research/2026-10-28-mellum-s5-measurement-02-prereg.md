@@ -23,9 +23,9 @@ Date: 2026-10-28, committed before any timing. Branch `codex/mellum-ssd-replay`.
 ## Frozen inputs (as measurement 01)
 
 - **Model:** `~/models/Mellum2.1-12B-A2.5B-Thinking-Q8_0.gguf` (Q8_0, 12,925,417,760 B).
-- **Prompt:** [`prompt.txt`](2026-10-28-mellum-s4-measurement-prereg/prompt.txt), SHA-256 `2164763c…6344da`,
+- **Prompt:** [`prompt.txt`](https://github.com/pauleveritt/ds4-mellum/tree/mellum-evidence-2026-10-31/docs/superpowers/research/2026-10-28-mellum-s4-measurement-prereg/prompt.txt), SHA-256 `2164763c…6344da`,
   30,620 tokens rendered.
-- **Appended text:** [`append.txt`](2026-10-28-mellum-s5-measurement-01-prereg/append.txt), SHA-256
+- **Appended text:** [`append.txt`](https://github.com/pauleveritt/ds4-mellum/tree/mellum-evidence-2026-10-31/docs/superpowers/research/2026-10-28-mellum-s5-measurement-01-prereg/append.txt), SHA-256
   `ed93c59f…09f23ce`, 1,905 tokens rendered.
 - **Context, tokens and cache:** 36,864; 2,048 greedy tokens, the append, then 256; `--stream-bytes 6442450944`
   (979 slots).

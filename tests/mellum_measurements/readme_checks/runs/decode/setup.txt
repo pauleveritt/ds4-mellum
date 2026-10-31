@@ -1,6 +1,0 @@
-machine: Apple M5 Max 137438953472 bytes
-tree: $SCRATCH_HOME/ds4-mellum head 49bf9eb, 0 changed tracked files
-PER=4 COOL=30 GAP=10 GEN=256 ARMS=AA
-A: (no variables), ./ds4 (Oct 28 11:20:59 2026)
-B: (no variables), ./ds4 (Oct 28 11:20:59 2026)
-length 2048: 2056 tokens, ctx 3072

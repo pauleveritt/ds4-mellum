@@ -1,7 +1,7 @@
 # Spike: where a streamed Mellum decode token spends its time
 
 Date: 2026-10-28, 17:22 EDT. A throwaway build of `fdad3ee` with timers around the stop/resume ops,
-[`profile.patch`](2026-10-28-mellum-s4-decode-profile-spike/profile.patch), since removed. One driver run
+[`profile.patch`](https://github.com/pauleveritt/ds4-mellum/tree/mellum-evidence-2026-10-31/docs/superpowers/research/2026-10-28-mellum-s4-decode-profile-spike/profile.patch), since removed. One driver run
 on this 128 GiB M5 Max: a short chat prompt, 512 greedy tokens, `--stream-bytes` 6 GiB, device-true reads
 (`d26dca0`).
 
@@ -13,7 +13,7 @@ on this 128 GiB M5 Max: a short chat prompt, 512 greedy tokens, `--stream-bytes`
 
 ## Result
 
-Averages over 512 tokens, from [`profile.log`](2026-10-28-mellum-s4-decode-profile-spike/profile.log). The
+Averages over 512 tokens, from [`profile.log`](https://github.com/pauleveritt/ds4-mellum/tree/mellum-evidence-2026-10-31/docs/superpowers/research/2026-10-28-mellum-s4-decode-profile-spike/profile.log). The
 run took 8.21 stops and 9.96 loads per token over its last 256 tokens.
 
 | Op | ms per token |
@@ -53,7 +53,7 @@ overhead per command buffer, or attention.
 ## After gating the projections and copies (`9e9757f`)
 
 The same timer patch and the same driver run (512 tokens, 6 GiB, short prompt, n=1) gave identical token
-ids. Data: [`profile-after-gating.log`](2026-10-28-mellum-s4-decode-profile-spike/profile-after-gating.log).
+ids. Data: [`profile-after-gating.log`](https://github.com/pauleveritt/ds4-mellum/tree/mellum-evidence-2026-10-31/docs/superpowers/research/2026-10-28-mellum-s4-decode-profile-spike/profile-after-gating.log).
 
 | ms per token | before | after |
 |---|---:|---:|
@@ -76,8 +76,8 @@ not re-measured.
 
 One run per arm on the same driver setup: a short prompt, 256 decode tokens. The streamed arm ran at
 6 GiB and took 9.62 stops per token (more than the 512-token run, because early tokens are colder). Data:
-[`cb-times-resident.log`](2026-10-28-mellum-s4-decode-profile-spike/cb-times-resident.log) and
-[`cb-times-stream.log`](2026-10-28-mellum-s4-decode-profile-spike/cb-times-stream.log).
+[`cb-times-resident.log`](https://github.com/pauleveritt/ds4-mellum/tree/mellum-evidence-2026-10-31/docs/superpowers/research/2026-10-28-mellum-s4-decode-profile-spike/cb-times-resident.log) and
+[`cb-times-stream.log`](https://github.com/pauleveritt/ds4-mellum/tree/mellum-evidence-2026-10-31/docs/superpowers/research/2026-10-28-mellum-s4-decode-profile-spike/cb-times-stream.log).
 
 | Per token | resident | streamed |
 |---|---:|---:|

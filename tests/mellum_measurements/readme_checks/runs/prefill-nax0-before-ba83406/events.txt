@@ -1,4 +1,0 @@
-state before 2048 1A: 11:37:13 'AC Power' powermode=0 No thermal warning level has been recorded No performance warning level has been recorded No CPU power status has been recorded
-state after 2048 1A: 11:37:48 'AC Power' powermode=0 No thermal warning level has been recorded No performance warning level has been recorded No CPU power status has been recorded
-state before 2048 2A: 11:38:33 'AC Power' powermode=0 No thermal warning level has been recorded No performance warning level has been recorded No CPU power status has been recorded
-state after 2048 2A: 11:39:08 'AC Power' powermode=0 No thermal warning level has been recorded No performance warning level has been recorded No CPU power status has been recorded

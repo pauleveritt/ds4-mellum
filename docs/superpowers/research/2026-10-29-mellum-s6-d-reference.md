@@ -1,7 +1,7 @@
 # S6 phase D: the merged build on the 8 GB iMac (Task 1, cache stage only)
 
 Date: 2026-10-29. Build `754d419` (`mellum` after the S6 merge), the 8 GB M1 iMac over SSH, phase C's kit
-(`run_imac.sh bringup`, then `cache`). Captures: [`2026-10-29-mellum-s6-d-evidence/ref/`](2026-10-29-mellum-s6-d-evidence/ref/).
+(`run_imac.sh bringup`, then `cache`). Captures: [`2026-10-29-mellum-s6-d-evidence/ref/`](https://github.com/pauleveritt/ds4-mellum/tree/mellum-evidence-2026-10-31/docs/superpowers/research/2026-10-29-mellum-s6-d-evidence/ref).
 The owner concluded the run after this stage, so Task 1's three-run footprint was not taken.
 
 **Honesty header.** Measured: one machine, n=1 per cache size, the phase C workload (512 tokens, apps closed).
@@ -23,4 +23,4 @@ nearly full (1.76 of 2 GiB), so the 3 GiB run below swapped.
   34.71 at 2 GiB). Both are n=1 and not explained here; the merge changed decode's fused kernels.
 
 Recompute: `python3 -I` over `ref/cache/*.measure.json` with phase C's metric
-([`imac/analyze.py`](2026-10-28-mellum-s6-c-evidence/imac/analyze.py) reads the same fields).
+([`imac/analyze.py`](https://github.com/pauleveritt/ds4-mellum/tree/mellum-evidence-2026-10-31/docs/superpowers/research/2026-10-28-mellum-s6-c-evidence/imac/analyze.py) reads the same fields).

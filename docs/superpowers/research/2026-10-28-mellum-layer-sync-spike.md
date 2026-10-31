@@ -12,7 +12,7 @@ distribution.
 
 ## Method
 
-The hook is in [`spike-sync.patch`](2026-10-28-mellum-layer-sync-spike/spike-sync.patch),
+The hook is in [`spike-sync.patch`](https://github.com/pauleveritt/ds4-mellum/tree/mellum-evidence-2026-10-31/docs/superpowers/research/2026-10-28-mellum-layer-sync-spike/spike-sync.patch),
 13 lines in `mellum_graph_forward_tokens`. `DS4_SPIKE_LAYER_SYNC` selects:
 
 - `1`: end the command buffer, wait, begin a new one after each layer but the
@@ -22,7 +22,7 @@ The hook is in [`spike-sync.patch`](2026-10-28-mellum-layer-sync-spike/spike-syn
 The command, from MELLUM.md's generation row:
 `DS4_SPIKE_LAYER_SYNC=<arm> ./ds4 -m Mellum2.1-12B-A2.5B-Thinking-Q8_0.gguf -c 8192 --temp 0 -n 256 -p "Explain how a hash map works, with an example in C."`.
 The arm order was 0 1 2 2 1 0 1 2 0 0 2 1; the raw lines are in
-[`spike-ab.log`](2026-10-28-mellum-layer-sync-spike/spike-ab.log). All 12
+[`spike-ab.log`](https://github.com/pauleveritt/ds4-mellum/tree/mellum-evidence-2026-10-31/docs/superpowers/research/2026-10-28-mellum-layer-sync-spike/spike-ab.log). All 12
 outputs were byte-identical (`cmp` against run 1).
 
 ## Result

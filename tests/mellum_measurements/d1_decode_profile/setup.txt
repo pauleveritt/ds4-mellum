@@ -1,7 +1,0 @@
-machine: Apple M5 Max 137438953472 bytes
-head: ea0f37b  ds4: Oct 28 05:26:34 2026
-PER=4 COOL=45 GAP=10 GEN=256
-length 100: 100 tokens, 207 bytes, ctx 1024
-length 2048: 2056 tokens, 5795 bytes, ctx 3072
-length 8192: 8195 tokens, 22819 bytes, ctx 9216
-length 32768: 32778 tokens, 90008 bytes, ctx 33792

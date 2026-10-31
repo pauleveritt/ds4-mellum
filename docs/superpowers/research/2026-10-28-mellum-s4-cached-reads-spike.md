@@ -22,8 +22,8 @@ SSD only, on this 128 GiB M5 Max and its APPLE SSD AP2048Z, under macOS 27.2.
 | write-only | aligned | 1.000 | `msync(MS_INVALIDATE)` on a `MAP_SHARED` read-only mapping | 1.007 |
 | write-only | unaligned | 1.000 | `msync(MS_INVALIDATE)` | 1.014 |
 
-Scripts: [`readbench.py`](2026-10-28-mellum-s4-cached-reads-spike/readbench.py) and
-[`readbench2.py`](2026-10-28-mellum-s4-cached-reads-spike/readbench2.py).
+Scripts: [`readbench.py`](https://github.com/pauleveritt/ds4-mellum/tree/mellum-evidence-2026-10-31/docs/superpowers/research/2026-10-28-mellum-s4-cached-reads-spike/readbench.py) and
+[`readbench2.py`](https://github.com/pauleveritt/ds4-mellum/tree/mellum-evidence-2026-10-31/docs/superpowers/research/2026-10-28-mellum-s4-cached-reads-spike/readbench2.py).
 
 ## What it says
 

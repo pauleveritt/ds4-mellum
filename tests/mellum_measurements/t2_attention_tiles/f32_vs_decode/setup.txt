@@ -1,8 +1,0 @@
-machine: Apple M5 Max 137438953472 bytes
-head: 81b5f61  ds4: Oct 27 22:10:41 2026
-PER=4 COOL=45 GAP=10
-A (decode kernels (=0)): DS4_MELLUM_ATTN_TILED=0
-B (f32 tiles (=1)): DS4_MELLUM_ATTN_TILED=1
-length 2048: 2056 tokens, 5795 bytes, ctx 3072
-length 8192: 8195 tokens, 22819 bytes, ctx 9216
-length 32768: 32778 tokens, 90008 bytes, ctx 33792

@@ -1,8 +1,0 @@
-state before 100: 05:43:00 'AC Power' powermode=0 No thermal warning level has been recorded No performance warning level has been recorded No CPU power status has been recorded
-state after 100: 05:43:01 'AC Power' powermode=0 No thermal warning level has been recorded No performance warning level has been recorded No CPU power status has been recorded
-state before 2048: 05:43:47 'AC Power' powermode=0 No thermal warning level has been recorded No performance warning level has been recorded No CPU power status has been recorded
-state after 2048: 05:43:48 'AC Power' powermode=0 No thermal warning level has been recorded No performance warning level has been recorded No CPU power status has been recorded
-state before 8192: 05:44:34 'AC Power' powermode=0 No thermal warning level has been recorded No performance warning level has been recorded No CPU power status has been recorded
-state after 8192: 05:44:37 'AC Power' powermode=0 No thermal warning level has been recorded No performance warning level has been recorded No CPU power status has been recorded
-state before 32768: 05:45:23 'AC Power' powermode=0 No thermal warning level has been recorded No performance warning level has been recorded No CPU power status has been recorded
-state after 32768: 05:45:42 'AC Power' powermode=0 No thermal warning level has been recorded No performance warning level has been recorded No CPU power status has been recorded

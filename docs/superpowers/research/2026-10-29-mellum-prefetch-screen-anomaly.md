@@ -9,7 +9,7 @@ Date: 2026-10-29. A screen (`docs/sdd.md`, "Evals"), closing the anomaly that S6
 
 The synchronous next-layer prefetch screen avoided 3.68 stops per token on the earlier build (`42f51b7`, 16.52 →
 12.84; [stream decode](2026-10-29-mellum-stream-decode.md)) but only 1.94 on the merged build (16.55 → 14.61;
-[sync screen](2026-10-29-mellum-s6-d-sync-screen/m5-dryrun/analysis.txt)), with the same cache, prompt and
+[sync screen](https://github.com/pauleveritt/ds4-mellum/tree/mellum-evidence-2026-10-31/docs/superpowers/research/2026-10-29-mellum-s6-d-sync-screen/m5-dryrun/analysis.txt)), with the same cache, prompt and
 prefetch-off baseline.
 
 ## What it was
@@ -27,7 +27,7 @@ prefetch-off baseline.
 - **The test** `--mellum-stream-stop-scratch` (`73406bb`, red: 189 of 196 stops overwritten; `4e6450a`, green:
   196 of 196 intact, 0 differing logit words). The full Mellum model suite passes on Q8_0 and MXFP4 (32 of 32).
 
-## After the fix ([captures](2026-10-29-mellum-s6-d-sync-screen/m5-after-gate-fix/analysis.txt))
+## After the fix ([captures](https://github.com/pauleveritt/ds4-mellum/tree/mellum-evidence-2026-10-31/docs/superpowers/research/2026-10-29-mellum-s6-d-sync-screen/m5-after-gate-fix/analysis.txt))
 
 | Arm | Decode ms/token | Stops/token | Demand experts/token | Prefetched experts/token |
 |---|---|---|---|---|

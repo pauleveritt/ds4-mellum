@@ -1,8 +1,0 @@
-machine: Apple M5 Max 137438953472 bytes
-tree: /Users/pauleveritt/projects/pauleveritt/ds4-mellum head 385fbd2, 0 changed tracked files
-PER=4 COOL=30 GAP=10 GEN=256
-A: DS4_METAL_MELLUM_SOURCE=/private/tmp/claude-501/-Users-pauleveritt-projects-pauleveritt-ds4-mellum/3780d270-f710-4b81-91c9-8120d4c77aec/scratchpad/mellum_f160af7.metal
-B: (no variables)
-length 100: 100 tokens, ctx 1024
-length 2048: 2056 tokens, ctx 3072
-length 8192: 8195 tokens, ctx 9216

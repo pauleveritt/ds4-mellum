@@ -14,7 +14,7 @@ committed (`ff22dcc`) before any S6 GPU run.
 
 ## Method
 
-[`run_cde.py`](2026-10-28-mellum-s6-b-evidence/measure/run_cde.py) ran the preregistered orders with 30 s rests.
+[`run_cde.py`](https://github.com/pauleveritt/ds4-mellum/tree/mellum-evidence-2026-10-31/docs/superpowers/research/2026-10-28-mellum-s6-b-evidence/measure/run_cde.py) ran the preregistered orders with 30 s rests.
 Each arm ran in its own checkout, because the engine compiles `metal/*.metal` relative to its working
 directory (`ds4_metal.m:4768`). Each process's stdout, stderr and argv are in `measure/raw/` (git-ignored,
 kept). The figures and verdicts are in `measure/summary-{c,d,e}.json`, computed by the script.

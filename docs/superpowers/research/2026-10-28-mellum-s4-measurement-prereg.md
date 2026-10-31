@@ -13,7 +13,7 @@ measured build is the commit after this file's. Design:
 ## Frozen inputs
 
 - **Model:** `~/models/Mellum2.1-12B-A2.5B-Thinking-Q8_0.gguf` (Q8_0, 12,925,417,760 B).
-- **Prompt:** [`prompt.txt`](2026-10-28-mellum-s4-measurement-prereg/prompt.txt).
+- **Prompt:** [`prompt.txt`](https://github.com/pauleveritt/ds4-mellum/tree/mellum-evidence-2026-10-31/docs/superpowers/research/2026-10-28-mellum-s4-measurement-prereg/prompt.txt).
   - SHA-256 `2164763cbe3b1fa7bb9d46107650e4cb0679f3d78329d1c3477aea3f2d6344da`, 85,844 B.
   - Built by `tools/mellum_s4_measure.py build_prompt(root, 86_000)`: 7 tracked `.c`/`.md` files, no research notes, no ac-demo.
   - Rendered by the driver as one user turn with thinking on, it is **30,620 tokens** (calibration run, resident, `--gen 1`).

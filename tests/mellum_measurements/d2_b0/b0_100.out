@@ -1,2 +1,0 @@
-mellum-b0: context 100: n 30 per arm; two decode steps 14.521 ms (14.175-14.868), verify 9.566 ms (9.431-9.797) of which the row-0 head 0.605 ms; verify / one step 1.318; logit words that differ from decode 0
-ds4 tests: ok
