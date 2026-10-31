@@ -434,7 +434,8 @@ continue through all of it until done"; both proposed variants then landed, the 
   chunks of 32 rows or more use it, `DS4_MELLUM_ATTN_TILED=0` keeps the decode kernels.
 - T2, half operands (probe variant h32, a precision change): `e967e4b` (red), `52af643` the kernel and
   the corrected staged reference; `339dded` (red), `81b5f61` the default, `DS4_MELLUM_ATTN_TILED=1`
-  keeps the f32 tiles.
+  keeps the f32 tiles. The f32 tiles were removed on 2026-10-31 (`0a0c9c2` red, `0ea3328`); `=1` is
+  now the default, and `=0` still selects the decode kernels.
 - `905b15e` the runner's empty arm, `1860c51` T2's raw logs.
 
 Phase 8b, decode research (D1-D3, 2026-10-28; Paul: "Proceed with next step, I believe it is decode
@@ -840,7 +841,7 @@ tokens, attention profiled, n = 1 (the decode kernels: 2.71 s):
 | variant | change | attention |
 |---|---|---|
 | 1 | f32 operands, 16 keys per tile, scores and rescale through threadgroup memory | 2.17 s |
-| 1b (landed, `DS4_MELLUM_ATTN_TILED=1`) | 1, softmax on the fragments in registers | 2.10 s |
+| 1b (landed, `DS4_MELLUM_ATTN_TILED=1`; removed 2026-10-31) | 1, softmax on the fragments in registers | 2.10 s |
 | 1c | 1b with K/V staged as half and widened per fragment, 16 or 32 keys | 4.22 s, 2.49 s |
 | h16, h32 (h32 landed, the default) | precision: the scaled queries and the probabilities rounded to half, f32 accumulation, 16 or 32 keys | 1.44 s, 1.11 s |
 
