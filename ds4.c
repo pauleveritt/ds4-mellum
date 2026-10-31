@@ -42,7 +42,6 @@
 #include <unistd.h>
 
 #include "ds4.h"
-#include "ds4_mellum_capture.h"
 #include "ds4_mellum_stream.h"
 
 #if defined(__APPLE__)
@@ -54,8 +53,6 @@ static uint32_t g_mellum_stream_group_k = 1u;
 /* tests/ds4_test.c --mellum-stream-faults: fail the nth streamed load from when it was set (0: never) */
 static uint64_t g_mellum_stream_fail_load_at, g_mellum_stream_load_count;
 #endif
-#include "ds4_mellum_capture_state.h"
-#include "ds4_mellum_observer.h"
 #include "ds4_tool_text.h"
 #include "ds4_distributed.h"
 #include "ds4_image.h"
@@ -155,18 +152,6 @@ static uint32_t metal_graph_cuda_tp_output_tiers_for_head(
 #ifndef DS4_NO_GPU
 #include "ds4_gpu.h"
 #endif
-
-/* Private diagnostic storage. The session/graph never escapes this handle. */
-struct ds4_mellum_capture {
-    ds4_session *session;
-    mellum_capture_state core;
-    mellum_profile_scope scope;
-    uint32_t *host;
-    uint64_t bytes;
-#ifdef DS4_HAS_QWEN4_METAL
-    ds4_gpu_tensor *gpu;
-#endif
-};
 
 /* Non-CUDA builds (Mac/Metal, CPU-only) never link ds4_cuda.cu. Provide
  * stubs for the multi-GPU plumbing multi-GPU functions and globals declared in
@@ -59390,7 +59375,6 @@ typedef struct ds4_qwen4_gpu_graph {
     uint32_t mellum_frontier_pos;
     bool mellum_frontier_valid;
     uint64_t mellum_allocated_bytes;
-    ds4_mellum_capture *mellum_capture; /* Borrowed from the opaque owned handle. */
     bool mellum_exact_prefill;      /* DS4_MELLUM_EXACT_PREFILL, read at allocation (mellum_graph_alloc) */
     uint32_t mellum_moe_nax;        /* DS4_MELLUM_MOE_NAX, read there too: 2 the tensor tiles, 0 the simdgroup tiles */
     uint32_t mellum_attn_tiled;     /* DS4_MELLUM_ATTN_TILED, read there too: 2 half-operand tiles, 1 f32 tiles, 0 the decode kernels */
@@ -61035,10 +61019,8 @@ static bool mellum_graph_head(ds4_qwen4_gpu_graph *g, const ds4_model *m, const 
     bool ok = x && normed &&
         ds4_gpu_rms_norm_weight_rows_tensor(normed, x, m->map, m->size, w->output_norm->abs_offset, DS4_N_EMBD, 1u,
                                             DS4_RMS_EPS) != 0;
-    if (g->mellum_capture) mellum_observer_projection_role(true);
     ok = ok && ds4_gpu_matmul_q8_0_tensor(g->logits, m->map, m->size, w->output->abs_offset, w->output->dim[0],
                                    w->output->dim[1], normed, 1u) != 0;
-    if (g->mellum_capture) mellum_observer_projection_role(false);
     ds4_gpu_tensor_free(x);
     ds4_gpu_tensor_free(normed);
     return ok;
@@ -61185,8 +61167,8 @@ static bool mellum_graph_forward_tokens(ds4_qwen4_gpu_graph *g, const ds4_model 
     if (!mellum_trace_parse(&tc)) return false;
 #if defined(__APPLE__)
     if (g->mellum_stream) {
-        if (g->mellum_capture || tc.prefix) {
-            fprintf(stderr, "ds4: Mellum SSD streaming does not support route capture or tracing\n");
+        if (tc.prefix) {
+            fprintf(stderr, "ds4: Mellum SSD streaming does not support tracing\n");
             return false;
         }
         /* one token: stop/resume decode; a chunk: the ordinary forward, whose MoE syncs per layer */
@@ -61212,10 +61194,7 @@ static bool mellum_graph_forward_tokens(ds4_qwen4_gpu_graph *g, const ds4_model 
     }
     ds4_gpu_tensor *const *s = g->mellum_scratch;
     const ds4_gpu_mellum_rope rope = mellum_rope_params();
-    ds4_mellum_capture *capture=g->mellum_capture;
-    bool ok = (!capture ||
-               (mellum_capture_forward_begin(&capture->core,&capture->scope,pos0,T,logits_out!=NULL) &&
-                mellum_observer_enter(&capture->scope))) && ds4_gpu_tensor_write(s[MELLUM_S_TOKENS], 0, tokens, (uint64_t)T * sizeof(int32_t)) != 0 &&
+    bool ok = ds4_gpu_tensor_write(s[MELLUM_S_TOKENS], 0, tokens, (uint64_t)T * sizeof(int32_t)) != 0 &&
               glm_graph_begin_commands_if_needed() &&
               ds4_gpu_embed_tokens_q8_0_tensor(s[MELLUM_S_HIDDEN], s[MELLUM_S_TOKENS], m->map, m->size,
                                                w->token_embd->abs_offset, (uint32_t)w->token_embd->dim[1], T, E) != 0;
@@ -61223,16 +61202,6 @@ static bool mellum_graph_forward_tokens(ds4_qwen4_gpu_graph *g, const ds4_model 
     for (uint32_t il = 0; il < n_layer && ok; il++) {
         ok = mellum_graph_layer(g, m, &w->layer[il], il, full_slot, pos0, T, &rope);
         if (!ds4_mellum_layer_is_sliding(il)) full_slot++;
-        if (ok && capture) {
-            mellum_routes_layout_info layout;
-            ok=mellum_routes_layout(g->cap_tokens,T,il,&layout) &&
-               ds4_gpu_tensor_copy(capture->gpu,layout.layer_offset,s[MELLUM_S_SELECTED],0,layout.copy_bytes) &&
-               mellum_capture_layer(&capture->core,il);
-        }
-#ifdef DS4_MELLUM_ROUTES_TEST
-        /* Test executable only: preserve IDs before the next layer reuses them. */
-        if (ok) ok = route_layer(g->cap_tokens, il, T, s[MELLUM_S_SELECTED]);
-#endif
         if (ok && tr_n) {
             /* the rows are on the GPU: wait, then read this layer's output row, its MoE input row and its
              * post-RoPE Q and K row */
@@ -61276,17 +61245,6 @@ static bool mellum_graph_forward_tokens(ds4_qwen4_gpu_graph *g, const ds4_model 
     }
     if (ds4_gpu_commands_active() && !ds4_gpu_end_commands()) ok = false;
     free(hid); free(ffn); free(qk); free(row_logits);
-    if (capture) {
-        bool observed=mellum_observer_leave(&capture->scope);
-        ok=ok && observed && ds4_gpu_tensor_read(capture->gpu,0,capture->host,capture->bytes) &&
-           mellum_capture_forward_end(&capture->core,&capture->scope,true,(const uint32_t *)tokens,T,
-                                      capture->host,(size_t)(capture->bytes/sizeof(uint32_t)));
-        if (!ok) mellum_capture_abort(&capture->core,&capture->scope);
-    }
-#ifdef DS4_MELLUM_ROUTES_TEST
-    /* Completion above is the ordinary forward wait, including no-logits calls. */
-    if (ok) ok = route_done(pos0, T, tokens);
-#endif
     if (ok) g->pos += T;
     return ok;
 #endif
@@ -61316,8 +61274,8 @@ static bool mellum_graph_prefill_group(ds4_qwen4_gpu_graph *g, const ds4_model *
     if (last == 1u) return false;   /* a one-row chunk runs on the decode path */
     mellum_trace_cfg tc;
     if (!mellum_trace_parse(&tc)) return false;
-    if (g->mellum_capture || tc.prefix) {
-        fprintf(stderr, "ds4: Mellum SSD streaming does not support route capture or tracing\n");
+    if (tc.prefix) {
+        fprintf(stderr, "ds4: Mellum SSD streaming does not support tracing\n");
         return false;
     }
     ds4_gpu_tensor *const *s = g->mellum_scratch;
@@ -89775,144 +89733,3 @@ bool ds4_test_mellum_b0_arm(ds4_session *s, const int tokens[2], bool verify, fl
 }
 #endif
 
-/* Diagnostic capture API is separate from the general session API. */
-int ds4_mellum_capture_create(ds4_mellum_capture **out, ds4_engine *e, int ctx,
-        const ds4_mellum_capture_options *opts, char *err, size_t n) {
-    if (out) *out=NULL;
-#ifdef DS4_HAS_QWEN4_METAL
-    if (!out || !e || !opts || !opts->spool_sink || ctx<=1 ||
-        e->backend!=DS4_BACKEND_METAL || !e->metal_ready || !ds4_model_is_mellum() ||
-        e->ssd_streaming || e->distributed.role!=DS4_DISTRIBUTED_NONE || e->tp.active ||
-        e->multi_tier || e->cuda_tensor_parallel || e->support_kind!=DS4_SUPPORT_NONE ||
-        e->mtp_ready || e->glm_mtp || e->dspark ||
-        !e->weights.token_embd || e->weights.token_embd->type!=DS4_TENSOR_Q8_0 ||
-        !e->weights.output || e->weights.output->type!=DS4_TENSOR_Q8_0 ||
-        (getenv("DS4_MELLUM_TRACE") && *getenv("DS4_MELLUM_TRACE")) ||
-        (getenv("DS4_MELLUM_TRACE_AT") && *getenv("DS4_MELLUM_TRACE_AT"))) {
-        if (err && n) snprintf(err,n,"Mellum capture unsupported engine, options or trace controls");
-        return 1;
-    }
-    ds4_mellum_capture *c=calloc(1,sizeof(*c));
-    mellum_routes_layout_info layout;
-    if (c && !ds4_session_create(&c->session,e,ctx) && c->session->qwen4_graph_ready &&
-        mellum_routes_layout(c->session->qwen4_graph.cap_tokens,1,0,&layout)) {
-        c->bytes=layout.buffer_bytes;
-        c->host=malloc((size_t)c->bytes);
-        c->gpu=ds4_gpu_tensor_alloc(c->bytes);
-        /* Start the spool only after the private session and every buffer exist. */
-        if (c->host && c->gpu && mellum_capture_state_init(&c->core,c->session->qwen4_graph.cap_tokens,
-                  opts->spool_sink,opts->spool_context,mellum_observer_catalog())) {
-            c->session->qwen4_graph.mellum_capture=c;
-            ds4_session_set_cancel(c->session,opts->cancel,opts->cancel_context);
-            *out=c;
-            if (err && n) err[0]=0;
-            return 0;
-        }
-    }
-    ds4_mellum_capture_free(c);
-    if (err && n) snprintf(err,n,"Mellum capture allocation or header failed");
-#else
-    (void)e;(void)ctx;(void)opts;
-    if (err && n) snprintf(err,n,"Mellum capture unsupported on this backend");
-#endif
-    return 1;
-}
-static int mellum_capture_error(ds4_mellum_capture *c,char *err,size_t n,const char *message) {
-    if (c && c->core.state!=MELLUM_CAPTURE_FINISHED) {
-        (void)mellum_observer_leave(&c->scope);
-        mellum_capture_abort(&c->core,&c->scope);
-    }
-    if (err && n) snprintf(err,n,"%s",message);
-    return 1;
-}
-static bool mellum_capture_ready(ds4_mellum_capture *c,char *err,size_t n) {
-    if (c && c->session && c->core.state==MELLUM_CAPTURE_READY) return true;
-    mellum_capture_error(c,err,n,"Mellum capture is not ready");
-    return false;
-}
-/* Ordinary checkpoint appends use fatal allocation. Reserve before inference so
- * those appends cannot allocate after a capture frame has already been emitted. */
-static bool mellum_capture_reserve_checkpoint(ds4_session *s,int needed) {
-    token_vec *v=&s->checkpoint;
-    if (needed<=v->cap) return true;
-    int cap=v->cap ? v->cap:64;
-    while (cap<needed) cap=cap>s->ctx_size/2 ? s->ctx_size:cap*2;
-    if (cap>s->ctx_size) cap=s->ctx_size;
-    if ((size_t)cap>SIZE_MAX/sizeof(v->v[0])) return false;
-    int *p=realloc(v->v,(size_t)cap*sizeof(v->v[0]));
-    if (!p) return false;
-    v->v=p;v->cap=cap;
-    return true;
-}
-static int mellum_capture_operation_end(ds4_mellum_capture *c,int status,char *err,size_t n) {
-    if (!status && (!c->session->checkpoint_valid ||
-        (uint64_t)c->session->checkpoint.len!=c->core.writer.positions)) status=1;
-#ifdef DS4_HAS_QWEN4_METAL
-    if (!status && c->session->qwen4_graph.pos!=c->core.writer.positions) status=1;
-#endif
-    int result=mellum_capture_end_operation(&c->core,&c->scope,status);
-    if (result) {
-        (void)mellum_observer_leave(&c->scope);
-        if (err && n && !err[0]) snprintf(err,n,"Mellum capture operation failed");
-    }
-    return result;
-}
-int ds4_mellum_capture_sync(ds4_mellum_capture *c,const ds4_tokens *p,uint32_t seg,char *err,size_t n) {
-    char scratch[512];
-    if (!err || !n) { err=scratch;n=sizeof(scratch); }
-    err[0]=0;
-    if (!mellum_capture_ready(c,err,n)) return 1;
-    ds4_session *s=c->session;
-    if (!p || !p->v || p->len<=0 || p->len>=s->ctx_size)
-        return mellum_capture_error(c,err,n,"Mellum capture prompt exceeds context or is invalid");
-    for (int i=0;i<p->len;i++)
-        if (p->v[i]<0 || p->v[i]>=(int)DS4_N_VOCAB)
-            return mellum_capture_error(c,err,n,"Mellum capture prompt token is invalid");
-    size_t committed=s->checkpoint_valid ? (size_t)s->checkpoint.len:0;
-    if (!mellum_capture_begin_sync(&c->core,(const uint32_t *)s->checkpoint.v,committed,
-                                  (const uint32_t *)p->v,(size_t)p->len,seg))
-        return mellum_capture_error(c,err,n,"Mellum capture requires an unchanged token prefix");
-    if (!mellum_capture_reserve_checkpoint(s,p->len))
-        return mellum_capture_error(c,err,n,"Mellum capture checkpoint allocation failed");
-    int status=ds4_session_sync(s,p,err,n);
-    return mellum_capture_operation_end(c,status,err,n);
-}
-int ds4_mellum_capture_eval(ds4_mellum_capture *c,int token,uint32_t seg,char *err,size_t n) {
-    char scratch[512];
-    if (!err || !n) { err=scratch;n=sizeof(scratch); }
-    err[0]=0;
-    if (!mellum_capture_ready(c,err,n)) return 1;
-    ds4_session *s=c->session;
-    if (token<0 || token>=(int)DS4_N_VOCAB || s->checkpoint.len<0 || s->checkpoint.len>=s->ctx_size)
-        return mellum_capture_error(c,err,n,"Mellum capture token or context is invalid");
-    if (!mellum_capture_begin_eval(&c->core,(uint64_t)s->checkpoint.len,seg))
-        return mellum_capture_error(c,err,n,"Mellum capture position is not contiguous");
-    if (!mellum_capture_reserve_checkpoint(s,s->checkpoint.len+1))
-        return mellum_capture_error(c,err,n,"Mellum capture checkpoint allocation failed");
-    int status=ds4_session_eval(s,token,err,n);
-    return mellum_capture_operation_end(c,status,err,n);
-}
-int ds4_mellum_capture_copy_logits(ds4_mellum_capture *c,float *out,int capacity) {
-    if (!c || !mellum_capture_has_logits(&c->core)) return 0;
-    return ds4_session_copy_logits(c->session,out,capacity);
-}
-int ds4_mellum_capture_finish(ds4_mellum_capture *c,mellum_profile_sink sink,void *ctx,char *err,size_t n) {
-    if (!c || !mellum_capture_finish(&c->core,sink,ctx))
-        return mellum_capture_error(c,err,n,"Mellum capture cannot finish");
-    if (err && n) err[0]=0;
-    return 0;
-}
-void ds4_mellum_capture_free(ds4_mellum_capture *c) {
-    if (!c) return;
-    (void)mellum_observer_leave(&c->scope);
-    mellum_capture_abort(&c->core,&c->scope);
-#ifdef DS4_HAS_QWEN4_METAL
-    if (c->session) c->session->qwen4_graph.mellum_capture=NULL;
-#endif
-    ds4_session_free(c->session);
-#ifdef DS4_HAS_QWEN4_METAL
-    ds4_gpu_tensor_free(c->gpu);
-#endif
-    free(c->host);
-    free(c);
-}
