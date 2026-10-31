@@ -73,6 +73,17 @@ endif
 # Mellum's streaming policy (slot and group arithmetic) is GPU-free and links into every engine build.
 override CORE_OBJS := $(filter-out ds4_mellum_stream.o,$(CORE_OBJS)) ds4_mellum_stream.o
 override CPU_CORE_OBJS := $(filter-out ds4_mellum_stream.o,$(CPU_CORE_OBJS)) ds4_mellum_stream.o
+# Mellum's code in ds4.c and tests/ds4_test.c sits in these .inc files, included where it belongs.
+MELLUM_DS4_INCS = ds4_mellum_config.inc ds4_mellum_plan.inc ds4_mellum_tokenizer.inc ds4_mellum_graph_alloc.inc \
+	ds4_mellum_graph.inc ds4_mellum_test_hooks.inc
+ds4.o ds4_cpu.o ds4_cpu_test_hooks.o ds4_cuda_test_hooks.o ds4_verify_test_hooks.o \
+	tests/test_deepseek41_graph.o tests/test_deepseek41_dspark.o tests/test_deepseek41_prefill.o \
+	tests/test_deepseek41_gguf.o tests/test_qwen4_ngrams.o tests/test_qwen4_ngram_state.o \
+	tests/test_qwen4_ple_prefetch.o tests/test_session_state.o tests/test_session_state_gpu.o \
+	tests/test_deepseek_indexer.o tests/test_mellum_config.o tests/test_mellum_tokenizer.o \
+	tests/test_mellum_frontends_cli.o tests/test_mellum_frontends_agent.o tests/test_mellum_frontends_server.o \
+	tests/test_mellum_moe_ref.o ds4_test.o: $(MELLUM_DS4_INCS)
+ds4_test.o: tests/ds4_test_mellum.inc tests/ds4_test_mellum_server.inc
 
 .PHONY: all help clean test test-rocm test-glm53-kda-rocm test-metal-session-batch test-mxfp4-cuda test-mxfp4-rocm test-cuda-session-batch test-cuda-mixed-batch dspark-acceptance dspark-verify-depth mtp-verify-depth cpu cuda cuda-spark cuda-generic cuda-regression strix-halo rocm
 
