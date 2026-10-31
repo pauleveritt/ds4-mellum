@@ -1,7 +1,7 @@
 # The S6 phase C kit: what goes to the iMac, and the order of the stages
 
 The rules are in [the preregistration](../2026-10-28-mellum-s6-c-preregistration.md), and the steps in
-[plan C](../../plans/2026-10-28-mellum-s6-c-imac.md). `run_imac.sh` was dry-run on the M5 Max on
+[plan C](https://github.com/pauleveritt/ds4-mellum/tree/mellum-evidence-2026-10-31/docs/superpowers/plans/2026-10-28-mellum-s6-c-imac.md). `run_imac.sh` was dry-run on the M5 Max on
 2026-10-29: its `correct` stage reproduced the M5 reference exactly (157/157 positions, KL 0), and its
 `cache` stage recorded swap-outs around each run. After the merge `633fd23` (amendment of 2026-10-29), the
 `correct` stage was dry-run again, with the same result.

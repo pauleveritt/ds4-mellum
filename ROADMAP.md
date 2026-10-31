@@ -25,7 +25,7 @@ Target order (owner decision 2026-10-28, [retarget](docs/superpowers/research/20
 ### S0 — Offline replay foundation: complete
 
 Version 1 trace validation, grouped LRU, fixed-order relaxed optimal replay,
-byte-demand statistics and synthetic tests. See the [completed plan](docs/superpowers/plans/2026-10-27-mellum-ssd-replay.md).
+byte-demand statistics and synthetic tests. See the [completed plan](https://github.com/pauleveritt/ds4-mellum/tree/mellum-evidence-2026-10-31/docs/superpowers/plans/2026-10-27-mellum-ssd-replay.md).
 
 Completion establishes accounting under the declared model. The later review
 identified interpretation and capture-provenance gaps, addressed by S1.
@@ -45,7 +45,7 @@ Exit met: 33 synthetic replay tests and the model-free Mellum suite pass.
 Independent whole-branch review found one Unicode JSONL parsing issue; a
 separate red-test/fix pair resolves it, followed by the full CPU gate.
 See the [S1 design](docs/superpowers/specs/2026-10-27-mellum-ssd-evidence-design.md)
-and [implementation plan](docs/superpowers/plans/2026-10-27-mellum-ssd-evidence.md).
+and [implementation plan](https://github.com/pauleveritt/ds4-mellum/tree/mellum-evidence-2026-10-31/docs/superpowers/plans/2026-10-27-mellum-ssd-evidence.md).
 
 ### S2 — Native router recorder: complete on the development laptop
 
@@ -53,7 +53,7 @@ and [implementation plan](docs/superpowers/plans/2026-10-27-mellum-ssd-evidence.
 v2 traces, tested with fabricated selections. Includes completeness, write-error
 handling, exact-byte/token identities and atomic no-overwrite publication.
 The [capture design](docs/superpowers/specs/2026-10-27-mellum-route-capture-design.md)
-and [implementation plan](docs/superpowers/plans/2026-10-27-mellum-route-capture.md)
+and [implementation plan](https://github.com/pauleveritt/ds4-mellum/tree/mellum-evidence-2026-10-31/docs/superpowers/plans/2026-10-27-mellum-route-capture.md)
 are implemented, with native checks and 12 Python export tests passing.
 See [usage](docs/MELLUM_ROUTE_CAPTURE.md). S2a is complete: independent
 whole-branch review found no blockers. One existing replay-CLI nesting
@@ -64,9 +64,9 @@ error-message issue is recorded as a deferred minor in the plan.
 passes eight cases with byte-identical routes/logits and no added buffered
 per-layer host wait. The approved
 [session design](docs/superpowers/specs/2026-10-27-mellum-session-capture-design.md),
-[CPU-core plan](docs/superpowers/plans/2026-10-27-mellum-capture-cpu-core.md),
-[owned adapter](docs/superpowers/plans/2026-10-27-mellum-owned-capture-adapter.md)
-and [qualified publisher](docs/superpowers/plans/2026-10-27-mellum-qualified-publisher.md)
+[CPU-core plan](https://github.com/pauleveritt/ds4-mellum/tree/mellum-evidence-2026-10-31/docs/superpowers/plans/2026-10-27-mellum-capture-cpu-core.md),
+[owned adapter](https://github.com/pauleveritt/ds4-mellum/tree/mellum-evidence-2026-10-31/docs/superpowers/plans/2026-10-27-mellum-owned-capture-adapter.md)
+and [qualified publisher](https://github.com/pauleveritt/ds4-mellum/tree/mellum-evidence-2026-10-31/docs/superpowers/plans/2026-10-27-mellum-qualified-publisher.md)
 are now implemented and live validated. Release/exact/fallback paths,
 short/tiled/multi-chunk/append schedules, no-head profiles, per-operation logits,
 cancellation, copy/read/sink failures and sequential handles pass.
@@ -100,8 +100,8 @@ The user selected `../ac-demo` and its roadmap as the workload source. The
 freezes that clean starter's inputs, reserves it for evaluation and designs
 CPU-only expert-range/contiguous-layout read tools. Its independent builder
 check found no remaining material question and the user approved the design.
-The [source-freeze plan](docs/superpowers/plans/2026-10-27-mellum-workload-source.md)
-and [storage plan](docs/superpowers/plans/2026-10-27-mellum-storage-evidence.md)
+The [source-freeze plan](https://github.com/pauleveritt/ds4-mellum/tree/mellum-evidence-2026-10-31/docs/superpowers/plans/2026-10-27-mellum-workload-source.md)
+and [storage plan](https://github.com/pauleveritt/ds4-mellum/tree/mellum-evidence-2026-10-31/docs/superpowers/plans/2026-10-27-mellum-storage-evidence.md)
 were approved for inline execution. The [source freeze](docs/superpowers/research/2026-10-27-mellum-workload-source-evidence.md)
 preserves all nine tracked files at the pinned commit. The
 [CPU storage evidence](docs/superpowers/research/2026-10-27-mellum-storage-evidence.md)
@@ -111,7 +111,7 @@ labels produced 29–78 GB/s; physical SSD traffic remains unverified. No genera
 representative cohort or streamed inference has run. The next
 [device-observation proposal](docs/superpowers/specs/2026-10-27-mellum-device-observation-design.md)
 brackets four CPU read runs with mapped block-driver counters and idle controls;
-the design is approved, its [implementation plan](docs/superpowers/plans/2026-10-27-mellum-device-observation.md)
+the design is approved, its [implementation plan](https://github.com/pauleveritt/ds4-mellum/tree/mellum-evidence-2026-10-31/docs/superpowers/plans/2026-10-27-mellum-device-observation.md)
 is implemented and CPU validated. Its first live attempt refused during
 device discovery; the saved-metadata WholeDisk repair passed the CPU gate.
 A separately authorized fresh attempt completed all four cells, with zero
@@ -130,7 +130,7 @@ can inform scheduling. Tool qualification alone does not establish feasibility.
 | Representative cache locality | Frozen Phase 1 ac-demo workload captures and held-out replay at roughly 3 GiB expert cache; miss bytes and demand bursts for warm, post-append and whole-session windows | Yes for native routing captures; preparation and offline replay use CPU only |
 
 The [storage-service design](docs/superpowers/specs/2026-10-27-mellum-storage-service-design.md)
-for controlled reads on this laptop is approved; its [implementation plan](docs/superpowers/plans/2026-10-27-mellum-storage-service.md)
+for controlled reads on this laptop is approved; its [implementation plan](https://github.com/pauleveritt/ds4-mellum/tree/mellum-evidence-2026-10-31/docs/superpowers/plans/2026-10-27-mellum-storage-service.md)
 is complete for its one bounded attempt. [Evidence](docs/superpowers/research/2026-10-27-mellum-storage-service-evidence.md)
 records qualifying calibration plus all three repetitions, exact byte checks,
 closing verification, passing CPU gates and independent review/audit. On this
@@ -140,7 +140,7 @@ Keep the completed attempt and its reservation; no automatic rerun follows.
 The first ac-demo task remains Phase 1 only; later phases
 require their own requests and prior-phase checkpoints.
 
-The [first generated Phase 1 plan](docs/superpowers/plans/2026-10-28-mellum-generated-cohort.md)
+The [first generated Phase 1 plan](https://github.com/pauleveritt/ds4-mellum/tree/mellum-evidence-2026-10-31/docs/superpowers/plans/2026-10-28-mellum-generated-cohort.md)
 has its first locality result, [attempt -02](docs/superpowers/research/2026-10-28-mellum-generated-phase1-02-evidence.md)
 (the [first attempt](docs/superpowers/research/2026-10-28-mellum-generated-phase1-evidence.md)
 failed CPU preparation and is retained). One generated two-turn conversation
@@ -194,7 +194,7 @@ budget derived from them. Requires borrowed hardware.
 ### S4 — Cached execution and miss recovery proof: complete on the development laptop
 
 The [design](docs/superpowers/specs/2026-10-28-mellum-s4-cached-execution-design.md) and
-[plan](docs/superpowers/plans/2026-10-28-mellum-s4-cached-execution.md) are implemented:
+[plan](https://github.com/pauleveritt/ds4-mellum/tree/mellum-evidence-2026-10-31/docs/superpowers/plans/2026-10-28-mellum-s4-cached-execution.md) are implemented:
 `--ssd-streaming` for Mellum. Decode stops only at missed layers; prefill syncs per layer.
 
 [Measurement 02](docs/superpowers/research/2026-10-28-mellum-s4-measurement-02.md), at 32K and a 6 GiB
@@ -228,7 +228,7 @@ cache and 32K:
 
 The M1 Pro is closer to a base-chip 16 GB laptop but still optimistic for decode, so a miss there
 predicts a miss on 16 GB and a pass does not prove one. Its
-[bring-up plan](docs/superpowers/plans/2026-10-28-mellum-m1pro-bringup.md) runs alongside steps 1–2.
+[bring-up plan](https://github.com/pauleveritt/ds4-mellum/tree/mellum-evidence-2026-10-31/docs/superpowers/plans/2026-10-28-mellum-m1pro-bringup.md) runs alongside steps 1–2.
 
 Steps, in order. Each is measured before and after with its n, keeps Q8 weights and routing, and stays
 exact against resident:
@@ -310,13 +310,13 @@ Phase A (CPU only, `7160525..ff22dcc`): the loader opens all-MXFP4 experts
 and refuses mixtures, streamed slots follow the file's expert size, and the
 double reference reads MXFP4. Replay at MXFP4 size (n=1 trace): LRU 69.2
 MB/token at 2.5 GiB ([curve](docs/superpowers/research/2026-10-28-mellum-mxfp4-miss-curve.md)).
-Phase B ([plan](docs/superpowers/plans/2026-10-28-mellum-s6-b-m5.md), on the SSD tip by the owner's
+Phase B ([plan](https://github.com/pauleveritt/ds4-mellum/tree/mellum-evidence-2026-10-31/docs/superpowers/plans/2026-10-28-mellum-s6-b-m5.md), on the SSD tip by the owner's
 call) passes its [preregistration](docs/superpowers/research/2026-10-28-mellum-s6-b-preregistration.md) on
 the M5 Max: MXFP4 kernels within tolerance of the double reference; logits agree with llama.cpp on 157/157
 positions (near-ties counted), mean KL <= 2.0e-3 ([logits](docs/superpowers/research/2026-10-28-mellum-s6-b-logits.md));
 Q8_0 unchanged (B/A 0.991/1.000, n=6); streamed MXFP4 at 2.5/3 GiB gives resident ids (n=3), 19.98
 loads/token at 2.5 GiB; resident MXFP4 decodes 1.13-1.20x Q8_0 ([measurement](docs/superpowers/research/2026-10-28-mellum-s6-b-measurement.md)).
-Phase C's [plan](docs/superpowers/plans/2026-10-28-mellum-s6-c-imac.md) and [preregistration](docs/superpowers/research/2026-10-28-mellum-s6-c-preregistration.md)
+Phase C's [plan](https://github.com/pauleveritt/ds4-mellum/tree/mellum-evidence-2026-10-31/docs/superpowers/plans/2026-10-28-mellum-s6-c-imac.md) and [preregistration](docs/superpowers/research/2026-10-28-mellum-s6-c-preregistration.md)
 are committed with the iMac kit (`s6-c-prereg/KIT.md`). The kit's build is now the merge `633fd23`, which
 brings in the SSD tip and S5 step 2b (preregistration amended 2026-10-29; references rechecked). The M5's
 reference for the Pi-shaped workload is streamed 2.5 GiB at 40.7 t/s, up from 23-24 (n=3,

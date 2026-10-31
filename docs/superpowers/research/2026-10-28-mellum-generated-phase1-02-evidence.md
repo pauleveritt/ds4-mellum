@@ -2,7 +2,7 @@
 
 Date: 2026-10-28, owner-reopened window to 22:00Z. Branch `codex/mellum-ssd-replay`.
 [Design](../specs/2026-10-28-mellum-generated-cohort-design.md),
-[plan](../plans/2026-10-28-mellum-generated-cohort.md),
+[plan](https://github.com/pauleveritt/ds4-mellum/tree/mellum-evidence-2026-10-31/docs/superpowers/plans/2026-10-28-mellum-generated-cohort.md),
 [first attempt](2026-10-28-mellum-generated-phase1-evidence.md).
 
 **Honesty header.** Measured: one generated two-turn ac-demo conversation

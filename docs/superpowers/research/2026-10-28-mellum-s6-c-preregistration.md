@@ -6,7 +6,7 @@ corrected in `e44dff2` to the commit's), still before any iMac run:**
 `2026-10-28-mellum-s6-c-evidence/workload-m5/server-*.log`). So the workload runs through
 `tools/mellum_s4_measure` as one flattened user turn, not as a chat request replayed through the server. The
 items that changed are marked (amended). Plan:
-[`2026-10-28-mellum-s6-c-imac.md`](../plans/2026-10-28-mellum-s6-c-imac.md). Design: Goals 4 and 5 and section C.
+[`2026-10-28-mellum-s6-c-imac.md`](https://github.com/pauleveritt/ds4-mellum/tree/mellum-evidence-2026-10-31/docs/superpowers/plans/2026-10-28-mellum-s6-c-imac.md). Design: Goals 4 and 5 and section C.
 The owner runs every step by hand. The agent analyzes the captures afterwards, and only them.
 
 **Amended 2026-10-29 02:44 (the time first written as 03:20 and corrected to the commit's), still before any iMac run (the owner's instruction to bring in the SSD work

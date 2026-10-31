@@ -2,7 +2,7 @@
 
 Date: 2026-10-28, overnight window. Branch `codex/mellum-ssd-replay`, existing
 isolated worktree. [Design](../specs/2026-10-28-mellum-generated-cohort-design.md),
-[plan](../plans/2026-10-28-mellum-generated-cohort.md). S3 locality remains open.
+[plan](https://github.com/pauleveritt/ds4-mellum/tree/mellum-evidence-2026-10-31/docs/superpowers/plans/2026-10-28-mellum-generated-cohort.md). S3 locality remains open.
 **No GPU inference, generated routing capture, cache replay result or SSD
 inference measurement was obtained.** The GPU experiment was never reserved.
 The earlier CPU storage-service experiment remains complete and spent.

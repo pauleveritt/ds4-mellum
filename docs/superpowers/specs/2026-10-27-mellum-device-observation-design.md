@@ -1,7 +1,7 @@
 # Mellum S3a follow-up: observe block-device reads
 
 Date: 2026-10-27. Status: approved by the user’s “proceed” after `9110b9c`; independent builder
-check complete. The [implementation plan](../plans/2026-10-27-mellum-device-observation.md)
+check complete. The [implementation plan](https://github.com/pauleveritt/ds4-mellum/tree/mellum-evidence-2026-10-31/docs/superpowers/plans/2026-10-27-mellum-device-observation.md)
 was approved by the user’s next “proceed” and implemented. Independent review
 and the full model-free gate pass after fixes. The first live attempt refused
 before any native reads; an offline-tested compatibility repair is retained

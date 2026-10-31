@@ -1,7 +1,7 @@
 # S3a exact-Q8 storage evidence
 
 Implementation and measurement follow the approved
-[storage plan](../plans/2026-10-27-mellum-storage-evidence.md) and
+[storage plan](https://github.com/pauleveritt/ds4-mellum/tree/mellum-evidence-2026-10-31/docs/superpowers/plans/2026-10-27-mellum-storage-evidence.md) and
 [design](../specs/2026-10-27-mellum-storage-evidence-design.md).
 The [evaluation source freeze](2026-10-27-mellum-workload-source-evidence.md)
 is separate: no ac-demo routing data is used here.

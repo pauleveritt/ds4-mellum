@@ -2,7 +2,7 @@
 
 Date: 2026-10-27. Implements the approved
 [design](../specs/2026-10-27-mellum-device-observation-design.md) and
-[plan](../plans/2026-10-27-mellum-device-observation.md).
+[plan](https://github.com/pauleveritt/ds4-mellum/tree/mellum-evidence-2026-10-31/docs/superpowers/plans/2026-10-27-mellum-device-observation.md).
 
 ## First-attempt outcome
 

@@ -1,8 +1,8 @@
 # Mellum S3a: expert ranges, storage reads and workload source freeze
 
 Date: 2026-10-27. Status: approved by the user's subsequent “Proceed”;
-independent builder check complete. The [source-freeze plan](../plans/2026-10-27-mellum-workload-source.md)
-and [storage plan](../plans/2026-10-27-mellum-storage-evidence.md) were approved
+independent builder check complete. The [source-freeze plan](https://github.com/pauleveritt/ds4-mellum/tree/mellum-evidence-2026-10-31/docs/superpowers/plans/2026-10-27-mellum-workload-source.md)
+and [storage plan](https://github.com/pauleveritt/ds4-mellum/tree/mellum-evidence-2026-10-31/docs/superpowers/plans/2026-10-27-mellum-storage-evidence.md) were approved
 and executed inline. See [retained evidence](../research/2026-10-27-mellum-storage-evidence.md);
 physical SSD traffic and representative S3b collection remain open.
 Baseline: `a44532d`, `codex/mellum-ssd-replay`. Implements the first CPU-only

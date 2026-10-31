@@ -355,7 +355,7 @@ v2 evidence with observed profile descriptions.
 
 ## First generated Phase 1 conversation
 
-The bounded [generated cohort plan](superpowers/plans/2026-10-28-mellum-generated-cohort.md)
+The bounded [generated cohort plan](https://github.com/pauleveritt/ds4-mellum/tree/mellum-evidence-2026-10-31/docs/superpowers/plans/2026-10-28-mellum-generated-cohort.md)
 adds a separate research collector, leaving the teacher-forced publisher intact.
 `tools/mellum_generated_inputs.py` exposes `freeze_build(container,cpu,gpu)` and
 `prepare(bundle,model,cpu,container,build_receipt=receipt)`; the receipt must come

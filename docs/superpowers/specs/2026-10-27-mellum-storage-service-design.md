@@ -1,7 +1,7 @@
 # Mellum S3: first storage-observed expert read costs
 
 Date: 2026-10-27. Status: approved by the user’s “proceed” after `5953705`.
-The [implementation plan](../plans/2026-10-27-mellum-storage-service.md) is complete.
+The [implementation plan](https://github.com/pauleveritt/ds4-mellum/tree/mellum-evidence-2026-10-31/docs/superpowers/plans/2026-10-27-mellum-storage-service.md) is complete.
 One bounded attempt passed calibration and three repetitions; see the
 [evidence](../research/2026-10-27-mellum-storage-service-evidence.md) and
 [execution ledger](../research/2026-10-27-mellum-storage-service-ledger.md).
