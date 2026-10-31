@@ -1445,8 +1445,8 @@ static void test_mellum_exact_prefill(void) {
 }
 
 /* The tiled prefill attention (DS4_TEST_MELLUM_MODEL): a 1,100-token prefill's last-row logits by default (the
- * half-operand tiles), with DS4_MELLUM_ATTN_TILED=1 (the f32 tiles) and =0 (the sliding and full kernels the decode
- * steps use), and under DS4_MELLUM_EXACT_PREFILL=1 with and without the switch.  Each setting is read once, when the
+ * half-operand tiles), with DS4_MELLUM_ATTN_TILED=0 (the sliding and full kernels the decode steps use) and =1 (any
+ * value but 0 keeps the default), and under DS4_MELLUM_EXACT_PREFILL=1 with and without the switch.  Each setting is read once, when the
  * session is created. */
 static bool test_mellum_attn_logits(ds4_engine *engine, const char *tiled, bool exact, float *logits) {
     if (tiled) setenv("DS4_MELLUM_ATTN_TILED", tiled, 1);
@@ -1506,35 +1506,31 @@ static void test_mellum_attn_tiled(void) {
     if (!engine) return;
     float *def = malloc(98304u * sizeof(float)), *off = malloc(98304u * sizeof(float));
     float *exact = malloc(98304u * sizeof(float)), *exact_off = malloc(98304u * sizeof(float));
-    float *f32 = malloc(98304u * sizeof(float));
-    TEST_ASSERT(def && off && exact && exact_off && f32);
+    float *one = malloc(98304u * sizeof(float));
+    TEST_ASSERT(def && off && exact && exact_off && one);
     TEST_ASSERT(test_mellum_attn_logits(engine, NULL, false, def));
     TEST_ASSERT(test_mellum_attn_logits(engine, "0", false, off));
-    TEST_ASSERT(test_mellum_attn_logits(engine, "1", false, f32));
+    TEST_ASSERT(test_mellum_attn_logits(engine, "1", false, one));
     TEST_ASSERT(test_mellum_attn_logits(engine, NULL, true, exact));
     TEST_ASSERT(test_mellum_attn_logits(engine, "0", true, exact_off));
-    uint64_t d_switch = 0, d_exact = 0, d_half = 0, d_f32 = 0;
+    uint64_t d_switch = 0, d_exact = 0, d_one = 0;
     for (uint32_t i = 0; i < 98304u; i++) {
         d_switch += memcmp(&def[i], &off[i], sizeof(float)) != 0;
         d_exact += memcmp(&exact[i], &exact_off[i], sizeof(float)) != 0;
-        d_half += memcmp(&def[i], &f32[i], sizeof(float)) != 0;
-        d_f32 += memcmp(&f32[i], &off[i], sizeof(float)) != 0;
+        d_one += memcmp(&def[i], &one[i], sizeof(float)) != 0;
     }
-    double kl_def = 0.0, kl_off = 0.0, kl_f32 = 0.0;
+    double kl_def = 0.0, kl_off = 0.0;
     const bool rule_def = test_mellum_within_rule(exact, def, &kl_def), rule_off = test_mellum_within_rule(exact, off, &kl_off);
-    const bool rule_f32 = test_mellum_within_rule(exact, f32, &kl_f32);
     printf("mellum-attn-tiled: 1,100-token prefill, logit words of 98304 that differ: the default against "
-           "DS4_MELLUM_ATTN_TILED=0 %llu, against =1 (f32 tiles) %llu; =1 against =0 %llu; under DS4_MELLUM_EXACT_PREFILL=1 "
-           "%llu; KL to the exact prefill: default %.2e, =1 %.2e, =0 %.2e\n", (unsigned long long)d_switch,
-           (unsigned long long)d_half, (unsigned long long)d_f32, (unsigned long long)d_exact, kl_def, kl_f32, kl_off);
+           "DS4_MELLUM_ATTN_TILED=0 %llu, against =1 %llu; under DS4_MELLUM_EXACT_PREFILL=1 %llu; KL to the exact "
+           "prefill: default %.2e, =0 %.2e\n", (unsigned long long)d_switch, (unsigned long long)d_one,
+           (unsigned long long)d_exact, kl_def, kl_off);
     TEST_ASSERT(d_switch > 0);   /* the default tiles the prefill attention */
-    TEST_ASSERT(d_half > 0);     /* with half operands */
-    TEST_ASSERT(d_f32 > 0);      /* =1 keeps the f32 tiles */
+    TEST_ASSERT(d_one == 0);     /* =1 is the default: only =0 changes the attention */
     TEST_ASSERT(d_exact == 0);   /* the exact prefill never tiles */
     TEST_ASSERT(rule_def);
     TEST_ASSERT(rule_off);
-    TEST_ASSERT(rule_f32);
-    free(def); free(off); free(exact); free(exact_off); free(f32);
+    free(def); free(off); free(exact); free(exact_off); free(one);
     ds4_engine_close(engine);
 }
 
@@ -9284,7 +9280,7 @@ static const ds4_test_entry test_entries[] = {
 #ifndef DS4_NO_GPU
     {"--qwen4-prefill-checkpoints", "qwen4-prefill-checkpoints", "Qwen chunk checkpoints restore matching logits and state", test_qwen_prefill_checkpoints},
     {"--mellum-session", "mellum-session", "Mellum session allocation equals its plan (DS4_TEST_MELLUM_MODEL)", test_mellum_session_allocation},
-    {"--mellum-attn-tiled", "mellum-attn-tiled", "Mellum's prefill attention runs in half-operand tiles by default, within the oracle's rule; DS4_MELLUM_ATTN_TILED=1 keeps the f32 tiles, =0 the decode kernels (DS4_TEST_MELLUM_MODEL)", test_mellum_attn_tiled},
+    {"--mellum-attn-tiled", "mellum-attn-tiled", "Mellum's prefill attention runs in half-operand tiles by default, within the oracle's rule; DS4_MELLUM_ATTN_TILED=0 keeps the decode kernels, and only 0 changes it (DS4_TEST_MELLUM_MODEL)", test_mellum_attn_tiled},
     {"--mellum-b0", "mellum-b0", "Mellum B0: a two-row verify timed against two decode steps at DS4_TEST_MELLUM_B0_CTX, its logits equal to theirs (DS4_TEST_MELLUM_MODEL)", test_mellum_b0},
     {"--mellum-exact-prefill", "mellum-exact-prefill", "Mellum prefill equals decode byte for byte under DS4_MELLUM_EXACT_PREFILL=1 (DS4_TEST_MELLUM_MODEL)", test_mellum_exact_prefill},
     {"--mellum-stream-slabs", "mellum-stream-slabs", "S5: with early load off and 16 MiB slabs, streamed decode still equals resident (a stop loads before its resumed pass is encoded) (DS4_TEST_MELLUM_MODEL)", test_mellum_stream_slabs},
