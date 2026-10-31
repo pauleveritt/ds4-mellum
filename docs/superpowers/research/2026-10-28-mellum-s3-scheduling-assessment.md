@@ -114,7 +114,7 @@ cache.
 Recompute the table from saved artifacts only:
 
 ```bash
-python3 -I -c "import json;t=json.load(open('/Users/pauleveritt/.codex/visualizations/2026/10/28/mellum-generated-phase1-02/validated/result/artifact/analysis.json'))['token_series'];L=sorted(x['demand_loads'] for x in t);n=len(L);print(n,sum(L)/n,L[n//2],L[int(.95*n)],L[-1],sum(l*.655>100 for l in L))"
+python3 -I -c "import json;t=json.load(open('~/.codex/visualizations/2026/10/28/mellum-generated-phase1-02/validated/result/artifact/analysis.json'))['token_series'];L=sorted(x['demand_loads'] for x in t);n=len(L);print(n,sum(L)/n,L[n//2],L[int(.95*n)],L[-1],sum(l*.655>100 for l in L))"
 ```
 
 ## What would falsify this

@@ -50,7 +50,7 @@ Date: 2026-10-28, committed before any timing. Branch `codex/mellum-ssd-replay`.
   then deleted.
 - **The shared model lock:** every run respects it. A held lock before the first run postpones the whole
   measurement.
-- **Raw outputs:** `/Users/pauleveritt/.codex/visualizations/2026/10/28/mellum-s5-measure-02`, an exclusive
+- **Raw outputs:** `~/.codex/visualizations/2026/10/28/mellum-s5-measure-02`, an exclusive
   root.
 
 ## Decisions fixed now

@@ -2,7 +2,7 @@
 
 Date: 2026-10-28, 21:11–21:26 EDT, one run. [Preregistration](2026-10-28-mellum-s5-measurement-02-prereg.md)
 (`b46087d`, amended before timing in `397f355`), measured at `397f355` with the default K = 8. Raw outputs:
-`/Users/pauleveritt/.codex/visualizations/2026/10/28/mellum-s5-measure-02`. Analysis from the raw outputs
+`~/.codex/visualizations/2026/10/28/mellum-s5-measure-02`. Analysis from the raw outputs
 only: `.superpowers/sdd/2026-10-28-mellum-s5-layer-major-prefill/analyze-s5-02.py`.
 
 **Honesty header.**

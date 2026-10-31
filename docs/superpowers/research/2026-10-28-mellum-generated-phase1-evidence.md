@@ -34,7 +34,7 @@ fresh forced build. This gate runs no live GPU experiment.
 ## One real CPU preparation
 
 Retained root:
-`/Users/pauleveritt/.codex/visualizations/2026/10/28/mellum-generated-phase1`.
+`~/.codex/visualizations/2026/10/28/mellum-generated-phase1`.
 
 The sole native CPU inspection, PID **11994**, exited **1** after
 **0.410472 seconds**. Its stderr was

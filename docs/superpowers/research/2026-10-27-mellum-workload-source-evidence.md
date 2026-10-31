@@ -10,9 +10,9 @@ Command (Python 3.14.7):
 
 ```sh
 python3 -I tools/mellum_workload_bundle.py \
-  --repo /Users/pauleveritt/projects/pauleveritt/ac-demo \
+  --repo ~/projects/pauleveritt/ac-demo \
   --revision bfb6e1f6e2ef141a1ac88f5c25466d3a076caab3 \
-  --output /Users/pauleveritt/.codex/visualizations/2026/10/27/01a17e35-bf7c-7df2-9d99-b9bc0e0658f4/ac-demo-source-s3a
+  --output ~/.codex/visualizations/2026/10/27/01a17e35-bf7c-7df2-9d99-b9bc0e0658f4/ac-demo-source-s3a
 ```
 
 Published artifact: the command's output container plus `/artifact`.

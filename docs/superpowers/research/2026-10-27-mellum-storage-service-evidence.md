@@ -10,12 +10,12 @@
 
 1. **Claim:** The approved fresh-file method produced four qualifying storage-observed cells.
    - **Evidence:** Calibration and all three repetitions are `consistent-volume`; device reads were 100.086–100.092% of completed logical expert bytes. Every cell passed its post-timing source comparison, padding and digest checks. Opening and closing full source verification completed; no cell is missing. No replacement or retry ran.
-   - **Source:** [Retained report](/Users/pauleveritt/.codex/visualizations/2026/10/27/01a17e35-bf7c-7df2-9d99-b9bc0e0658f4/mellum-storage-service-run/result/artifact/report.json), this study, accessed 2026-10-27; `runs`, `closing_verification`, `counts`.
+   - **Source:** [Retained report](~/.codex/visualizations/2026/10/27/01a17e35-bf7c-7df2-9d99-b9bc0e0658f4/mellum-storage-service-run/result/artifact/report.json), this study, accessed 2026-10-27; `runs`, `closing_verification`, `counts`.
    - **Assessment:** Fact about the declared batch-level classifier and verification gates; no per-file, per-job or NAND attribution.
 
 2. **Claim:** The three 512-expert repetitions measured median native service of 0.655–0.658 ms per 6,580,224-byte expert.
    - **Evidence:** Raw native samples and independently recomputed nearest-rank distributions agree with the report. Native logical throughput was 9.875–9.954 GB/s (decimal); this divides logical bytes by native makespan, never device bytes by that shorter interval.
-   - **Source:** Same report, `runs[1:4].metrics`, and each retained `N.stdout`; artifact-only [audit](/Users/pauleveritt/.codex/visualizations/2026/10/27/01a17e35-bf7c-7df2-9d99-b9bc0e0658f4/mellum-storage-service-qualification/audit-output-final.json), this study, accessed 2026-10-27.
+   - **Source:** Same report, `runs[1:4].metrics`, and each retained `N.stdout`; artifact-only [audit](~/.codex/visualizations/2026/10/27/01a17e35-bf7c-7df2-9d99-b9bc0e0658f4/mellum-storage-service-qualification/audit-output-final.json), this study, accessed 2026-10-27.
    - **Assessment:** Fact about native read service in storage-observed batches on this host. These are descriptive repetitions, with no confidence interval or layout ranking.
 
 | Cell | Experts | Device read bytes | Service p50 / p95 / p99 / max (ms) | Native makespan (ms) | Logical GB/s |
@@ -86,7 +86,7 @@ classifier arithmetic, native metrics, distinct scratch inodes, expected/verifie
 digests, counts/caps, closing verification and spent reservation agree. Neither
 audit reread model, payload or scratch. The audit script/output, exact commands,
 review, build recipes, gate logs and hash index are retained in
-[qualification](/Users/pauleveritt/.codex/visualizations/2026/10/27/01a17e35-bf7c-7df2-9d99-b9bc0e0658f4/mellum-storage-service-qualification).
+[qualification](~/.codex/visualizations/2026/10/27/01a17e35-bf7c-7df2-9d99-b9bc0e0658f4/mellum-storage-service-qualification).
 See the [execution ledger](2026-10-27-mellum-storage-service-ledger.md) for
 review fixes, test isolation and rulings.
 

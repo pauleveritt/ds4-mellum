@@ -18,7 +18,7 @@ Model: `Mellum2.1-12B-A2.5B-Thinking-Q8_0.gguf`, SHA-256
 Model and source identities, input-byte identities, raw spools, full logs,
 per-token replay and reproduction scripts are retained at:
 
-`/Users/pauleveritt/.codex/visualizations/2026/10/27/01a17e35-bf7c-7df2-9d99-b9bc0e0658f4/mellum-gpu-proof/`
+`~/.codex/visualizations/2026/10/27/01a17e35-bf7c-7df2-9d99-b9bc0e0658f4/mellum-gpu-proof/`
 
 Sources: `manifest.json`, `summary.json`, `exploratory-raw-replay.json` and
 each case's `run.log`, `buffered.routes`, `reference.routes` in that directory.

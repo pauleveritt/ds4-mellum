@@ -32,7 +32,7 @@ product lines per implementation commit.
 ## Workload source: ac-demo
 
 The user chose `../ac-demo` and its roadmap. The actual checkout is
-`/Users/pauleveritt/projects/pauleveritt/ac-demo`, clean at
+`~/projects/pauleveritt/ac-demo`, clean at
 `bfb6e1f6e2ef141a1ac88f5c25466d3a076caab3` when inspected. It has nine tracked
 files and no `app.py` or `models.py`; templates/tests contain only `.gitkeep`.
 

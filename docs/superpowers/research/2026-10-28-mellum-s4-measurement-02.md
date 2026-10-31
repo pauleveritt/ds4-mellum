@@ -2,7 +2,7 @@
 
 Date: 2026-10-28, 17:09–17:19 EDT, one run. [Preregistration](2026-10-28-mellum-s4-measurement-02-prereg.md)
 (`f2c64a7`), measured at `f2c64a7`. Raw outputs:
-`/Users/pauleveritt/.codex/visualizations/2026/10/28/mellum-s4-measure-02`.
+`~/.codex/visualizations/2026/10/28/mellum-s4-measure-02`.
 
 **Honesty header.**
 - **Measured:** this 128 GiB M5 Max with its APPLE SSD AP2048Z, one frozen prompt of 30,620 tokens, 32K

@@ -9,14 +9,14 @@ inference, storage throughput measurement or physical 8 GB test.
 ## Evidence locations and source identity
 
 The primary evidence is this session's native test/publisher output, retained in
-[the live artifact directory](/Users/pauleveritt/.codex/visualizations/2026/10/27/01a17e35-bf7c-7df2-9d99-b9bc0e0658f4/mellum-owned-live-2054).
+[the live artifact directory](~/.codex/visualizations/2026/10/27/01a17e35-bf7c-7df2-9d99-b9bc0e0658f4/mellum-owned-live-2054).
 Sources below are local experiment records produced by this project and accessed
 2026-10-27. `artifact-index.json` records file digests; `replay-summary.json`
 records trace digests and replay statistics. Full manifests live in each trace.
 
 Hardware: Mac17,7, Apple M5 Max, 128 GiB (137438953472 bytes), macOS 27.0.1
 (build 26A434). This is not the physical 8 GB target. One model process at a time.
-The model is `/Users/pauleveritt/models/Mellum2.1-12B-A2.5B-Thinking-Q8_0.gguf`.
+The model is `~/models/Mellum2.1-12B-A2.5B-Thinking-Q8_0.gguf`.
 The publisher records model stat identity, not a fresh model-content hash.
 Model/tokenizer/template/workload IDs and device label remain caller-declared.
 

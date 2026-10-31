@@ -28,7 +28,7 @@ over SSH; the M5 is a no-regression guard.
 - No `iogpu.wired_limit_mb` change. No new Metal compute kernels; no change to the router or the gate's arithmetic.
 - C2 rule, unchanged: Metal peak ≤ recommendedMaxWorkingSetSize − 1 GiB = 4,652,892,160 B on the iMac, and no
   swap-out growth. Time to first token on the iMac no more than 10% worse than Task 1's reference.
-- The iMac is `pauleveritt@herveline.local`, SSH only (the sandbox must be off for local network). Clone
+- The iMac is reached over SSH only (the sandbox must be off for local network). Clone
   `~/ds4-mellum-s6`, model `~/models/Mellum2.1-12B-A2.5B-Thinking-MXFP4_MOE.gguf`, Python 3.14 first on `PATH`
   (`/opt/homebrew/opt/python@3.14/libexec/bin`). Apps closed: check `top -l 1 -o mem` before each stage.
 - A smaller default context, or dropping `mellum`'s rewind frontier under streaming, needs the owner's approval.

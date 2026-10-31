@@ -97,7 +97,7 @@ batch or extra timed reads were performed.
 
 Artifact root:
 
-`/Users/pauleveritt/.codex/visualizations/2026/10/27/01a17e35-bf7c-7df2-9d99-b9bc0e0658f4`
+`~/.codex/visualizations/2026/10/27/01a17e35-bf7c-7df2-9d99-b9bc0e0658f4`
 
 | Stage | Complete artifact below root | JSON SHA-256 |
 |---|---|---|
@@ -169,7 +169,7 @@ The native host collector recorded device observations as unavailable. A
 separate post-run read-only `diskutil info -plist` inspection of `/dev/disk3s5`
 and `/dev/disk0` identified APFS on the data volume, Apple Fabric, solid-state
 storage and `APPLE SSD AP2048Z` (2,001,111,162,880 bytes). It is retained at
-`/Users/pauleveritt/.codex/visualizations/2026/10/27/01a17e35-bf7c-7df2-9d99-b9bc0e0658f4/mellum-storage-s3a-device.json`. This metadata
+`~/.codex/visualizations/2026/10/27/01a17e35-bf7c-7df2-9d99-b9bc0e0658f4/mellum-storage-s3a-device.json`. This metadata
 is not physical-I/O evidence and does not alter the frozen report.
 
 ## Next work
@@ -182,6 +182,6 @@ held-out windows. Native streamed inference and physical 8 GB memory/latency
 validation remain S4/S5. Ten tok/s remains only a proposed checkpoint.
 
 Execution commands, native build output, CLI stage logs and the final gate log
-are retained in `/Users/pauleveritt/.codex/visualizations/2026/10/27/01a17e35-bf7c-7df2-9d99-b9bc0e0658f4/mellum-storage-s3a-execution`.
+are retained in `~/.codex/visualizations/2026/10/27/01a17e35-bf7c-7df2-9d99-b9bc0e0658f4/mellum-storage-s3a-execution`.
 The [execution ledger](2026-10-27-mellum-storage-evidence-ledger.md) retains all
 task completion checks, rulings and the deferred minor.

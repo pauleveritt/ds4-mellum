@@ -88,7 +88,7 @@ Two levers are low-hanging:
   fix, about 150 product lines per commit.
 - Every rate carries its n. Screens run freely; the decision in Goal 1 and Goal 2 gets a preregistration.
 - No `iogpu.wired_limit_mb` change.
-- The iMac is reached over SSH only (`pauleveritt@herveline.local`), no desktop. Its runs use the phase C
+- The iMac is reached over SSH only, no desktop. Its runs use the phase C
   workload and `tools/mellum_s4_measure`.
 - **Lands after S6's merge into `mellum`** (designer's call, following the owner's 2026-10-29 plan to merge
   S6 once phase C closed): the work is cut from `mellum`, and the plan's first task waits for that merge.

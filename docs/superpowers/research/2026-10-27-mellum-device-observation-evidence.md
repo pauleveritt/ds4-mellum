@@ -87,7 +87,7 @@ There were no uninstrumented expert payload reads in that inspection.
 ## Retained artifacts
 
 Root:
-`/Users/pauleveritt/.codex/visualizations/2026/10/27/01a17e35-bf7c-7df2-9d99-b9bc0e0658f4`
+`~/.codex/visualizations/2026/10/27/01a17e35-bf7c-7df2-9d99-b9bc0e0658f4`
 
 | Artifact below root | SHA-256 |
 |---|---|
@@ -150,7 +150,7 @@ python3 -I tools/mellum_storage.py observe-run --batch "$ROOT/mellum-device-obse
 ```
 
 Here ROOT is the retained visualization root above and WORKTREE is
-`/Users/pauleveritt/.codex/worktrees/mellum-ssd-replay/ds4-mellum`.
+`~/.codex/worktrees/mellum-ssd-replay/ds4-mellum`.
 The execution log records 38.524 seconds wall time. Source, native binary,
 plans, original model and packed payload identities were checked before/after
 execution. Successful publication follows both full model/packed byte-verifier

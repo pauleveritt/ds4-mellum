@@ -2,7 +2,7 @@
 
 Date: 2026-10-28, 18:55–19:11 EDT, one run. [Preregistration](2026-10-28-mellum-s5-measurement-01-prereg.md)
 (`71fc046`), measured at `4d0349c`; the engine is unchanged since `8ecb058`. Raw outputs:
-`/Users/pauleveritt/.codex/visualizations/2026/10/28/mellum-s5-measure-01`. Analysis from the raw outputs
+`~/.codex/visualizations/2026/10/28/mellum-s5-measure-01`. Analysis from the raw outputs
 only: `.superpowers/sdd/2026-10-28-mellum-s4-cached-execution/analyze-s5-01.py`.
 
 **Honesty header.**

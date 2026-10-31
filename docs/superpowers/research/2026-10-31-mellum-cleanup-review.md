@@ -1,6 +1,6 @@
 # ds4-mellum deep-cleaning review (read-only)
 
-Repository: `/Users/pauleveritt/projects/pauleveritt/ds4-mellum`, branch `mellum`, HEAD `6f8d91b`.
+Repository: `~/projects/pauleveritt/ds4-mellum`, branch `mellum`, HEAD `6f8d91b`.
 Merge base with `upstream/main`: `ee7e8405`. `git diff --shortstat ee7e8405 mellum`: 1,636 files, +162,528 / -608.
 Every count below was recomputed from that checkout on 2026-10-31; the command is given where it is not obvious.
 Nothing in the repository was edited or run that writes (only `git diff`, `git log`, `git ls-files`, `git merge-tree`
@@ -49,11 +49,11 @@ Commit shape: 765 commits since the base; 227 touch only docs/measurements; 164 
    Only `tests/mellum_measurements/d1_decode_profile/prompt_{100,2048,8192,32768}.txt` are read by anything
    (`tests/mellum_cli_decode_abba.sh` takes the directory as `PROMPTDIR`; the README names it).
 3. **Personal paths/hosts.** Product code (`*.c *.h *.m *.metal`, `Makefile`, `tools/`, `tests/` minus measurements)
-   is clean. Hits are in docs: `docs/MELLUM_STORAGE_EVIDENCE.md:12` (`/Users/pauleveritt/projects/pauleveritt/ac-demo`),
+   is clean. Hits are in docs: `docs/MELLUM_STORAGE_EVIDENCE.md:12` (`~/projects/pauleveritt/ac-demo`),
    8 plan files (`2026-10-27-mellum-{device-observation,storage-evidence,storage-service,workload-source}.md`,
    `2026-10-28-mellum-{generated-cohort,s6-a-cpu,s6-b-m5}.md`, `2026-10-29-mellum-s6-d-prefetch.md`, the last with
-   `pauleveritt@herveline.local`), 2 specs (`2026-10-27-mellum-storage-evidence-design.md:35`,
-   `2026-10-29-mellum-stream-prefetch-design.md:91`, the latter with `herveline.local`), and 50 files under
+   `the iMac's SSH host`), 2 specs (`2026-10-27-mellum-storage-evidence-design.md:35`,
+   `2026-10-29-mellum-stream-prefetch-design.md:91`, the latter with the iMac's host name), and 50 files under
    research/measurements. (`tests/long_context_security_prompt.txt` has `/Users/antirez/...`: upstream's, leave.)
 4. **Research-tooling layers for closed phases.** ROADMAP S0-S4 ("complete") produced: route capture/spool
    (`ds4_mellum_routes`, `capture_state`, `profile`, `observer`, `capture.h`, `kernels.inc`), an offline replay
@@ -149,7 +149,7 @@ links in `MELLUM.md:961` to the `readme_checks/` logs (tag path).
 **A3. Move the closed-phase plans out of the tree.** Delete `docs/superpowers/plans/2026-10-2{7,8,9}-mellum-*.md`
 (19 files, 3,078 lines) after confirming every one is for a phase ROADMAP marks complete/merged/paused (S0-S6). Where
 `ROADMAP.md` links a plan (lines 300, 310, 328), point at the tag path. This also removes 8 of the 11 personal paths and
-one `herveline.local`.
+one the iMac's host name.
 - Removes 3,078 lines. Pure deletion + ~5 link edits.
 - Risk: none to code. Check `git grep -n 'superpowers/plans' -- README.md MELLUM.md ROADMAP.md docs` afterwards.
 - Behavior: none.
@@ -262,7 +262,7 @@ removal that touches product files; it is the tail of A5 and should follow it.
   comment at `ds4_metal.m:51355` says "f32 or half", so likely one helper with a kernel-name parameter).
 
 **A8. Scrub the remaining personal paths and hosts.** After A3/A5: `docs/superpowers/specs/2026-10-27-mellum-storage-evidence-design.md:35`
-and `2026-10-29-mellum-stream-prefetch-design.md:91` (`/Users/pauleveritt/...`, `pauleveritt@herveline.local`) become
+and `2026-10-29-mellum-stream-prefetch-design.md:91` (`~/...`, `the iMac's SSH host`) become
 `<your checkout>` / "the 8 GB iMac, over SSH". If A3 is declined, do the same in the 8 plan files. Re-run the check:
 `git grep -n -I -E '/Users/(pauleveritt|koudai)|herveline|\.local\b' -- . ':!tests/long_context_security_prompt.txt'` must be empty.
 ~12 lines. Behavior: none.

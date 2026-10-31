@@ -49,7 +49,7 @@ scientific limits, including the 128 GiB actual host and unverified physical
 attribution.
 
 Retained root:
-`/Users/pauleveritt/.codex/visualizations/2026/10/27/01a17e35-bf7c-7df2-9d99-b9bc0e0658f4/`.
+`~/.codex/visualizations/2026/10/27/01a17e35-bf7c-7df2-9d99-b9bc0e0658f4/`.
 
 - `mellum-storage-service-batch/artifact`: frozen manifest and eight wires; parent holds spent execution reservation.
 - `mellum-storage-service-run/scratch`: four original private files; never hash or reread for routine status/audit.

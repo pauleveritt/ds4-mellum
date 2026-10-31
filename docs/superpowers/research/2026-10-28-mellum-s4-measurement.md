@@ -2,7 +2,7 @@
 
 Date: 2026-10-28, 16:38–16:53 EDT, one run. [Preregistration](2026-10-28-mellum-s4-measurement-prereg.md)
 (`a5788fe`). The measured build is `2f167fc`; its engine and driver code are unchanged since `c999213`. The
-baseline is `b1994c6`. Raw outputs: `/Users/pauleveritt/.codex/visualizations/2026/10/28/mellum-s4-measure-01`.
+baseline is `b1994c6`. Raw outputs: `~/.codex/visualizations/2026/10/28/mellum-s4-measure-01`.
 
 **Honesty header.**
 - **Measured:** on this 128 GiB M5 Max, one frozen prompt of 30,620 tokens at 32K context with 2,048

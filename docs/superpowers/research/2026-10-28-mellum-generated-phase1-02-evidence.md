@@ -16,7 +16,7 @@ saved raw files with a one-line serializer fix, not from the publisher's own run
 
 ## What ran
 
-Root: `/Users/pauleveritt/.codex/visualizations/2026/10/28/mellum-generated-phase1-02`
+Root: `~/.codex/visualizations/2026/10/28/mellum-generated-phase1-02`
 (`build`, `inputs`, `run`, `validated`, `qualification`). The first root
 stays untouched.
 

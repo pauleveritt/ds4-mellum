@@ -65,7 +65,7 @@ The measured build is the commit that completes the append phase. It must not ch
   after the run (`verify_copy`) and then deleted.
 - **The shared model lock:** every run respects it. A held lock before the first run postpones the whole
   measurement; nothing is created.
-- **Raw outputs:** `/Users/pauleveritt/.codex/visualizations/2026/10/28/mellum-s5-measure-01`, an exclusive
+- **Raw outputs:** `~/.codex/visualizations/2026/10/28/mellum-s5-measure-01`, an exclusive
   root.
 
 ## Decisions fixed now
