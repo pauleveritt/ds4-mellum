@@ -50,7 +50,10 @@ static bool g_mellum_stream_engine;
 static int g_mellum_stream_fd = -1;
 /* S5: K, the chunks per streamed prefill group (DS4_MELLUM_STREAM_PREFILL_GROUP), read at the same open */
 static uint32_t g_mellum_stream_group_k = 1u;
-/* tests/ds4_test.c --mellum-stream-faults: fail the nth streamed load from when it was set (0: never) */
+#endif
+#if defined(__APPLE__) && !defined(DS4_NO_GPU)
+/* tests/ds4_test.c --mellum-stream-faults: fail the nth streamed load from when it was set (0: never); only the
+ * Metal build streams */
 static uint64_t g_mellum_stream_fail_load_at, g_mellum_stream_load_count;
 #endif
 #include "ds4_tool_text.h"
