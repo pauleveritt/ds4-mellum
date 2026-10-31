@@ -49,6 +49,11 @@ class Bands(unittest.TestCase):
         first = m.bands([[req(0, 0, 3000), req(1, 10, 3000)], [req(0, 0, 3000)]])[0]
         self.assertEqual((first.prefill_n, first.runs), (3, 2))
 
+    def test_run_table_names_a_stall(self):
+        m = load('mellum_pi_report')
+        table = m.run_table(Path('check-1'), {'passed': False, 'stalled': True}, [req(0, 0, 3000)])
+        self.assertIn('failed (stalled)', table.splitlines()[0])
+
     def test_first_request_is_marked_cold(self):
         m = load('mellum_pi_report')
         self.assertEqual(m.marks(0, []), ['cold'])
