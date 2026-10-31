@@ -601,6 +601,9 @@ fixed in `379aa54` (red) and `cfc9eab`.
 
 ## Measured
 
+Scripts and outputs this table names that are no longer in the tree (the decode-research scripts, the B0
+runner, `tests/mellum_measurements/`) are on the branch `mellum-evidence-2026-10-31`, as of `6f8d91b`.
+
 | what | command | result | n |
 |---|---|---|---|
 | tokenizer ids vs the model's own tokenizer, 30 strings | `DS4_TEST_MELLUM_MODEL=... ./tests/test_mellum_tokenizer` | 30/30 equal | 1 |
