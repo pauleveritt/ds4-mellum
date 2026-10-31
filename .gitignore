@@ -135,3 +135,4 @@ __pycache__/
 /tests/test_mellum_moe_ref
 /tests/test_mellum_trace_stream
 /tools/mellum_metal_limit
+/tests/test_prompt_prefix
