@@ -142,6 +142,18 @@ class Runner(unittest.TestCase):
         time.sleep(0.5)
         self.assertFalse(alive(child))
 
+    def test_idle_session_is_stopped_as_stalled(self):
+        os.environ['FAKE_PI'] = 'hang'
+        started = time.monotonic()
+        run = self.run_once(deadline=60, idle_timeout=2)
+        self.assertLess(time.monotonic() - started, 20)
+        self.assertTrue(run['stalled'])
+        self.assertFalse(run['deadline_hit'])
+        self.assertFalse(run['passed'])
+        child = int((self.out / 'workspace/fake-pi-child').read_text())
+        time.sleep(0.5)
+        self.assertFalse(alive(child))
+
     def test_count_mismatch_is_flagged(self):
         os.environ['FAKE_PI_ASSISTANTS'] = '3'
         run = self.run_once()
