@@ -2797,6 +2797,8 @@ static void test_tiled_full_rows(uint32_t n, uint32_t pos0) {
     free_seq(&s);
 }
 
+/* The argument checks of the tiled prefill attention (ds4_gpu_mellum_attn_tiled_half_tensor), each refusal
+ * beside a success. */
 static void test_tiled_refusals(void) {
     ds4_gpu_tensor *ring = zeroed((uint64_t)RING * KV_W * 2u), *tags = zeroed(RING * 4u);
     ds4_gpu_tensor *k16 = zeroed(2ull * KV_W * 2u), *v16 = zeroed(2ull * KV_W * 2u);
@@ -2805,7 +2807,7 @@ static void test_tiled_refusals(void) {
     ds4_gpu_tensor *small = zeroed(64);
     const float sc = attn_scale();
 #define TILED(out_, q_, rk_, rv_, tg_, k_, v_, n_, p_, w_, nh_, nkv_, hd_) \
-    ds4_gpu_mellum_attn_tiled_tensor(out_, q_, rk_, rv_, tg_, k_, v_, n_, p_, w_, nh_, nkv_, hd_, sc)
+    ds4_gpu_mellum_attn_tiled_half_tensor(out_, q_, rk_, rv_, tg_, k_, v_, n_, p_, w_, nh_, nkv_, hd_, sc)
     CHECK(TILED(o, q, ring, ring, tags, k16, v16, 2, 5, RING, 32, 4, 128) != 0, "a valid tiled sliding call succeeds");
     CHECK(TILED(o, q, kc, vc, kc, kc, vc, 2, 5, 0, 32, 4, 128) != 0, "a valid tiled full call succeeds (rows 5 and 6 of 7)");
     CHECK(TILED(o, q, ring, ring, tags, k16, v16, 0, 5, RING, 32, 4, 128) == 0, "zero rows are refused");
@@ -2954,23 +2956,6 @@ static void test_tiled_half_full_rows(uint32_t n, uint32_t pos0) {
     ds4_gpu_tensor_free(kc); ds4_gpu_tensor_free(vc); ds4_gpu_tensor_free(qt); ds4_gpu_tensor_free(ot);
     free(out);
     free_seq(&s);
-}
-
-static void test_tiled_half_refusals(void) {
-    ds4_gpu_tensor *ring = zeroed((uint64_t)RING * KV_W * 2u), *tags = zeroed(RING * 4u);
-    ds4_gpu_tensor *k16 = zeroed(2ull * KV_W * 2u), *v16 = zeroed(2ull * KV_W * 2u);
-    ds4_gpu_tensor *q = zeroed(2ull * Q_W * 4u), *o = zeroed(2ull * Q_W * 4u), *small = zeroed(64);
-    const float sc = attn_scale();
-    CHECK(ds4_gpu_mellum_attn_tiled_half_tensor(o, q, ring, ring, tags, k16, v16, 2, 5, RING, 32, 4, 128, sc) != 0,
-          "a valid half-tile call succeeds");
-    CHECK(ds4_gpu_mellum_attn_tiled_half_tensor(o, q, ring, ring, tags, k16, v16, 0, 5, RING, 32, 4, 128, sc) == 0,
-          "zero rows are refused by the half tiles");
-    CHECK(ds4_gpu_mellum_attn_tiled_half_tensor(o, small, ring, ring, tags, k16, v16, 2, 5, RING, 32, 4, 128, sc) == 0,
-          "an undersized q is refused by the half tiles");
-    CHECK(ds4_gpu_mellum_attn_tiled_half_tensor(o, q, ring, ring, tags, k16, v16, 2, 5, RING, 32, 4, 96, sc) == 0,
-          "head_dim 96 is refused by the half tiles");
-    ds4_gpu_tensor_free(ring); ds4_gpu_tensor_free(tags); ds4_gpu_tensor_free(k16); ds4_gpu_tensor_free(v16);
-    ds4_gpu_tensor_free(q); ds4_gpu_tensor_free(o); ds4_gpu_tensor_free(small);
 }
 
 /* S4 streamed decode: one command buffer per token that stops at its first missed layer.  A chain of
@@ -3222,12 +3207,11 @@ int main(void) {
     test_tiled_full_rows(1025, 900);
     test_tiled_full_rows(2100, 1076);
     test_tiled_full_rows(4100, 3076);
-    test_tiled_refusals();
     for (size_t i = 0; i < sizeof(tiled_counts) / sizeof(tiled_counts[0]); i++) test_tiled_half_swa_session(tiled_counts[i]);
     test_tiled_half_full_rows(26, 0);
     test_tiled_half_full_rows(1025, 900);
     test_tiled_half_full_rows(4100, 3076);
-    test_tiled_half_refusals();
+    test_tiled_refusals();
 
     test_moe();
     test_prefill_equals_decode();
