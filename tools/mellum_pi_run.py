@@ -5,7 +5,8 @@
 
 Starts ds4-server (-c 32768, thinking on) with its stderr in DIR/server.log, waits for it to listen, copies
 tests/agentclinic_easy/base to DIR/workspace and runs Pi 1.1.0 there headless with the task's prompt, in a scratch
-HOME and a Pi profile this runner writes (the README's settings).  At Pi's exit, the deadline, or the server's death it
+HOME and a Pi profile this runner writes (the README's settings).  At Pi's exit, the deadline, 300 s with no line
+from the server while Pi is alive (stalled, e.g. on a foreground app server), or the server's death it
 stops both process groups (Pi's children too), grades the project, and writes DIR/run.json.  Nothing is written
 outside DIR; uv's package cache is the user's, so the task's dependencies are not downloaded again per run.
 """
@@ -89,7 +90,8 @@ def _assistant_messages(session_dir: Path) -> int:
 
 
 def run(model: Path, out: Path, port: int = 8099, deadline: float = 1800, server: str = './ds4-server',
-        pi: str = 'pi', listen_timeout: float = 300, suite: Path = SUITE, grade_fn=None, power_fn=power_state) -> dict:
+        pi: str = 'pi', listen_timeout: float = 300, idle_timeout: float = 300, suite: Path = SUITE, grade_fn=None,
+        power_fn=power_state) -> dict:
     model, out = Path(model).resolve(), Path(out).resolve()
     if out.exists() and any(out.iterdir()):
         raise RuntimeError(f'{out} is not empty')
@@ -126,21 +128,29 @@ def run(model: Path, out: Path, port: int = 8099, deadline: float = 1800, server
                 '--provider', 'ds4', '--model', 'mellum-2.1', prompt]
         with open(out / 'pi.stdout', 'w') as so, open(out / 'pi.stderr', 'w') as se:
             agent = subprocess.Popen(args, cwd=workspace, env=env, stdout=so, stderr=se, start_new_session=True)
-            started, deadline_hit = time.monotonic(), False
+            started, deadline_hit, stalled = time.monotonic(), False, False
+            log_size, log_grew = -1, time.monotonic()
             while agent.poll() is None:
                 if srv.poll() is not None:
                     break
-                if time.monotonic() - started > deadline:
+                now = time.monotonic()
+                if now - started > deadline:
                     deadline_hit = True
+                    break
+                size = (out / 'server.log').stat().st_size
+                if size != log_size:
+                    log_size, log_grew = size, now
+                elif now - log_grew > idle_timeout:
+                    stalled = True   # Pi is alive and the model has done nothing (a foreground server, say)
                     break
                 time.sleep(0.5)
             _stop(agent)
-        record.update(pi_exit=agent.returncode, deadline_hit=deadline_hit, server_exit=srv.poll())
+        record.update(pi_exit=agent.returncode, deadline_hit=deadline_hit, stalled=stalled, server_exit=srv.poll())
     finally:
         _stop(srv)
         log.close()
 
-    if record['deadline_hit'] or record['server_exit'] is not None:
+    if record['deadline_hit'] or record['stalled'] or record['server_exit'] is not None:
         result = GradeResult(passed=False, checks_ran=False, missing=[], output_tail='not graded: run did not finish')
     else:
         result = grade_fn(workspace)
@@ -166,7 +176,7 @@ def main(argv: list[str]) -> int:
     p.add_argument('--pi', default='pi')
     a = p.parse_args(argv[1:])
     record = run(a.model, a.out, port=a.port, deadline=a.deadline, server=a.server, pi=a.pi)
-    print(json.dumps({k: record[k] for k in ('passed', 'deadline_hit', 'server_exit', 'server_requests',
+    print(json.dumps({k: record[k] for k in ('passed', 'deadline_hit', 'stalled', 'server_exit', 'server_requests',
                                              'pi_assistant_messages', 'count_mismatch')}))
     return 0 if record['passed'] else 1
 
