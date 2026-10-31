@@ -9323,11 +9323,9 @@ uint64_t ds4_gpu_tensor_bytes(const ds4_gpu_tensor *tensor) {
 }
 
 void *ds4_gpu_tensor_contents(ds4_gpu_tensor *tensor) {
-    /* C callers may have no enclosing autorelease pool. Buffer property
-     * getters must not keep backing storage alive after tensor_free. */
+    if (!tensor) return NULL;
+    DS4MetalTensor *obj = ds4_gpu_tensor_obj(tensor);
     @autoreleasepool {
-        if (!tensor) return NULL;
-        DS4MetalTensor *obj = ds4_gpu_tensor_obj(tensor);
         return (uint8_t *)[obj.buffer contents] + obj.offset;
     }
 }
@@ -9341,31 +9339,27 @@ int ds4_gpu_tensor_fill_f32(ds4_gpu_tensor *tensor, float value, uint64_t count)
 }
 
 int ds4_gpu_tensor_write(ds4_gpu_tensor *tensor, uint64_t offset, const void *data, uint64_t bytes) {
-    /* C callers may have no enclosing autorelease pool. Buffer property
-     * getters must not keep backing storage alive after tensor_free. */
-    @autoreleasepool {
-        if (!tensor || (!data && bytes != 0)) return 0;
-        DS4MetalTensor *obj = ds4_gpu_tensor_obj(tensor);
-        if (offset > obj.bytes || bytes > obj.bytes - offset) return 0;
-        if (bytes != 0) {
+    if (!tensor || (!data && bytes != 0)) return 0;
+    DS4MetalTensor *obj = ds4_gpu_tensor_obj(tensor);
+    if (offset > obj.bytes || bytes > obj.bytes - offset) return 0;
+    if (bytes != 0) {
+        @autoreleasepool {
             memcpy((uint8_t *)[obj.buffer contents] + obj.offset + offset, data, (size_t)bytes);
         }
-        return 1;
     }
+    return 1;
 }
 
 int ds4_gpu_tensor_read(const ds4_gpu_tensor *tensor, uint64_t offset, void *data, uint64_t bytes) {
-    /* C callers may have no enclosing autorelease pool. Buffer property
-     * getters must not keep backing storage alive after tensor_free. */
-    @autoreleasepool {
-        if (!tensor || (!data && bytes != 0)) return 0;
-        const DS4MetalTensor *obj = ds4_gpu_tensor_const_obj(tensor);
-        if (offset > obj.bytes || bytes > obj.bytes - offset) return 0;
-        if (bytes != 0) {
+    if (!tensor || (!data && bytes != 0)) return 0;
+    const DS4MetalTensor *obj = ds4_gpu_tensor_const_obj(tensor);
+    if (offset > obj.bytes || bytes > obj.bytes - offset) return 0;
+    if (bytes != 0) {
+        @autoreleasepool {
             memcpy(data, (const uint8_t *)[obj.buffer contents] + obj.offset + offset, (size_t)bytes);
         }
-        return 1;
     }
+    return 1;
 }
 
 int ds4_gpu_tensor_copy(ds4_gpu_tensor *dst, uint64_t dst_offset,
@@ -36241,7 +36235,14 @@ int ds4_gpu_glm_indexer_score_one_tensor(
         };
 
         if (n_head == 32u && head_dim == 128u) {
-            id<MTLComputePipelineState> direct_pipeline =
+            /* Four rows per SIMD group, sixteen per threadgroup: the same dot,
+             * simd_sum and per-head accumulation as the scalar kernel, without
+             * its per-head threadgroup barriers and with the query row read
+             * once per head instead of once per row. The scalar kernel behind
+             * the disable switch is the A/B reference. */
+            const int rows4 = getenv("DS4_METAL_DISABLE_V41_SCORE_ROWS4") == NULL;
+            id<MTLComputePipelineState> direct_pipeline = rows4 ?
+                ds4_gpu_get_pipeline("kernel_glm_indexer_score_one_rows4") :
                 ds4_gpu_hot_pipeline(g_glm_indexer_score_one_direct_pipeline,
                                      "kernel_glm_indexer_score_one_direct");
             if (!direct_pipeline) return 0;
@@ -36257,9 +36258,14 @@ int ds4_gpu_glm_indexer_score_one_tensor(
             [enc setBuffer:weightsbuf offset:ds4_gpu_tensor_offset(weights) atIndex:2];
             [enc setBuffer:cachebuf offset:ds4_gpu_tensor_offset(indexer_key_cache) atIndex:3];
             [enc setBuffer:scoresbuf offset:ds4_gpu_tensor_offset(scores) atIndex:4];
-            [enc setThreadgroupMemoryLength:(128u + 4u) * sizeof(float) atIndex:0];
-            [enc dispatchThreadgroups:MTLSizeMake((NSUInteger)n_rows, 1, 1)
-                 threadsPerThreadgroup:MTLSizeMake(32, 4, 1)];
+            if (!rows4) {
+                [enc setThreadgroupMemoryLength:(128u + 4u) * sizeof(float) atIndex:0];
+                [enc dispatchThreadgroups:MTLSizeMake((NSUInteger)n_rows, 1, 1)
+                     threadsPerThreadgroup:MTLSizeMake(32, 4, 1)];
+            } else {
+                [enc dispatchThreadgroups:MTLSizeMake(((NSUInteger)n_rows + 15u) / 16u, 1, 1)
+                     threadsPerThreadgroup:MTLSizeMake(32, 4, 1)];
+            }
             ds4_gpu_end_compute_encoder(cb, enc);
 
             if (!ds4_gpu_finish_command_buffer(cb, owned, "GLM indexer direct score")) return 0;
