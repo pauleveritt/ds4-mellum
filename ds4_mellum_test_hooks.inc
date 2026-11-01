@@ -121,8 +121,28 @@ bool ds4_test_session_graph_pos(ds4_session *s, uint32_t *pos) {
  * Then the frontier is restored, outside the timing. */
 bool ds4_test_mellum_rows_arm(ds4_session *s, const int *tokens, uint32_t k, bool chunk, float *logits_last,
                               double *ms) {
+#if defined(__APPLE__)
+    if (!s || !tokens || !logits_last || !ms || k == 0 || !ds4_session_is_qwen4(s) || !ds4_model_is_mellum() ||
+        !s->qwen4_graph_ready) {
+        return false;
+    }
+    ds4_qwen4_gpu_graph *g = &s->qwen4_graph;
+    const ds4_engine *e = s->engine;
+    if (!g->mellum_frontier_valid || g->mellum_frontier_pos != g->pos || g->pos + k > g->ctx_cap) return false;
+    const double t0 = now_sec();
+    bool ok = true;
+    if (chunk) {
+        ok = mellum_graph_forward_tokens(g, &e->model, &e->weights, tokens, k, logits_last, false);
+    } else {
+        for (uint32_t i = 0; ok && i < k; i++)
+            ok = mellum_graph_forward_tokens(g, &e->model, &e->weights, &tokens[i], 1, logits_last, false);
+    }
+    *ms = (now_sec() - t0) * 1e3;
+    return mellum_graph_frontier_copy(g, false) && ok;
+#else
     (void)s; (void)tokens; (void)k; (void)chunk; (void)logits_last; (void)ms;
     return false;
+#endif
 }
 
 /* For tests/ds4_test.c --mellum-b0 (phase 8b, D2), at a Mellum session's position, which must be where its last
