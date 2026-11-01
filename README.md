@@ -16,7 +16,7 @@ This branch of a fork of antirez's [DwarfStar](https://github.com/antirez/ds4) (
 *Note: speed inside the engine, not server → Pi; 2K context; no thermal load; one simple request. Thus, a
 ceiling.*
 
-In a real Pi session the M5's generation falls as the context grows, to about 109 t/s (Q8_0) by 8K: see
+In a real Pi session the M5's generation falls as the context grows, to a median of 109 t/s (Q8_0, 7 requests over 3 runs) at 8-9.6K context: see
 [Real use in Pi](#real-use-in-pi).
 
 Details, run counts and ranges are under [Pick your Mac](#pick-your-mac).

@@ -70,14 +70,15 @@ No run reached 16K tokens, and no session compacted.
 
 What the per-run tables show (each run's table is the first part of the report's output):
 
-- **Cold prefill matches the synthetic ceiling.** Request 0 (1,593-1,594 new tokens on an empty cache): Q8_0
-  3,832-3,850 t/s, MXFP4 3,953-4,074 t/s (n = 3 each), against the README's 4,026 / 4,170 at 2,056 tokens.
+- **Cold prefill is within 5% of the synthetic figures.** Request 0 (1,593-1,594 new tokens on an empty cache):
+  Q8_0 3,832-3,850 t/s, MXFP4 3,953-4,074 t/s (n = 3 each), against the README's 4,026 / 4,170 at 2,056 tokens.
 - **Most real prefills are small, and small prefills are slow.** After request 0, a turn adds a tool result:
   often 18-44 tokens, which run at 280-830 t/s, because each request has a fixed cost. Of the 77 non-cold requests,
   66 added fewer than 256 tokens. In wall time this cost is small (0.05-0.12 s per request).
-- **Decode trends down with context.** Q8_0 decode runs 121-127 t/s below 4K, 111-122 at 4-6K and 106-115 at
-  8-9.5K (n = 25, 10, 9); MXFP4 runs 142-151 below 4K and 124-147 at 4-8.2K (n = 22, 6). The synthetic ceiling's 123 / 139 t/s held only at
-  the start of a session.
+- **Decode trends down with context.** In the band table above, Q8_0's median falls from 124.4 to 114.1 to 109.3
+  t/s (n = 25, 23, 7) and MXFP4's from 147.1 to 128.7 (n = 22, 6). Below 4K that is at or slightly above the
+  README's synthetic 2K figures (123.3 / 138.5); at 8-9.6K, Q8_0's 109.3 is below the synthetic 124.5 at 8,195
+  tokens, which is one fresh request rather than a growing session.
 
 ## Findings
 
