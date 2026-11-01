@@ -1,0 +1,23 @@
+{
+  "model": "/Users/pauleveritt/.cache/huggingface/hub/blobs/d1/d14fdb291be4192e126e28e7566ee840d7b2dc851cc1ab68d26a303b24f24398",
+  "model_sha256": "69e0ac02a16586c2c9e991f1e3b8a1eb403882e7ab9e69ea01eb23dbbbc6841f",
+  "port": 8099,
+  "deadline_s": 1800,
+  "engine_commit": "0364a956bc318e9056db3d9d5c93bd13e90097c9",
+  "pi_version": "1.1.0",
+  "power_before": "Now drawing from 'AC Power'\n -InternalBattery-0 (id=37159011)\t100%; charged; 0:00 remaining present: true\nSystem-wide power settings:\nCurrently in use:\n standby              1\n Sleep On Power Button 1\n hibernatefile        /var/vm/sleepimage\n powernap             1\n networkoversleep     0\n disksleep            10\n sleep                0 (sleep prevented by powerd, Claude, runningboardd)\n hibernatemode        3\n ttyskeepawake        1\n displaysleep         20\n tcpkeepalive         1\n powermode            2\n womp                 1\nNote: No thermal warning level has been recorded\nNote: No performance warning level has been recorded\nNote: No CPU power status has been recorded",
+  "started": "2026-11-01T00:32:49.780534+00:00",
+  "compaction_requests": [],
+  "pi_exit": -15,
+  "deadline_hit": false,
+  "stalled": true,
+  "server_exit": null,
+  "passed": false,
+  "checks_ran": false,
+  "missing": [],
+  "server_requests": 17,
+  "pi_assistant_messages": 17,
+  "count_mismatch": false,
+  "power_after": "Now drawing from 'AC Power'\n -InternalBattery-0 (id=37159011)\t100%; charged; 0:00 remaining present: true\nSystem-wide power settings:\nCurrently in use:\n standby              1\n Sleep On Power Button 1\n hibernatefile        /var/vm/sleepimage\n powernap             1\n networkoversleep     0\n disksleep            10\n sleep                0 (sleep prevented by powerd, Claude, runningboardd)\n hibernatemode        3\n ttyskeepawake        1\n displaysleep         20\n tcpkeepalive         1\n powermode            2\n womp                 1\nNote: No thermal warning level has been recorded\nNote: No performance warning level has been recorded\nNote: No CPU power status has been recorded",
+  "ended": "2026-11-01T00:38:33.063699+00:00"
+}

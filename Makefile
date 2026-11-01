@@ -1596,6 +1596,18 @@ test-mellum: test-mellum-logits-agree
 test-mellum-llama-logits: tools/mellum_llama_logits test-mellum-logits-agree
 # S4 measurement driver: built here, run only with the model (tests/test_mellum_s4_driver.py)
 test-mellum: tools/mellum_s4_measure
+# Real use in Pi: the copied AgentClinic task's grader, proven both ways (needs uv; the first run downloads the task's
+# dependencies, so it is not in test-mellum)
+.PHONY: test-mellum-pi
+test-mellum-pi:
+	python3 -I tests/test_mellum_pi_grade.py
+	python3 -I tests/test_mellum_server_requests.py
+	python3 -I tests/test_mellum_pi_report.py
+	python3 -I tests/test_mellum_pi_run.py
+test-mellum: test-mellum-pi
+.PHONY: test-mellum-pi-grader
+test-mellum-pi-grader:
+	python3 -I tools/mellum_pi_grade.py qualify tests/agentclinic_easy
 .PHONY: test-mellum-s4-measure
 test-mellum-s4-measure:
 	python3 -I tests/test_mellum_s4_measure.py

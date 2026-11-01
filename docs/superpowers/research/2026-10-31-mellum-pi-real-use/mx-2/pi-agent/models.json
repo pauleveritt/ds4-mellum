@@ -1,0 +1,22 @@
+{
+  "providers": {
+    "ds4": {
+      "baseUrl": "http://127.0.0.1:8099/v1",
+      "api": "openai-completions",
+      "apiKey": "ds4",
+      "models": [
+        {
+          "id": "mellum-2.1",
+          "contextWindow": 32768,
+          "maxTokens": 16384,
+          "reasoning": true,
+          "samplingParams": {
+            "temperature": 0.6,
+            "top_p": 0.95,
+            "top_k": 20
+          }
+        }
+      ]
+    }
+  }
+}

@@ -16,6 +16,9 @@ This branch of a fork of antirez's [DwarfStar](https://github.com/antirez/ds4) (
 *Note: speed inside the engine, not server → Pi; 2K context; no thermal load; one simple request. Thus, a
 ceiling.*
 
+In a real Pi session the M5's generation falls as the context grows, to a median of 109 t/s (Q8_0, 7 requests over 3 runs) at 8-9.6K context: see
+[Real use in Pi](#real-use-in-pi).
+
 Details, run counts and ranges are under [Pick your Mac](#pick-your-mac).
 
 **Before you start**
@@ -149,6 +152,25 @@ M5 Max, 128 GB, AC power, commit `67b4670`
 | MXFP4 experts | 2,056 | 4,170 (4,158-4,173) | 138.5 (117.4-154.9) |
 | MXFP4 experts | 8,195 | 3,577 (3,572-3,580) | 147.5 (145.9-147.9) |
 | MXFP4 experts | 32,778 | 1,920 (1,877-2,015) | 98.6 (92.0-113.6) |
+
+#### Real use in Pi
+
+Plain Pi 1.1.0 driving `ds4-server -c 32768` through one AgentClinic task ("Implement Phase 1 — Home Page."),
+3 runs per quant, same Mac, High Power. Medians per request, grouped by the context the request started with
+([note](docs/superpowers/research/2026-10-31-mellum-pi-real-use.md)):
+
+| Model file | Context at start | Prefill t/s (n) | Generation t/s (n) |
+|---|---|---|---|
+| Q8_0 | 0-4K | 3,105 (7) | 124.4 (25) |
+| Q8_0 | 4-8K | 2,558 (1) | 114.1 (23) |
+| Q8_0 | 8-16K | 2,395 (3) | 109.3 (7) |
+| MXFP4 experts | 0-4K | 4,008 (4) | 147.1 (22) |
+| MXFP4 experts | 4-8K | 2,436 (2) | 128.7 (6) |
+
+Prefill medians count only requests adding 256 tokens or more. Most turns add fewer (66 of 77 after the first),
+often 18-44 tokens of tool output, at 280-830 t/s; each still takes only 0.05-0.12 s. Q8_0 finished the task in 2 of 3 runs (about a minute each),
+MXFP4 in 0 of 3. Two runs stalled when Mellum started the app's server in the foreground, which plain Pi waits on
+forever; one MXFP4 run ended on an unterminated tool call, and one on a file read that overflowed the 32K context.
 
 ### M1 Pro, 32 GB
 

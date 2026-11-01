@@ -1,0 +1,20 @@
+
+
+Phase 1 — Home Page has been implemented according to the roadmap.
+
+Changes made:
+
+1. **app.py** (previously main.py) now includes the FastAPI application and runs Uvicorn with reload when executed directly.
+2. **templates/base.html** created a shared layout with Bootstrap 5, navbar linking to Home and Complaints, and the Python favicon.
+3. **templates/home.html** created the home page using the base layout, featuring the hero section with the tagline "Come in. Sit down. Tell us about your human." and a welcome paragraph.
+
+The application structure now satisfies Phase 1 requirements:
+- `app.py` holds the FastAPI app and starts Uvicorn with `reload=True`.
+- The home page at `/` uses the base layout and displays the required tagline.
+- Favicon and Bootstrap are properly included.
+
+Next steps:
+- Run tests to verify `GET /` returns 200 and contains the tagline.
+- Proceed to Phase 2 when ready.
+
+Would you like me to run the tests or start the application to verify functionality?

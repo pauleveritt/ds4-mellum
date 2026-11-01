@@ -1,0 +1,28 @@
+{
+  "model": "/Users/pauleveritt/.cache/huggingface/hub/blobs/5f/5fcfb1f7534ab1b59f4c95828b3e44ae1906afe4bc5463f8f3582b5f4e5099e5",
+  "model_sha256": "cf09584a30423f6f80b0c9fe2f42e152520dabf08fecd1cad641ce21a7588166",
+  "port": 8099,
+  "deadline_s": 1800,
+  "engine_commit": "0364a956bc318e9056db3d9d5c93bd13e90097c9",
+  "pi_version": "1.1.0",
+  "power_before": "Now drawing from 'AC Power'\n -InternalBattery-0 (id=37159011)\t100%; charged; 0:00 remaining present: true\nSystem-wide power settings:\nCurrently in use:\n standby              1\n Sleep On Power Button 1\n hibernatefile        /var/vm/sleepimage\n powernap             1\n networkoversleep     0\n disksleep            10\n sleep                0 (sleep prevented by powerd, AddressBookSourceSync, runningboardd, Claude)\n hibernatemode        3\n ttyskeepawake        1\n displaysleep         20\n tcpkeepalive         1\n powermode            2\n womp                 1\nNote: No thermal warning level has been recorded\nNote: No performance warning level has been recorded\nNote: No CPU power status has been recorded",
+  "started": "2026-11-01T00:30:38.419839+00:00",
+  "compaction_requests": [],
+  "pi_exit": 1,
+  "deadline_hit": false,
+  "stalled": false,
+  "server_exit": null,
+  "passed": false,
+  "checks_ran": false,
+  "missing": [
+    "grader_tests/test_phase1_home.py::test_home_has_html5_doctype",
+    "grader_tests/test_phase1_home.py::test_home_html_element_declares_english_language",
+    "grader_tests/test_phase1_home.py::test_home_still_returns_200_and_tagline",
+    "grader_tests/test_phase1_home.py::test_home_still_has_navigation_links"
+  ],
+  "server_requests": 5,
+  "pi_assistant_messages": 5,
+  "count_mismatch": false,
+  "power_after": "Now drawing from 'AC Power'\n -InternalBattery-0 (id=37159011)\t100%; charged; 0:00 remaining present: true\nSystem-wide power settings:\nCurrently in use:\n standby              1\n Sleep On Power Button 1\n hibernatefile        /var/vm/sleepimage\n powernap             1\n networkoversleep     0\n disksleep            10\n sleep                0 (sleep prevented by powerd, Claude, AddressBookSourceSync)\n hibernatemode        3\n ttyskeepawake        1\n displaysleep         20\n tcpkeepalive         1\n powermode            2\n womp                 1\nNote: No thermal warning level has been recorded\nNote: No performance warning level has been recorded\nNote: No CPU power status has been recorded",
+  "ended": "2026-11-01T00:30:45.082092+00:00"
+}
