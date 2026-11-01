@@ -651,6 +651,7 @@ runner, `tests/mellum_measurements/`) are on the branch `mellum-evidence-2026-10
 | Metal kernels vs double references | `make test-mellum-kernels` | 379 checks, 0 failures | 1 |
 | MoE on real layers 0/13/27 vs double | `DS4_TEST_MELLUM_MODEL=... ./ds4_test --mellum-moe` | same experts selected; weights 1.7e-7, output 3.4e-7 | 1 |
 | session bytes allocated vs planned, Q8_0 GGUF | `DS4_TEST_MELLUM_MODEL=... ./ds4_test --mellum-session` | equal at ctx 20,000 / 65,536 / 131,072 for chunks 1,024 and 512 (601,513,984 / 1,254,318,080 / 2,193,842,176 bytes at chunk 1,024) | 1 |
+| real use: plain Pi 1.1.0 on AgentClinic easy Phase 1, published Q8_0 and MXFP4, M5 Max, High Power, engine 0364a95 | `tools/mellum_pi_run.py --model GGUF --out DIR` per run; `tools/mellum_pi_report.py docs/superpowers/research/2026-10-31-mellum-pi-real-use/q8-{1,2,3}` (and `mx-{1,2,3}`) | passed: Q8_0 2/3, MXFP4 0/3 (2 foreground-server stalls, 1 unterminated tool call, 1 context overflow). Median decode by context at start: Q8_0 124.4 / 114.1 / 109.3 t/s at 0-4K / 4-8K / 8-16K (n 25 / 23 / 7 requests); MXFP4 147.1 / 128.7 at 0-4K / 4-8K (n 22 / 6). Cold prefill (1,594 tokens) 3,832-3,850 t/s Q8_0, 3,953-4,074 MXFP4. [note](docs/superpowers/research/2026-10-31-mellum-pi-real-use.md) | 3 runs per quant |
 
 ### Oracle caps
 
