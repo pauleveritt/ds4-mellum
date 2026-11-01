@@ -74,6 +74,8 @@ endif
 override CORE_OBJS := $(filter-out ds4_mellum_stream.o,$(CORE_OBJS)) ds4_mellum_stream.o
 override CPU_CORE_OBJS := $(filter-out ds4_mellum_stream.o,$(CPU_CORE_OBJS)) ds4_mellum_stream.o
 # Mellum's code in ds4.c and tests/ds4_test.c sits in these .inc files, included where it belongs.
+MELLUM_AGENT_INCS = ds4_agent_hermes.inc ds4_agent_mellum_prompt.inc ds4_agent_pi_tools.inc
+MELLUM_SERVER_INCS = ds4_server_hermes.inc ds4_server_mellum_template.inc
 MELLUM_DS4_INCS = ds4_mellum_config.inc ds4_mellum_plan.inc ds4_mellum_tokenizer.inc ds4_mellum_graph_alloc.inc \
 	ds4_mellum_graph.inc ds4_mellum_test_hooks.inc
 ds4.o ds4_cpu.o ds4_cpu_test_hooks.o ds4_cuda_test_hooks.o ds4_verify_test_hooks.o \
@@ -803,7 +805,7 @@ ds4_prompt_prefix.o: ds4_prompt_prefix.c ds4_prompt_prefix.h ds4.h
 ds4_gpu_args.o: ds4_gpu_args.c ds4_gpu_args.h ds4_gpu_mgpu.h
 	$(CC) $(CFLAGS) -c -o $@ ds4_gpu_args.c
 
-ds4_server.o: ds4_server.c ds4.h ds4_json.h ds4_ssd.h ds4_distributed.h ds4_help.h ds4_kvstore.h rax.h
+ds4_server.o: ds4_server.c ds4.h ds4_json.h ds4_ssd.h ds4_distributed.h ds4_help.h ds4_kvstore.h rax.h $(MELLUM_SERVER_INCS)
 	$(CC) $(CFLAGS) -c -o $@ ds4_server.c
 
 ds4_bench.o: ds4_bench.c ds4.h ds4_ssd.h ds4_distributed.h ds4_help.h
@@ -815,7 +817,7 @@ ds4_eval.o: ds4_eval.c ds4_eval_cases.h ds4.h ds4_ssd.h ds4_distributed.h ds4_he
 ds4_eval_cases.o: ds4_eval_cases.c ds4_eval_cases.h
 	$(CC) $(CFLAGS) -c -o $@ ds4_eval_cases.c
 
-ds4_agent.o: ds4_agent.c ds4.h ds4_json.h ds4_ssd.h ds4_distributed.h ds4_tp.h ds4_help.h ds4_prompt_prefix.h ds4_kvstore.h ds4_web.h linenoise.h
+ds4_agent.o: ds4_agent.c ds4.h ds4_json.h ds4_ssd.h ds4_distributed.h ds4_tp.h ds4_help.h ds4_prompt_prefix.h ds4_kvstore.h ds4_web.h linenoise.h $(MELLUM_AGENT_INCS)
 	$(CC) $(CFLAGS) -c -o $@ ds4_agent.c
 
 ds4_web.o: ds4_web.c ds4_web.h
@@ -824,10 +826,10 @@ ds4_web.o: ds4_web.c ds4_web.h
 ds4_kvstore.o: ds4_kvstore.c ds4_kvstore.h ds4.h ds4_ssd.h
 	$(CC) $(CFLAGS) -c -o $@ ds4_kvstore.c
 
-ds4_test.o: tests/ds4_test.c tests/mellum_moe_ref.inc tests/mellum_server_cases.inc ds4_server.c ds4.h ds4_json.h ds4_image.h ds4_ssd.h ds4_distributed.h ds4_help.h ds4_kvstore.h rax.h
+ds4_test.o: tests/ds4_test.c tests/mellum_moe_ref.inc tests/mellum_server_cases.inc ds4_server.c ds4.h ds4_json.h ds4_image.h ds4_ssd.h ds4_distributed.h ds4_help.h ds4_kvstore.h rax.h $(MELLUM_SERVER_INCS)
 	$(CC) $(CFLAGS) -Wno-unused-function -c -o $@ tests/ds4_test.c
 
-ds4_agent_test.o: tests/ds4_agent_test.c tests/mellum_tool_text.h ds4_agent.c ds4.h ds4_json.h ds4_ssd.h ds4_distributed.h ds4_tp.h ds4_help.h ds4_prompt_prefix.h ds4_kvstore.h ds4_web.h linenoise.h
+ds4_agent_test.o: tests/ds4_agent_test.c tests/mellum_tool_text.h ds4_agent.c ds4.h ds4_json.h ds4_ssd.h ds4_distributed.h ds4_tp.h ds4_help.h ds4_prompt_prefix.h ds4_kvstore.h ds4_web.h linenoise.h $(MELLUM_AGENT_INCS)
 	$(CC) $(CFLAGS) -Wno-unused-function -c -o $@ tests/ds4_agent_test.c
 
 tests/cuda_long_context_smoke.o: tests/cuda_long_context_smoke.c ds4_gpu.h
@@ -848,7 +850,7 @@ ds4_cli_cpu.o: ds4_cli.c ds4.h ds4_ssd.h ds4_distributed.h ds4_help.h ds4_prompt
 ds4_gpu_args_cpu.o: ds4_gpu_args.c ds4_gpu_args.h ds4_gpu_mgpu.h
 	$(CC) $(CFLAGS) -DDS4_NO_GPU -c -o $@ ds4_gpu_args.c
 
-ds4_server_cpu.o: ds4_server.c ds4.h ds4_json.h ds4_ssd.h ds4_distributed.h ds4_help.h ds4_kvstore.h rax.h
+ds4_server_cpu.o: ds4_server.c ds4.h ds4_json.h ds4_ssd.h ds4_distributed.h ds4_help.h ds4_kvstore.h rax.h $(MELLUM_SERVER_INCS)
 	$(CC) $(CFLAGS) -DDS4_NO_GPU -c -o $@ ds4_server.c
 
 ds4_bench_cpu.o: ds4_bench.c ds4.h ds4_ssd.h ds4_distributed.h ds4_help.h
@@ -857,7 +859,7 @@ ds4_bench_cpu.o: ds4_bench.c ds4.h ds4_ssd.h ds4_distributed.h ds4_help.h
 ds4_eval_cpu.o: ds4_eval.c ds4_eval_cases.h ds4.h ds4_ssd.h ds4_distributed.h ds4_help.h
 	$(CC) $(CFLAGS) -DDS4_NO_GPU -c -o $@ ds4_eval.c
 
-ds4_agent_cpu.o: ds4_agent.c ds4.h ds4_json.h ds4_ssd.h ds4_distributed.h ds4_help.h ds4_prompt_prefix.h ds4_kvstore.h ds4_web.h linenoise.h
+ds4_agent_cpu.o: ds4_agent.c ds4.h ds4_json.h ds4_ssd.h ds4_distributed.h ds4_help.h ds4_prompt_prefix.h ds4_kvstore.h ds4_web.h linenoise.h $(MELLUM_AGENT_INCS)
 	$(CC) $(CFLAGS) -DDS4_NO_GPU -c -o $@ ds4_agent.c
 
 ds4_metal.o: ds4_metal.m ds4.h ds4_gpu.h ds4_gpu_tp.h ds4_deepseek41_gpu.h ds4_image.h $(METAL_SRCS)
@@ -1093,10 +1095,10 @@ MELLUM_FRONTEND_OBJS = ds4_help.o ds4_prompt_prefix.o ds4_web.o ds4_kvstore.o li
 tests/test_mellum_frontends_cli.o: tests/test_mellum_frontends.c ds4.c ds4_cli.c ds4.h
 	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -Wno-unused-function -DDS4_NO_GPU -DMELLUM_FRONTEND_CLI -I. -c -o $@ $<
 
-tests/test_mellum_frontends_agent.o: tests/test_mellum_frontends.c ds4.c ds4_agent.c ds4.h ds4_json.h
+tests/test_mellum_frontends_agent.o: tests/test_mellum_frontends.c ds4.c ds4_agent.c ds4.h ds4_json.h $(MELLUM_AGENT_INCS)
 	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -Wno-unused-function -DDS4_NO_GPU -DMELLUM_FRONTEND_AGENT -I. -c -o $@ $<
 
-tests/test_mellum_frontends_server.o: tests/test_mellum_frontends.c ds4.c ds4_server.c ds4.h ds4_json.h
+tests/test_mellum_frontends_server.o: tests/test_mellum_frontends.c ds4.c ds4_server.c ds4.h ds4_json.h $(MELLUM_SERVER_INCS)
 	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -Wno-unused-function -DDS4_NO_GPU -DMELLUM_FRONTEND_SERVER -I. -c -o $@ $<
 
 tests/test_mellum_frontends_cli tests/test_mellum_frontends_agent tests/test_mellum_frontends_server: %: %.o $(MELLUM_FRONTEND_OBJS)
