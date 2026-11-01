@@ -1204,7 +1204,19 @@ bool ds4_test_mellum_rows_arm(ds4_session *s, const int *tokens, uint32_t k, boo
 
 static void test_mellum_bk_at(ds4_engine *engine, const ds4_tokens *text, int ctx, int rounds) {
     enum { KMAX = 8 };
-    static const uint32_t ks[] = { 1, 2, 3, 4, 6, 8 };
+    uint32_t ks[KMAX] = { 1, 2, 3, 4, 6, 8 };
+    size_t nk = 6;
+    /* DS4_TEST_MELLUM_BK_K: the values of k, in order (default 1,2,3,4,6,8; each 1 to 8) */
+    const char *k_env = getenv("DS4_TEST_MELLUM_BK_K");
+    if (k_env && k_env[0]) {
+        nk = 0;
+        for (const char *p = k_env; *p && nk < KMAX; p += strcspn(p, ",") + (p[strcspn(p, ",")] == ',')) {
+            const int v = atoi(p);
+            TEST_ASSERT(v >= 1 && v <= KMAX);
+            if (v < 1 || v > KMAX) return;
+            ks[nk++] = (uint32_t)v;
+        }
+    }
     ds4_session *s = NULL;
     TEST_ASSERT(ctx > 0 && ctx + KMAX <= text->len);
     TEST_ASSERT(ds4_session_create(&s, engine, (ctx + 66 + 1023) / 1024 * 1024) == 0 && s != NULL);
@@ -1217,7 +1229,7 @@ static void test_mellum_bk_at(ds4_engine *engine, const ds4_tokens *text, int ct
     double *d_ms = calloc((size_t)rounds * 2, sizeof(double)), *c_ms = calloc((size_t)rounds * 2, sizeof(double));
     bool ok = ref && got && d_ms && c_ms;
     TEST_ASSERT(ok);
-    for (size_t ki = 0; ok && ki < sizeof(ks) / sizeof(ks[0]); ki++) {
+    for (size_t ki = 0; ok && ki < nk; ki++) {
         const uint32_t k = ks[ki];
         int nd = 0, nc = 0;
         uint64_t differ = 0;
