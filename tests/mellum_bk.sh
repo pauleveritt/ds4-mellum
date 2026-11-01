@@ -26,7 +26,7 @@ for c in ${CTXS//,/ }; do
     sleep "$COOL"
     echo "state before $c: $(state)" >> "$OUT/events.txt"
     tl=(); [ "$TIMELINE" = 1 ] && tl=(env DS4_METAL_ENCODER_TIMELINE="$OUT/timeline_$c.txt")
-    (cd "$ROOT" && "${tl[@]}" env DS4_TEST_MELLUM_MODEL="$MODEL" DS4_TEST_MELLUM_BK_CTX="$c" DS4_TEST_MELLUM_BK_N="$N" \
+    (cd "$ROOT" && ${tl[@]+"${tl[@]}"} env DS4_TEST_MELLUM_MODEL="$MODEL" DS4_TEST_MELLUM_BK_CTX="$c" DS4_TEST_MELLUM_BK_N="$N" \
         ./ds4_test --mellum-bk) > "$OUT/bk_$c.out" 2> "$OUT/bk_$c.err" ||
         { echo "ds4_test failed at context $c"; tail -5 "$OUT/bk_$c.out" "$OUT/bk_$c.err"; exit 1; }
     echo "state after $c: $(state)" >> "$OUT/events.txt"
