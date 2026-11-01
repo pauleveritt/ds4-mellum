@@ -1,0 +1,227 @@
+ds4: Metal device Apple M5 Max, 128.00 GiB RAM
+ds4: Metal 4 tensor API enabled for Tensor kernels
+ds4: drift-patch flags hc_stable=on norm_unify=on kv_raw_f32=off rope_exp2_log2=off math_safe=off tensor_matmul=on
+ds4: Metal model views created in 0.423 ms, residency requested in 89.477 ms, warmup 3.272 ms (mapped 12323.22 MiB from offset 3.42 MiB)
+ds4: Metal mapped mmaped model as 1 overlapping shared buffers
+ds4: metal backend initialized for graph diagnostics
+ds4: memory: KV 0.52 GiB (raw 0.52 + compressed 0.00) + buffers 0.25 GiB + resident model 12.03 GiB = 12.81 GiB planned
+ds4: memory detail: ctx=32768 prefill_cap=1024 raw_kv_rows=32768 compressed_kv_rows=0 backend=metal
+1031 13:51:39 ds4-server: context buffers 790.54 MiB (ctx=32768, backend=metal, prefill_chunk=1024, raw_kv_rows=32768, compressed_kv_rows=0)
+mellum: session allocated 828944640 bytes, planned 828944640 bytes
+1031 13:51:39 ds4-server: listening on http://127.0.0.1:8099
+1031 13:51:39 ds4-server: chat ctx=0..1593:1593 TOOLS prompt start
+1031 13:51:40 ds4-server: chat ctx=0..1593:1593 TOOLS prefill chunk 1024/1593 (64.3%) chunk=0.00 t/s avg=4218.18 t/s 0.243s
+1031 13:51:40 ds4-server: chat ctx=0..1593:1593 TOOLS prefill chunk 1593/1593 (100.0%) chunk=3345.68 t/s avg=3858.74 t/s 0.413s
+1031 13:51:40 ds4-server: chat ctx=0..1593:1593 TOOLS prompt done 0.414s
+1031 13:51:40 ds4-server: chat ctx=1593..1643:50 gen=50 TOOLS THINKING decoding chunk=123.91 t/s avg=123.91 t/s 0.404s
+1031 13:51:41 ds4-server: chat ctx=1643..1693:50 gen=100 TOOLS DSML_START decoding chunk=124.64 t/s avg=124.28 t/s 0.805s
+1031 13:51:41 ds4-server: chat ctx=1693..1701:8 gen=108 TOOLS DSML_START DSML_END decoding chunk=122.85 t/s avg=124.17 t/s 0.870s
+1031 13:51:41 ds4-server: tool calls ctx=0..1593:1593 n=1 raw_tool_text=1 ids=[call_8b797cc87232422f1046787fb8eb41d4] names=[bash]
+1031 13:51:41 ds4-server: chat ctx=0..1593:1593 gen=108 TOOLS DSML_START DSML_END finish=tool_calls 1.284s
+1031 13:51:41 ds4-server: chat ctx=1701..1948:247 TOOLS prompt start
+1031 13:51:41 ds4-server: chat ctx=1701..1948:247 TOOLS prefill chunk 247/247 (100.0%) chunk=0.00 t/s avg=2371.92 t/s 0.104s
+1031 13:51:41 ds4-server: chat ctx=1701..1948:247 TOOLS prompt done 0.105s
+1031 13:51:41 ds4-server: chat ctx=1948..1998:50 gen=50 TOOLS THINKING decoding chunk=123.25 t/s avg=123.25 t/s 0.406s
+1031 13:51:42 ds4-server: chat ctx=1998..2048:50 gen=100 TOOLS THINKING decoding chunk=122.53 t/s avg=122.89 t/s 0.814s
+1031 13:51:42 ds4-server: chat ctx=2048..2087:39 gen=139 TOOLS DSML_START DSML_END decoding chunk=127.60 t/s avg=124.18 t/s 1.119s
+1031 13:51:42 ds4-server: tool calls ctx=1701..1948:247 n=1 raw_tool_text=1 ids=[call_0213e410b90de27db0c9d9b6d7d08681] names=[bash]
+1031 13:51:42 ds4-server: chat ctx=1701..1948:247 gen=139 TOOLS DSML_START DSML_END finish=tool_calls 1.224s
+1031 13:51:42 ds4-server: chat ctx=2087..2268:181 TOOLS prompt start
+1031 13:51:42 ds4-server: chat ctx=2087..2268:181 TOOLS prefill chunk 181/181 (100.0%) chunk=0.00 t/s avg=1888.45 t/s 0.096s
+1031 13:51:42 ds4-server: chat ctx=2087..2268:181 TOOLS prompt done 0.097s
+1031 13:51:43 ds4-server: chat ctx=2268..2318:50 gen=50 TOOLS THINKING decoding chunk=127.06 t/s avg=127.06 t/s 0.394s
+1031 13:51:43 ds4-server: chat ctx=2318..2368:50 gen=100 TOOLS THINKING decoding chunk=124.13 t/s avg=125.58 t/s 0.796s
+1031 13:51:43 ds4-server: chat ctx=2368..2418:50 gen=150 TOOLS DSML_START decoding chunk=123.88 t/s avg=125.01 t/s 1.200s
+1031 13:51:44 ds4-server: chat ctx=2418..2468:50 gen=200 TOOLS DSML_START decoding chunk=124.04 t/s avg=124.77 t/s 1.603s
+1031 13:51:44 ds4-server: chat ctx=2468..2476:8 gen=208 TOOLS DSML_START DSML_END decoding chunk=125.53 t/s avg=124.79 t/s 1.667s
+1031 13:51:44 ds4-server: tool calls ctx=2087..2268:181 n=1 raw_tool_text=1 ids=[call_9c57ab1283ba59609d1fa79a84805f3f] names=[bash]
+1031 13:51:44 ds4-server: chat ctx=2087..2268:181 gen=208 TOOLS DSML_START DSML_END finish=tool_calls 1.764s
+1031 13:51:44 ds4-server: chat ctx=2476..2502:26 TOOLS prompt start
+1031 13:51:44 ds4-server: chat ctx=2476..2502:26 TOOLS prefill chunk 26/26 (100.0%) chunk=0.00 t/s avg=361.42 t/s 0.072s
+1031 13:51:44 ds4-server: chat ctx=2476..2502:26 TOOLS prompt done 0.073s
+1031 13:51:44 ds4-server: chat ctx=2502..2552:50 gen=50 TOOLS THINKING decoding chunk=123.77 t/s avg=123.77 t/s 0.404s
+1031 13:51:45 ds4-server: chat ctx=2552..2602:50 gen=100 TOOLS THINKING decoding chunk=124.90 t/s avg=124.33 t/s 0.804s
+1031 13:51:45 ds4-server: chat ctx=2602..2652:50 gen=150 TOOLS THINKING decoding chunk=126.94 t/s avg=125.19 t/s 1.198s
+1031 13:51:46 ds4-server: chat ctx=2652..2702:50 gen=200 TOOLS THINKING decoding chunk=126.86 t/s avg=125.60 t/s 1.592s
+1031 13:51:46 ds4-server: chat ctx=2702..2752:50 gen=250 TOOLS DSML_START decoding chunk=123.91 t/s avg=125.26 t/s 1.996s
+1031 13:51:46 ds4-server: chat ctx=2752..2774:22 gen=272 TOOLS DSML_START DSML_END decoding chunk=123.86 t/s avg=125.15 t/s 2.173s
+1031 13:51:46 ds4-server: tool calls ctx=2476..2502:26 n=1 raw_tool_text=1 ids=[call_ae97cb1712a55192d6efe159c2fbbfb3] names=[read]
+1031 13:51:46 ds4-server: chat ctx=2476..2502:26 gen=272 TOOLS DSML_START DSML_END finish=tool_calls 2.247s
+1031 13:51:46 ds4-server: chat ctx=2774..4005:1231 TOOLS prompt start
+1031 13:51:46 ds4-server: chat ctx=2774..4005:1231 TOOLS prefill chunk 1024/1231 (83.2%) chunk=0.00 t/s avg=3528.41 t/s 0.290s
+1031 13:51:47 ds4-server: chat ctx=2774..4005:1231 TOOLS prefill chunk 1231/1231 (100.0%) chunk=1975.57 t/s avg=3116.49 t/s 0.395s
+1031 13:51:47 ds4-server: chat ctx=2774..4005:1231 TOOLS prompt done 0.396s
+1031 13:51:47 ds4-server: chat ctx=4005..4055:50 gen=50 TOOLS THINKING decoding chunk=122.46 t/s avg=122.46 t/s 0.408s
+1031 13:51:47 ds4-server: chat ctx=4055..4105:50 gen=100 TOOLS THINKING decoding chunk=122.60 t/s avg=122.53 t/s 0.816s
+1031 13:51:48 ds4-server: chat ctx=4105..4155:50 gen=150 TOOLS THINKING decoding chunk=123.60 t/s avg=122.88 t/s 1.221s
+1031 13:51:48 ds4-server: chat ctx=4155..4205:50 gen=200 TOOLS THINKING decoding chunk=126.13 t/s avg=123.68 t/s 1.617s
+1031 13:51:49 ds4-server: chat ctx=4205..4255:50 gen=250 TOOLS THINKING decoding chunk=125.44 t/s avg=124.03 t/s 2.016s
+1031 13:51:49 ds4-server: chat ctx=4255..4305:50 gen=300 TOOLS THINKING decoding chunk=122.12 t/s avg=123.71 t/s 2.425s
+1031 13:51:49 ds4-server: chat ctx=4305..4355:50 gen=350 TOOLS THINKING decoding chunk=122.25 t/s avg=123.50 t/s 2.834s
+1031 13:51:50 ds4-server: chat ctx=4355..4405:50 gen=400 TOOLS THINKING decoding chunk=122.24 t/s avg=123.34 t/s 3.243s
+1031 13:51:50 ds4-server: chat ctx=4405..4455:50 gen=450 TOOLS THINKING decoding chunk=122.20 t/s avg=123.21 t/s 3.652s
+1031 13:51:51 ds4-server: chat ctx=4455..4505:50 gen=500 TOOLS DSML_START decoding chunk=122.28 t/s avg=123.12 t/s 4.061s
+1031 13:51:51 ds4-server: chat ctx=4505..4550:45 gen=545 TOOLS DSML_START DSML_END decoding chunk=125.52 t/s avg=123.31 t/s 4.420s
+1031 13:51:51 ds4-server: tool calls ctx=2774..4005:1231 n=1 raw_tool_text=1 ids=[call_25c0ed7d211b7729eed7de9e5266001c] names=[read]
+1031 13:51:51 ds4-server: chat ctx=2774..4005:1231 gen=545 TOOLS DSML_START DSML_END finish=tool_calls 4.816s
+1031 13:51:51 ds4-server: chat ctx=4550..6528:1978 TOOLS prompt start
+1031 13:51:51 ds4-server: chat ctx=4550..6528:1978 TOOLS prefill chunk 1024/1978 (51.8%) chunk=0.00 t/s avg=3161.88 t/s 0.324s
+1031 13:51:52 ds4-server: chat ctx=4550..6528:1978 TOOLS prefill chunk 1978/1978 (100.0%) chunk=2568.42 t/s avg=2844.84 t/s 0.695s
+1031 13:51:52 ds4-server: chat ctx=4550..6528:1978 TOOLS prompt done 0.696s
+1031 13:51:52 ds4-server: chat ctx=6528..6578:50 gen=50 TOOLS THINKING decoding chunk=108.37 t/s avg=108.37 t/s 0.461s
+1031 13:51:53 ds4-server: chat ctx=6578..6628:50 gen=100 TOOLS THINKING decoding chunk=118.62 t/s avg=113.27 t/s 0.883s
+1031 13:51:53 ds4-server: chat ctx=6628..6678:50 gen=150 TOOLS THINKING decoding chunk=120.04 t/s avg=115.44 t/s 1.299s
+1031 13:51:53 ds4-server: chat ctx=6678..6728:50 gen=200 TOOLS THINKING decoding chunk=119.97 t/s avg=116.54 t/s 1.716s
+1031 13:51:54 ds4-server: chat ctx=6728..6778:50 gen=250 TOOLS THINKING decoding chunk=121.20 t/s avg=117.44 t/s 2.129s
+1031 13:51:54 ds4-server: chat ctx=6778..6828:50 gen=300 TOOLS THINKING decoding chunk=123.58 t/s avg=118.42 t/s 2.533s
+1031 13:51:55 ds4-server: chat ctx=6828..6878:50 gen=350 TOOLS THINKING decoding chunk=122.59 t/s avg=119.00 t/s 2.941s
+1031 13:51:55 ds4-server: chat ctx=6878..6928:50 gen=400 TOOLS decoding chunk=119.93 t/s avg=119.12 t/s 3.358s
+1031 13:51:55 ds4-server: chat ctx=6928..6950:22 gen=422 TOOLS DSML_START DSML_END decoding chunk=120.04 t/s avg=119.16 t/s 3.541s
+1031 13:51:55 ds4-server: tool calls ctx=4550..6528:1978 n=1 raw_tool_text=1 ids=[call_1f752cc080b7b57bf45b120b372e6066] names=[read]
+1031 13:51:55 ds4-server: chat ctx=4550..6528:1978 gen=422 TOOLS DSML_START DSML_END finish=tool_calls 4.238s
+1031 13:51:55 ds4-server: chat ctx=6950..7075:125 TOOLS prompt start
+1031 13:51:55 ds4-server: chat ctx=6950..7075:125 TOOLS prefill chunk 125/125 (100.0%) chunk=0.00 t/s avg=1425.65 t/s 0.088s
+1031 13:51:55 ds4-server: chat ctx=6950..7075:125 TOOLS prompt done 0.088s
+1031 13:51:56 ds4-server: chat ctx=7075..7125:50 gen=50 TOOLS THINKING decoding chunk=111.64 t/s avg=111.64 t/s 0.448s
+1031 13:51:56 ds4-server: chat ctx=7125..7175:50 gen=100 TOOLS THINKING decoding chunk=116.12 t/s avg=113.83 t/s 0.878s
+1031 13:51:57 ds4-server: chat ctx=7175..7216:41 gen=141 TOOLS DSML_START DSML_END decoding chunk=116.56 t/s avg=114.61 t/s 1.230s
+1031 13:51:57 ds4-server: tool calls ctx=6950..7075:125 n=1 raw_tool_text=1 ids=[call_a2c9651df34ee74fade728891a58c533] names=[read]
+1031 13:51:57 ds4-server: chat ctx=6950..7075:125 gen=141 TOOLS DSML_START DSML_END finish=tool_calls 1.319s
+1031 13:51:57 ds4-server: chat ctx=7216..8073:857 TOOLS prompt start
+1031 13:51:57 ds4-server: chat ctx=7216..8073:857 TOOLS prefill chunk 857/857 (100.0%) chunk=0.00 t/s avg=2536.26 t/s 0.338s
+1031 13:51:57 ds4-server: chat ctx=7216..8073:857 TOOLS prompt done 0.339s
+1031 13:51:57 ds4-server: chat ctx=8073..8123:50 gen=50 TOOLS THINKING decoding chunk=104.23 t/s avg=104.23 t/s 0.480s
+1031 13:51:58 ds4-server: chat ctx=8123..8173:50 gen=100 TOOLS THINKING decoding chunk=112.34 t/s avg=108.13 t/s 0.925s
+1031 13:51:58 ds4-server: chat ctx=8173..8223:50 gen=150 TOOLS THINKING decoding chunk=118.17 t/s avg=111.29 t/s 1.348s
+1031 13:51:59 ds4-server: chat ctx=8223..8273:50 gen=200 TOOLS THINKING decoding chunk=117.47 t/s avg=112.77 t/s 1.774s
+1031 13:51:59 ds4-server: chat ctx=8273..8323:50 gen=250 TOOLS THINKING decoding chunk=116.31 t/s avg=113.46 t/s 2.203s
+1031 13:52:00 ds4-server: chat ctx=8323..8373:50 gen=300 TOOLS THINKING decoding chunk=113.77 t/s avg=113.51 t/s 2.643s
+1031 13:52:00 ds4-server: chat ctx=8373..8423:50 gen=350 TOOLS THINKING decoding chunk=112.03 t/s avg=113.30 t/s 3.089s
+1031 13:52:00 ds4-server: chat ctx=8423..8473:50 gen=400 TOOLS THINKING decoding chunk=112.59 t/s avg=113.21 t/s 3.533s
+1031 13:52:01 ds4-server: chat ctx=8473..8523:50 gen=450 TOOLS THINKING decoding chunk=113.47 t/s avg=113.24 t/s 3.974s
+1031 13:52:01 ds4-server: chat ctx=8523..8573:50 gen=500 TOOLS THINKING decoding chunk=111.39 t/s avg=113.05 t/s 4.423s
+1031 13:52:02 ds4-server: chat ctx=8573..8623:50 gen=550 TOOLS THINKING decoding chunk=110.72 t/s avg=112.83 t/s 4.874s
+1031 13:52:02 ds4-server: chat ctx=8623..8673:50 gen=600 TOOLS THINKING decoding chunk=110.29 t/s avg=112.62 t/s 5.328s
+1031 13:52:03 ds4-server: chat ctx=8673..8723:50 gen=650 TOOLS THINKING decoding chunk=108.66 t/s avg=112.30 t/s 5.788s
+1031 13:52:03 ds4-server: chat ctx=8723..8773:50 gen=700 TOOLS THINKING decoding chunk=110.75 t/s avg=112.19 t/s 6.239s
+1031 13:52:03 ds4-server: chat ctx=8773..8815:42 gen=742 TOOLS DSML_START DSML_END decoding chunk=111.04 t/s avg=112.13 t/s 6.618s
+1031 13:52:03 ds4-server: tool calls ctx=7216..8073:857 n=1 raw_tool_text=1 ids=[call_122c9c8b997e885ac0069754cc0e4f4a] names=[read]
+1031 13:52:03 ds4-server: chat ctx=7216..8073:857 gen=742 TOOLS DSML_START DSML_END finish=tool_calls 6.957s
+1031 13:52:03 ds4-server: chat ctx=8815..8935:120 TOOLS prompt start
+1031 13:52:04 ds4-server: chat ctx=8815..8935:120 TOOLS prefill chunk 120/120 (100.0%) chunk=0.00 t/s avg=1290.53 t/s 0.093s
+1031 13:52:04 ds4-server: chat ctx=8815..8935:120 TOOLS prompt done 0.094s
+1031 13:52:04 ds4-server: chat ctx=8935..8985:50 gen=50 TOOLS THINKING decoding chunk=107.58 t/s avg=107.58 t/s 0.465s
+1031 13:52:05 ds4-server: chat ctx=8985..9035:50 gen=100 TOOLS THINKING decoding chunk=108.07 t/s avg=107.83 t/s 0.927s
+1031 13:52:05 ds4-server: chat ctx=9035..9085:50 gen=150 TOOLS THINKING decoding chunk=110.39 t/s avg=108.67 t/s 1.380s
+1031 13:52:05 ds4-server: chat ctx=9085..9135:50 gen=200 TOOLS THINKING decoding chunk=111.27 t/s avg=109.31 t/s 1.830s
+1031 13:52:06 ds4-server: chat ctx=9135..9185:50 gen=250 TOOLS THINKING decoding chunk=108.61 t/s avg=109.17 t/s 2.290s
+1031 13:52:06 ds4-server: chat ctx=9185..9228:43 gen=293 TOOLS DSML_START DSML_END decoding chunk=110.91 t/s avg=109.42 t/s 2.678s
+1031 13:52:06 ds4-server: tool calls ctx=8815..8935:120 n=1 raw_tool_text=1 ids=[call_ce2f549b3e898a600122bfd36022b27b] names=[bash]
+1031 13:52:06 ds4-server: chat ctx=8815..8935:120 gen=293 TOOLS DSML_START DSML_END finish=tool_calls 2.772s
+1031 13:52:06 ds4-server: chat ctx=9228..9246:18 TOOLS prompt start
+1031 13:52:06 ds4-server: chat ctx=9228..9246:18 TOOLS prefill chunk 18/18 (100.0%) chunk=0.00 t/s avg=280.58 t/s 0.064s
+1031 13:52:06 ds4-server: chat ctx=9228..9246:18 TOOLS prompt done 0.065s
+1031 13:52:07 ds4-server: chat ctx=9246..9296:50 gen=50 TOOLS THINKING decoding chunk=112.12 t/s avg=112.12 t/s 0.446s
+1031 13:52:07 ds4-server: chat ctx=9296..9346:50 gen=100 TOOLS THINKING decoding chunk=110.95 t/s avg=111.53 t/s 0.897s
+1031 13:52:08 ds4-server: chat ctx=9346..9396:50 gen=150 TOOLS THINKING decoding chunk=110.45 t/s avg=111.17 t/s 1.349s
+1031 13:52:08 ds4-server: chat ctx=9396..9446:50 gen=200 TOOLS THINKING decoding chunk=109.72 t/s avg=110.80 t/s 1.805s
+1031 13:52:09 ds4-server: chat ctx=9446..9496:50 gen=250 TOOLS THINKING decoding chunk=108.13 t/s avg=110.26 t/s 2.267s
+1031 13:52:09 ds4-server: chat ctx=9496..9546:50 gen=300 TOOLS THINKING decoding chunk=108.30 t/s avg=109.93 t/s 2.729s
+1031 13:52:10 ds4-server: chat ctx=9546..9596:50 gen=350 TOOLS THINKING decoding chunk=110.39 t/s avg=109.99 t/s 3.182s
+1031 13:52:10 ds4-server: chat ctx=9596..9646:50 gen=400 TOOLS THINKING decoding chunk=110.28 t/s avg=110.03 t/s 3.635s
+1031 13:52:10 ds4-server: chat ctx=9646..9696:50 gen=450 TOOLS DSML_START decoding chunk=108.84 t/s avg=109.90 t/s 4.095s
+1031 13:52:11 ds4-server: chat ctx=9696..9746:50 gen=500 TOOLS DSML_START decoding chunk=108.93 t/s avg=109.80 t/s 4.554s
+1031 13:52:11 ds4-server: chat ctx=9746..9796:50 gen=550 TOOLS DSML_START decoding chunk=107.62 t/s avg=109.60 t/s 5.018s
+1031 13:52:12 ds4-server: chat ctx=9796..9846:50 gen=600 TOOLS DSML_START decoding chunk=108.19 t/s avg=109.48 t/s 5.481s
+1031 13:52:12 ds4-server: chat ctx=9846..9896:50 gen=650 TOOLS DSML_START decoding chunk=108.74 t/s avg=109.42 t/s 5.940s
+1031 13:52:13 ds4-server: chat ctx=9896..9946:50 gen=700 TOOLS DSML_START decoding chunk=110.96 t/s avg=109.53 t/s 6.391s
+1031 13:52:13 ds4-server: chat ctx=9946..9996:50 gen=750 TOOLS DSML_START decoding chunk=106.95 t/s avg=109.35 t/s 6.858s
+1031 13:52:14 ds4-server: chat ctx=9996..10046:50 gen=800 TOOLS DSML_START decoding chunk=106.28 t/s avg=109.16 t/s 7.329s
+1031 13:52:14 ds4-server: chat ctx=10046..10096:50 gen=850 TOOLS DSML_START decoding chunk=107.51 t/s avg=109.06 t/s 7.794s
+1031 13:52:15 ds4-server: chat ctx=10096..10146:50 gen=900 TOOLS DSML_START decoding chunk=106.23 t/s avg=108.90 t/s 8.265s
+1031 13:52:15 ds4-server: chat ctx=10146..10196:50 gen=950 TOOLS DSML_START decoding chunk=109.23 t/s avg=108.92 t/s 8.722s
+1031 13:52:15 ds4-server: chat ctx=10196..10197:1 gen=951 TOOLS DSML_START DSML_END decoding chunk=106.12 t/s avg=108.91 t/s 8.732s
+1031 13:52:15 ds4-server: tool calls ctx=9228..9246:18 n=1 raw_tool_text=1 ids=[call_b60d5bc7cd82617ea3a49624976f57d4] names=[write]
+1031 13:52:15 ds4-server: chat ctx=9228..9246:18 gen=951 TOOLS DSML_START DSML_END finish=tool_calls 8.797s
+1031 13:52:15 ds4-server: chat ctx=10197..10219:22 TOOLS prompt start
+1031 13:52:15 ds4-server: chat ctx=10197..10219:22 TOOLS prefill chunk 22/22 (100.0%) chunk=0.00 t/s avg=313.67 t/s 0.070s
+1031 13:52:15 ds4-server: chat ctx=10197..10219:22 TOOLS prompt done 0.071s
+1031 13:52:16 ds4-server: chat ctx=10219..10269:50 gen=50 TOOLS THINKING decoding chunk=106.57 t/s avg=106.57 t/s 0.469s
+1031 13:52:16 ds4-server: chat ctx=10269..10319:50 gen=100 TOOLS THINKING decoding chunk=107.42 t/s avg=106.99 t/s 0.935s
+1031 13:52:17 ds4-server: chat ctx=10319..10369:50 gen=150 TOOLS THINKING decoding chunk=107.86 t/s avg=107.28 t/s 1.398s
+1031 13:52:17 ds4-server: chat ctx=10369..10419:50 gen=200 TOOLS THINKING decoding chunk=108.32 t/s avg=107.54 t/s 1.860s
+1031 13:52:18 ds4-server: chat ctx=10419..10469:50 gen=250 TOOLS THINKING decoding chunk=106.96 t/s avg=107.42 t/s 2.327s
+1031 13:52:18 ds4-server: chat ctx=10469..10519:50 gen=300 TOOLS THINKING decoding chunk=107.69 t/s avg=107.47 t/s 2.792s
+1031 13:52:18 ds4-server: chat ctx=10519..10569:50 gen=350 TOOLS THINKING decoding chunk=108.84 t/s avg=107.66 t/s 3.251s
+1031 13:52:19 ds4-server: chat ctx=10569..10619:50 gen=400 TOOLS THINKING decoding chunk=107.83 t/s avg=107.68 t/s 3.715s
+1031 13:52:19 ds4-server: chat ctx=10619..10669:50 gen=450 TOOLS THINKING decoding chunk=107.76 t/s avg=107.69 t/s 4.179s
+1031 13:52:20 ds4-server: chat ctx=10669..10719:50 gen=500 TOOLS THINKING decoding chunk=106.48 t/s avg=107.57 t/s 4.648s
+1031 13:52:20 ds4-server: chat ctx=10719..10769:50 gen=550 TOOLS THINKING decoding chunk=106.01 t/s avg=107.42 t/s 5.120s
+1031 13:52:21 ds4-server: chat ctx=10769..10819:50 gen=600 TOOLS THINKING decoding chunk=106.39 t/s avg=107.34 t/s 5.590s
+1031 13:52:21 ds4-server: chat ctx=10819..10869:50 gen=650 TOOLS THINKING decoding chunk=105.17 t/s avg=107.17 t/s 6.065s
+1031 13:52:22 ds4-server: chat ctx=10869..10919:50 gen=700 TOOLS THINKING decoding chunk=104.49 t/s avg=106.97 t/s 6.544s
+1031 13:52:22 ds4-server: chat ctx=10919..10969:50 gen=750 TOOLS THINKING decoding chunk=107.46 t/s avg=107.00 t/s 7.009s
+1031 13:52:23 ds4-server: chat ctx=10969..11019:50 gen=800 TOOLS THINKING decoding chunk=106.37 t/s avg=106.96 t/s 7.479s
+1031 13:52:23 ds4-server: chat ctx=11019..11069:50 gen=850 TOOLS THINKING decoding chunk=105.65 t/s avg=106.89 t/s 7.952s
+1031 13:52:24 ds4-server: chat ctx=11069..11119:50 gen=900 TOOLS THINKING decoding chunk=105.29 t/s avg=106.80 t/s 8.427s
+1031 13:52:24 ds4-server: chat ctx=11119..11169:50 gen=950 TOOLS DSML_START decoding chunk=103.88 t/s avg=106.64 t/s 8.909s
+1031 13:52:24 ds4-server: chat ctx=11169..11175:6 gen=956 TOOLS DSML_START DSML_END decoding chunk=105.78 t/s avg=106.63 t/s 8.965s
+1031 13:52:24 ds4-server: tool calls ctx=10197..10219:22 n=1 raw_tool_text=1 ids=[call_4969b514363183a06bf271e76c0cbad8] names=[bash]
+1031 13:52:24 ds4-server: chat ctx=10197..10219:22 gen=956 TOOLS DSML_START DSML_END finish=tool_calls 9.037s
+1031 13:52:24 ds4-server: chat ctx=11175..11207:32 TOOLS prompt start
+1031 13:52:24 ds4-server: chat ctx=11175..11207:32 TOOLS prefill chunk 32/32 (100.0%) chunk=0.00 t/s avg=445.66 t/s 0.072s
+1031 13:52:24 ds4-server: chat ctx=11175..11207:32 TOOLS prompt done 0.073s
+1031 13:52:25 ds4-server: chat ctx=11207..11257:50 gen=50 TOOLS THINKING decoding chunk=106.82 t/s avg=106.82 t/s 0.468s
+1031 13:52:25 ds4-server: chat ctx=11257..11307:50 gen=100 TOOLS THINKING decoding chunk=106.87 t/s avg=106.84 t/s 0.936s
+1031 13:52:26 ds4-server: chat ctx=11307..11357:50 gen=150 TOOLS THINKING decoding chunk=106.03 t/s avg=106.57 t/s 1.407s
+1031 13:52:26 ds4-server: chat ctx=11357..11407:50 gen=200 TOOLS THINKING decoding chunk=105.03 t/s avg=106.18 t/s 1.884s
+1031 13:52:27 ds4-server: chat ctx=11407..11457:50 gen=250 TOOLS THINKING decoding chunk=105.63 t/s avg=106.07 t/s 2.357s
+1031 13:52:27 ds4-server: chat ctx=11457..11507:50 gen=300 TOOLS THINKING decoding chunk=103.63 t/s avg=105.66 t/s 2.839s
+1031 13:52:28 ds4-server: chat ctx=11507..11557:50 gen=350 TOOLS THINKING decoding chunk=106.15 t/s avg=105.73 t/s 3.310s
+1031 13:52:28 ds4-server: chat ctx=11557..11607:50 gen=400 TOOLS THINKING decoding chunk=104.66 t/s avg=105.59 t/s 3.788s
+1031 13:52:29 ds4-server: chat ctx=11607..11657:50 gen=450 TOOLS THINKING decoding chunk=109.78 t/s avg=106.04 t/s 4.244s
+1031 13:52:29 ds4-server: chat ctx=11657..11707:50 gen=500 TOOLS DSML_START decoding chunk=105.89 t/s avg=106.03 t/s 4.716s
+1031 13:52:29 ds4-server: chat ctx=11707..11757:50 gen=550 TOOLS DSML_START decoding chunk=104.30 t/s avg=105.87 t/s 5.195s
+1031 13:52:30 ds4-server: chat ctx=11757..11807:50 gen=600 TOOLS DSML_START decoding chunk=102.94 t/s avg=105.62 t/s 5.681s
+1031 13:52:30 ds4-server: chat ctx=11807..11857:50 gen=650 TOOLS DSML_START decoding chunk=109.65 t/s avg=105.92 t/s 6.137s
+1031 13:52:31 ds4-server: chat ctx=11857..11900:43 gen=693 TOOLS DSML_START DSML_END decoding chunk=104.78 t/s avg=105.84 t/s 6.547s
+1031 13:52:31 ds4-server: tool calls ctx=11175..11207:32 n=1 raw_tool_text=1 ids=[call_c9b848b1c2d58f6609a88351abe3a6ff] names=[write]
+1031 13:52:31 ds4-server: chat ctx=11175..11207:32 gen=693 TOOLS DSML_START DSML_END finish=tool_calls 6.620s
+1031 13:52:31 ds4-server: chat ctx=11900..11920:20 TOOLS prompt start
+1031 13:52:31 ds4-server: chat ctx=11900..11920:20 TOOLS prefill chunk 20/20 (100.0%) chunk=0.00 t/s avg=294.30 t/s 0.068s
+1031 13:52:31 ds4-server: chat ctx=11900..11920:20 TOOLS prompt done 0.069s
+1031 13:52:31 ds4-server: chat ctx=11920..11970:50 gen=50 TOOLS THINKING decoding chunk=102.94 t/s avg=102.94 t/s 0.486s
+1031 13:52:32 ds4-server: chat ctx=11970..12020:50 gen=100 TOOLS THINKING decoding chunk=104.05 t/s avg=103.49 t/s 0.966s
+1031 13:52:32 ds4-server: chat ctx=12020..12070:50 gen=150 TOOLS THINKING decoding chunk=103.05 t/s avg=103.34 t/s 1.451s
+1031 13:52:33 ds4-server: chat ctx=12070..12120:50 gen=200 TOOLS THINKING decoding chunk=104.31 t/s avg=103.58 t/s 1.931s
+1031 13:52:33 ds4-server: chat ctx=12120..12170:50 gen=250 TOOLS THINKING decoding chunk=101.90 t/s avg=103.24 t/s 2.421s
+1031 13:52:34 ds4-server: chat ctx=12170..12220:50 gen=300 TOOLS THINKING decoding chunk=104.35 t/s avg=103.43 t/s 2.901s
+1031 13:52:34 ds4-server: chat ctx=12220..12270:50 gen=350 TOOLS THINKING decoding chunk=103.13 t/s avg=103.38 t/s 3.385s
+1031 13:52:35 ds4-server: chat ctx=12270..12320:50 gen=400 TOOLS THINKING decoding chunk=103.37 t/s avg=103.38 t/s 3.869s
+1031 13:52:35 ds4-server: chat ctx=12320..12370:50 gen=450 TOOLS THINKING decoding chunk=103.46 t/s avg=103.39 t/s 4.352s
+1031 13:52:36 ds4-server: chat ctx=12370..12420:50 gen=500 TOOLS THINKING decoding chunk=102.78 t/s avg=103.33 t/s 4.839s
+1031 13:52:36 ds4-server: chat ctx=12420..12470:50 gen=550 TOOLS THINKING decoding chunk=102.38 t/s avg=103.24 t/s 5.327s
+1031 13:52:37 ds4-server: chat ctx=12470..12520:50 gen=600 TOOLS THINKING decoding chunk=102.14 t/s avg=103.15 t/s 5.817s
+1031 13:52:37 ds4-server: chat ctx=12520..12570:50 gen=650 TOOLS THINKING decoding chunk=103.58 t/s avg=103.18 t/s 6.300s
+1031 13:52:38 ds4-server: chat ctx=12570..12620:50 gen=700 TOOLS DSML_START decoding chunk=102.97 t/s avg=103.17 t/s 6.785s
+1031 13:52:38 ds4-server: chat ctx=12620..12635:15 gen=715 TOOLS DSML_START DSML_END decoding chunk=102.86 t/s avg=103.16 t/s 6.931s
+1031 13:52:38 ds4-server: tool calls ctx=11900..11920:20 n=1 raw_tool_text=1 ids=[call_817bcd6be4e6338ef1f1a30b73c67d1a] names=[bash]
+1031 13:52:38 ds4-server: chat ctx=11900..11920:20 gen=715 TOOLS DSML_START DSML_END finish=tool_calls 7.000s
+1031 13:52:39 ds4-server: chat ctx=12635..12751:116 TOOLS prompt start
+1031 13:52:39 ds4-server: chat ctx=12635..12751:116 TOOLS prefill chunk 116/116 (100.0%) chunk=0.00 t/s avg=1059.37 t/s 0.109s
+1031 13:52:39 ds4-server: chat ctx=12635..12751:116 TOOLS prompt done 0.110s
+1031 13:52:39 ds4-server: chat ctx=12751..12801:50 gen=50 TOOLS THINKING decoding chunk=117.31 t/s avg=117.31 t/s 0.426s
+1031 13:52:40 ds4-server: chat ctx=12801..12851:50 gen=100 TOOLS THINKING decoding chunk=116.79 t/s avg=117.05 t/s 0.854s
+1031 13:52:40 ds4-server: chat ctx=12851..12901:50 gen=150 TOOLS THINKING decoding chunk=113.46 t/s avg=115.83 t/s 1.295s
+1031 13:52:40 ds4-server: chat ctx=12901..12951:50 gen=200 TOOLS DSML_START decoding chunk=113.12 t/s avg=115.14 t/s 1.737s
+1031 13:52:41 ds4-server: chat ctx=12951..13001:50 gen=250 TOOLS DSML_START decoding chunk=110.30 t/s avg=114.14 t/s 2.190s
+1031 13:52:41 ds4-server: chat ctx=13001..13010:9 gen=259 TOOLS DSML_START DSML_END decoding chunk=108.90 t/s avg=113.95 t/s 2.273s
+1031 13:52:41 ds4-server: tool calls ctx=12635..12751:116 n=1 raw_tool_text=1 ids=[call_1da31786cb31ff585edfcd498e080763] names=[edit]
+1031 13:52:41 ds4-server: chat ctx=12635..12751:116 gen=259 TOOLS DSML_START DSML_END finish=tool_calls 2.384s
+1031 13:52:41 ds4-server: chat ctx=13010..13037:27 TOOLS prompt start
+1031 13:52:41 ds4-server: chat ctx=13010..13037:27 TOOLS prefill chunk 27/27 (100.0%) chunk=0.00 t/s avg=296.62 t/s 0.091s
+1031 13:52:41 ds4-server: chat ctx=13010..13037:27 TOOLS prompt done 0.092s
+1031 13:52:41 ds4-server: chat ctx=13037..13077:40 gen=40 TOOLS DSML_START DSML_END decoding chunk=104.28 t/s avg=104.28 t/s 0.384s
+1031 13:52:41 ds4-server: tool calls ctx=13010..13037:27 n=1 raw_tool_text=1 ids=[call_cbf4c64137d7e53cb1fb5e2611cdc62b] names=[bash]
+1031 13:52:41 ds4-server: chat ctx=13010..13037:27 gen=40 TOOLS DSML_START DSML_END finish=tool_calls 0.476s
+1031 14:21:40 ds4-server: shutdown requested, draining requests

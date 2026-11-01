@@ -1,0 +1,20 @@
+
+
+Phase 1 — Home Page has been implemented successfully.
+
+Changes made:
+- Created `app.py` with FastAPI application, Jinja2 templates, and route for `/`
+- Created `templates/base.html` with responsive layout, Bootstrap 5, navbar linking to Home and Complaints
+- Created `templates/home.html` with hero section containing the tagline "Come in. Sit down. Tell us about your human."
+- Added `tests/test_home.py` with test verifying GET / returns 200 and contains the tagline
+- Ran tests successfully: `uv run --frozen python -m pytest tests` passed
+
+The home page is now available at `/` and uses the shared layout with navigation to Home and Complaints.
+
+You can start the application with:
+```bash
+uv run python app.py
+```
+or directly with uvicorn as defined in `app.py`.
+
+Next phase: Phase 2 — Complaints Board awaits.

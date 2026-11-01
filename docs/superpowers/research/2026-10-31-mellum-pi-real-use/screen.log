@@ -1,0 +1,13 @@
+20:27:38 start q8-1
+20:28:35 end q8-1 exit=0 {"passed": true, "deadline_hit": false, "stalled": false, "server_exit": null, "server_requests": 21, "pi_assistant_messages": 21, "count_mismatch": false}
+20:30:35 start mx-1
+20:30:45 end mx-1 exit=0 {"passed": false, "deadline_hit": false, "stalled": false, "server_exit": null, "server_requests": 5, "pi_assistant_messages": 5, "count_mismatch": false}
+20:32:45 start q8-2
+20:38:33 end q8-2 exit=0 {"passed": false, "deadline_hit": false, "stalled": true, "server_exit": null, "server_requests": 17, "pi_assistant_messages": 17, "count_mismatch": false}
+20:40:33 start mx-2
+20:40:53 end mx-2 exit=0 {"passed": false, "deadline_hit": false, "stalled": false, "server_exit": null, "server_requests": 10, "pi_assistant_messages": 11, "count_mismatch": true}
+20:42:53 start q8-3
+20:43:57 end q8-3 exit=0 {"passed": true, "deadline_hit": false, "stalled": false, "server_exit": null, "server_requests": 17, "pi_assistant_messages": 17, "count_mismatch": false}
+20:45:57 start mx-3
+20:51:37 end mx-3 exit=0 {"passed": false, "deadline_hit": false, "stalled": true, "server_exit": null, "server_requests": 13, "pi_assistant_messages": 13, "count_mismatch": false}
+DONE
