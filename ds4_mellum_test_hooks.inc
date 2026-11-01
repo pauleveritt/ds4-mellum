@@ -116,6 +116,15 @@ bool ds4_test_session_graph_pos(ds4_session *s, uint32_t *pos) {
     return true;
 }
 
+/* For tests/ds4_test.c --mellum-bk: at the rewind frontier, k one-row forwards (chunk false) or one k-row forward
+ * (chunk true); logits_last gets the last row's logits and ms the wall time from the first encode to that read.
+ * Then the frontier is restored, outside the timing. */
+bool ds4_test_mellum_rows_arm(ds4_session *s, const int *tokens, uint32_t k, bool chunk, float *logits_last,
+                              double *ms) {
+    (void)s; (void)tokens; (void)k; (void)chunk; (void)logits_last; (void)ms;
+    return false;
+}
+
 /* For tests/ds4_test.c --mellum-b0 (phase 8b, D2), at a Mellum session's position, which must be where its last
  * sync ended (the rewind frontier): verify false runs two one-row forwards (two decode steps), verify true one
  * two-row forward and then the LM head on its first row, in its own command buffer (what a two-row verify
