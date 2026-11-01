@@ -15,6 +15,8 @@ ROOT = Path(__file__).resolve().parents[1]
 FAKE_SERVER = r'''#!/usr/bin/env python3
 import os, sys, time
 mode = os.environ.get('FAKE_SERVER', 'ok')
+if os.environ.get('FAKE_SERVER_PID'):
+    open(os.environ['FAKE_SERVER_PID'], 'w').write(str(os.getpid()))
 if mode != 'silent':
     print('1031 12:00:00 ds4-server: listening on http://127.0.0.1:8099', file=sys.stderr, flush=True)
 if mode == 'die':
@@ -118,7 +120,7 @@ class Runner(unittest.TestCase):
 
     def test_server_death_fails_the_run(self):
         os.environ['FAKE_SERVER'] = 'die'
-        os.environ['FAKE_PI_SLEEP'] = '30'
+        os.environ['FAKE_PI'] = 'hang'
         started = time.monotonic()
         run = self.run_once(deadline=60)
         self.assertLess(time.monotonic() - started, 20)
@@ -126,13 +128,18 @@ class Runner(unittest.TestCase):
         self.assertFalse(run['passed'])
         self.assertFalse(run['deadline_hit'])
         self.assertTrue((self.out / 'server.log').read_text().count('listening'))
+        time.sleep(0.5)
+        self.assertFalse(alive(int((self.out / 'workspace/fake-pi-child').read_text())))
 
     def test_server_that_never_listens_is_refused(self):
         m = load()
         os.environ['FAKE_SERVER'] = 'silent'
+        os.environ['FAKE_SERVER_PID'] = str(self.tmp / 'server.pid')
         with self.assertRaisesRegex(RuntimeError, 'listening'):
             self.run_once(listen_timeout=1)
         self.assertFalse((self.out / 'workspace/fake-pi.json').exists())
+        time.sleep(0.5)
+        self.assertFalse(alive(int((self.tmp / 'server.pid').read_text())))
 
     def test_deadline_kills_the_process_group(self):
         os.environ['FAKE_PI'] = 'hang'
