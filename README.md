@@ -309,10 +309,11 @@ With experts streamed, decode is limited by how often a token stops to read expe
 - Offer the patches that make sense outside Mellum upstream.
 - Measure a 16 GB Mac.
 - A CUDA version for Nvidia GPUs.
-- Keep shrinking the fork: about 19,800 added lines of C, Objective-C and Metal across 44 files today, tests included
-  (`git diff --shortstat c97964b mellum -- '*.c' '*.h' '*.m' '*.metal' '*.inc' Makefile`). Mellum's code in `ds4.c`
-  and `tests/ds4_test.c` now sits in `ds4_mellum_*.inc` and `tests/ds4_test_mellum*.inc`, leaving about 700 lines of
-  hooks in `ds4.c`; `ds4_agent.c` and `ds4_server.c` (the Hermes syntax, Pi's tools) are next.
+- Keep shrinking the fork: about 19,800 added lines of C, Objective-C and Metal across 49 files today, tests included
+  (`git diff --shortstat c97964b mellum -- '*.c' '*.h' '*.m' '*.metal' '*.inc' Makefile`). Mellum's code sits in
+  `ds4_mellum_*.inc`, `ds4_agent_{hermes,mellum_prompt,pi_tools}.inc`, `ds4_server_{hermes,mellum_template}.inc` and
+  `tests/ds4_test_mellum*.inc`, leaving hooks in upstream's files: about 700 lines in `ds4.c`, 545 in `ds4_agent.c`
+  and 251 in `ds4_server.c` (`git diff --shortstat c97964b mellum -- FILE`).
 - Find people to contribute code or run measurements on their Macs.
 - Make this part of Satyrn AI.
 
