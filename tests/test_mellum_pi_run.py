@@ -8,6 +8,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -153,6 +154,22 @@ class Runner(unittest.TestCase):
         child = int((self.out / 'workspace/fake-pi-child').read_text())
         time.sleep(0.5)
         self.assertFalse(alive(child))
+
+    def test_interrupt_stops_pi_and_its_children(self):
+        m = load()
+        os.environ['FAKE_PI'] = 'hang'
+        child_file = self.out / 'workspace/fake-pi-child'
+        real_sleep = time.sleep
+
+        def sleep(seconds):
+            if child_file.exists():
+                raise KeyboardInterrupt
+            real_sleep(seconds)
+
+        with mock.patch.object(m.time, 'sleep', sleep), self.assertRaises(KeyboardInterrupt):
+            self.run_once(deadline=60)
+        real_sleep(0.5)
+        self.assertFalse(alive(int(child_file.read_text())))
 
     def test_count_mismatch_is_flagged(self):
         os.environ['FAKE_PI_ASSISTANTS'] = '3'
