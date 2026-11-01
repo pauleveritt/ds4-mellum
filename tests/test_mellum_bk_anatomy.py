@@ -17,44 +17,66 @@ def load():
     return m
 
 
-def buf(seq, kernels):
-    lines = [f'B {seq} {len(kernels)} 0 0']
+def buf(seq, kernels, span_us):
+    lines = [f'B {seq} {len(kernels)} 1000 {1000 + span_us * 1000:.0f}']
     lines += [f'E {seq} {i} 0 0 {d:.2f} 0.00 0x0 1 1x1x1 1x1x1 {name}' for i, (name, d) in enumerate(kernels)]
     return lines
 
 
-DECODE = [('kernel_mellum_moe_reduce_add', 10.0), ('kernel_qwen4_moe_mid', 100.0)]
-def chunk(t): return [('kernel_qwen4_attn_decode_rows_npt4', 5.0), ('kernel_qwen4_moe_mid', t)]
+def decode(us): return [('kernel_mellum_moe_reduce_add', 10.0), ('kernel_qwen4_moe_mid', us)]
+def chunk(us): return [('kernel_qwen4_attn_decode_rows_npt4', 5.0), ('kernel_qwen4_moe_mid', us)]
 RESTORE = [('kernel_cpy', 1.0)]
+KS = (1, 2, 4)
 
 
 class Anatomy(unittest.TestCase):
-    def timeline(self):
-        # one round per k is dropped; rounds = 2, ks = (2, 4): per k, D C C D twice, with restores between
+    def timeline(self, rounds=2):
+        """As --mellum-bk runs: per k, rounds of D C C D (D: k one-row forwards, C: one k-row forward; at k = 1 a C
+        is itself a one-row forward), a restore after each arm.  Each k's decode steps are slower than the last
+        k's, and round 0 differs, so pooling or keeping round 0 shows in the result.  Kernels overlap: each
+        buffer's span is below the sum of its dispatches."""
         lines, seq = ['# ds4 encoder timeline'], 0
-        for k, t in ((2, 150.0), (4, 250.0)):
-            for r in range(2):
+        for k in KS:
+            for r in range(rounds):
                 for arm in ('D', 'C', 'C', 'D'):
-                    for _ in (range(k) if arm == 'D' else [0]):
+                    one_row = arm == 'D' or k == 1
+                    for _ in range(k if arm == 'D' else 1):
                         seq += 1
-                        lines += buf(seq, DECODE if arm == 'D' else chunk(t + r))
+                        us = 100.0 + 10 * k + (50 if r == 0 else 0)
+                        lines += (buf(seq, decode(us), span_us=us) if one_row
+                                  else buf(seq, chunk(100.0 * k + r), span_us=100.0 * k))
                     seq += 1
-                    lines += buf(seq, RESTORE)
+                    lines += buf(seq, RESTORE, span_us=1.0)
         return lines
 
-    def test_chunks_by_k_with_the_first_round_dropped(self):
+    def test_each_k_has_its_own_decode_steps_with_round_0_dropped(self):
         m = load()
-        found = m.anatomy(m.parse(self.timeline()), rounds=2, ks=(2, 4))
+        found = m.anatomy(m.parse(self.timeline()), rounds=2, ks=KS)
         self.assertEqual(sorted(found), [1, 2, 4])
-        self.assertAlmostEqual(found[2]['kernel_qwen4_moe_mid'], 151.0)   # round 1 only
-        self.assertAlmostEqual(found[4]['kernel_qwen4_moe_mid'], 251.0)
-        self.assertAlmostEqual(found[1]['kernel_qwen4_moe_mid'], 100.0)
-        self.assertNotIn('kernel_cpy', found[1])
+        self.assertAlmostEqual(found[1].decode['kernel_qwen4_moe_mid'], 110.0)
+        self.assertAlmostEqual(found[2].decode['kernel_qwen4_moe_mid'], 120.0)
+        self.assertAlmostEqual(found[4].decode['kernel_qwen4_moe_mid'], 140.0)
+        self.assertNotIn('kernel_cpy', found[1].decode)
 
-    def test_wrong_chunk_count_is_refused(self):
+    def test_chunks_by_k_with_round_0_dropped(self):
+        m = load()
+        found = m.anatomy(m.parse(self.timeline()), rounds=2, ks=KS)
+        self.assertIsNone(found[1].chunk)
+        self.assertAlmostEqual(found[2].chunk['kernel_qwen4_moe_mid'], 201.0)
+        self.assertAlmostEqual(found[4].chunk['kernel_qwen4_moe_mid'], 401.0)
+
+    def test_totals_are_gpu_spans_not_summed_dispatches(self):
+        m = load()
+        found = m.anatomy(m.parse(self.timeline()), rounds=2, ks=KS)
+        self.assertAlmostEqual(found[4].decode_span_us, 140.0)   # the dispatches sum to 150
+        self.assertAlmostEqual(found[4].chunk_span_us, 400.0)    # the dispatches sum to 406
+
+    def test_wrong_counts_are_refused(self):
         m = load()
         with self.assertRaisesRegex(ValueError, 'chunk forwards'):
-            m.anatomy(m.parse(self.timeline()), rounds=2, ks=(2, 4, 8))
+            m.anatomy(m.parse(self.timeline()), rounds=2, ks=(1, 2, 4, 8))
+        with self.assertRaisesRegex(ValueError, 'decode steps'):
+            m.anatomy(m.parse(self.timeline()[:-30]), rounds=2, ks=KS)
 
 
 if __name__ == '__main__':
