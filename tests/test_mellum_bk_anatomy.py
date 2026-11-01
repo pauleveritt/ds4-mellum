@@ -76,7 +76,8 @@ class Anatomy(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'chunk forwards'):
             m.anatomy(m.parse(self.timeline()), rounds=2, ks=(1, 2, 4, 8))
         with self.assertRaisesRegex(ValueError, 'decode steps'):
-            m.anatomy(m.parse(self.timeline()[:-30]), rounds=2, ks=KS)
+            lines = self.timeline()
+            m.anatomy(m.parse(lines[:1] + lines[4:]), rounds=2, ks=KS)   # the first decode step's B and 2 E lines
 
 
 if __name__ == '__main__':
