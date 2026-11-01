@@ -1,0 +1,12 @@
+mellum-bk: context 2048 k 1: n 6 per arm; one decode step 7.743 ms, 1-row forward 7.759 ms (7.676-7.769); forward / one step 1.002; logit words that differ from decode 0
+mellum-bk: context 2048 k 2: n 6 per arm; one decode step 9.667 ms, 2-row forward 12.176 ms (11.936-12.465); forward / one step 1.260; logit words that differ from decode 0
+mellum-bk: context 2048 k 3: n 6 per arm; one decode step 9.183 ms, 3-row forward 14.116 ms (13.524-14.154); forward / one step 1.537; logit words that differ from decode 0
+mellum-bk: context 2048 k 4: n 6 per arm; one decode step 9.234 ms, 4-row forward 16.436 ms (16.359-16.554); forward / one step 1.780; logit words that differ from decode 0
+mellum-bk: context 2048 k 6: n 6 per arm; one decode step 9.446 ms, 6-row forward 21.273 ms (20.422-21.542); forward / one step 2.252; logit words that differ from decode 0
+mellum-bk: context 2048 k 8: n 6 per arm; one decode step 9.348 ms, 8-row forward 25.705 ms (25.042-25.857); forward / one step 2.750; logit words that differ from decode 0
+mellum-bk: context 32768 k 1: n 6 per arm; one decode step 9.239 ms, 1-row forward 9.250 ms (9.181-9.258); forward / one step 1.001; logit words that differ from decode 0
+mellum-bk: context 32768 k 2: n 6 per arm; one decode step 10.826 ms, 2-row forward 14.788 ms (13.220-15.978); forward / one step 1.366; logit words that differ from decode 0
+mellum-bk: context 32768 k 3: n 6 per arm; one decode step 11.104 ms, 3-row forward 18.888 ms (18.763-19.017); forward / one step 1.701; logit words that differ from decode 0
+mellum-bk: context 32768 k 4: n 6 per arm; one decode step 11.109 ms, 4-row forward 22.551 ms (22.378-22.766); forward / one step 2.030; logit words that differ from decode 0
+mellum-bk: context 32768 k 6: n 6 per arm; one decode step 10.889 ms, 6-row forward 29.424 ms (29.214-29.736); forward / one step 2.702; logit words that differ from decode 0
+mellum-bk: context 32768 k 8: n 6 per arm; one decode step 9.252 ms, 8-row forward 34.496 ms (34.026-35.378); forward / one step 3.729; logit words that differ from decode 0

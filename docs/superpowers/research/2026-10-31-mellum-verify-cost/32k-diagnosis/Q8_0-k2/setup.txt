@@ -1,0 +1,4 @@
+machine: Apple M5 Max 137438953472 bytes
+head: 44f155a  ds4_test: Oct 31 22:59:53 2026
+model: /Users/pauleveritt/.cache/huggingface/hub/models--JetBrains--Mellum2.1-12B-A2.5B-Thinking-GGUF/snapshots/4159d684ffdb09ba89dc2a58feb3e75c54eef036/Mellum2.1-12B-A2.5B-Thinking-Q8_0.gguf
+N=16 COOL=45 TIMELINE=0 contexts=32768

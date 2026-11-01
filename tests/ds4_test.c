@@ -7336,6 +7336,7 @@ static const ds4_test_entry test_entries[] = {
     {"--qwen4-prefill-checkpoints", "qwen4-prefill-checkpoints", "Qwen chunk checkpoints restore matching logits and state", test_qwen_prefill_checkpoints},
     {"--mellum-session", "mellum-session", "Mellum session allocation equals its plan (DS4_TEST_MELLUM_MODEL)", test_mellum_session_allocation},
     {"--mellum-attn-tiled", "mellum-attn-tiled", "Mellum's prefill attention runs in half-operand tiles by default, within the oracle's rule; DS4_MELLUM_ATTN_TILED=0 keeps the decode kernels, and only 0 changes it (DS4_TEST_MELLUM_MODEL)", test_mellum_attn_tiled},
+    {"--mellum-bk", "mellum-bk", "Mellum: a k-row forward (k 1-8) timed against k decode steps at DS4_TEST_MELLUM_BK_CTX, its last logits equal to theirs (DS4_TEST_MELLUM_MODEL)", test_mellum_bk},
     {"--mellum-b0", "mellum-b0", "Mellum B0: a two-row verify timed against two decode steps at DS4_TEST_MELLUM_B0_CTX, its logits equal to theirs (DS4_TEST_MELLUM_MODEL)", test_mellum_b0},
     {"--mellum-exact-prefill", "mellum-exact-prefill", "Mellum prefill equals decode byte for byte under DS4_MELLUM_EXACT_PREFILL=1 (DS4_TEST_MELLUM_MODEL)", test_mellum_exact_prefill},
     {"--mellum-stream-slabs", "mellum-stream-slabs", "S5: with early load off and 16 MiB slabs, streamed decode still equals resident (a stop loads before its resumed pass is encoded) (DS4_TEST_MELLUM_MODEL)", test_mellum_stream_slabs},

@@ -1195,6 +1195,105 @@ static void test_mellum_b0(void) {
     free(buf);
 }
 
+/* --mellum-bk: what a k-row verify costs.  At a fixed context, for k in 1, 2, 3, 4, 6 and 8, rounds of D C C D
+ * (D: k one-row forwards, C: one k-row forward, each followed by restoring the frontier, outside the timing); the
+ * first round dropped.  Every run's last-row logits must equal the first D run's bytes for that k: below 32 rows
+ * a chunk computes what its decode steps do.  Prints, per k, one decode step (D / k), the chunk, and their ratio. */
+bool ds4_test_mellum_rows_arm(ds4_session *s, const int *tokens, uint32_t k, bool chunk, float *logits_last,
+                              double *ms);   /* ds4.c test hook */
+
+static void test_mellum_bk_at(ds4_engine *engine, const ds4_tokens *text, int ctx, int rounds) {
+    enum { KMAX = 8 };
+    uint32_t ks[KMAX] = { 1, 2, 3, 4, 6, 8 };
+    size_t nk = 6;
+    /* DS4_TEST_MELLUM_BK_K: the values of k, in order (default 1,2,3,4,6,8; each 1 to 8) */
+    const char *k_env = getenv("DS4_TEST_MELLUM_BK_K");
+    if (k_env && k_env[0]) {
+        nk = 0;
+        for (const char *p = k_env; *p && nk < KMAX; p += strcspn(p, ",") + (p[strcspn(p, ",")] == ',')) {
+            const int v = atoi(p);
+            TEST_ASSERT(v >= 1 && v <= KMAX);
+            if (v < 1 || v > KMAX) return;
+            ks[nk++] = (uint32_t)v;
+        }
+    }
+    ds4_session *s = NULL;
+    TEST_ASSERT(ctx > 0 && ctx + KMAX <= text->len);
+    TEST_ASSERT(ds4_session_create(&s, engine, (ctx + 66 + 1023) / 1024 * 1024) == 0 && s != NULL);
+    if (!s || ctx + KMAX > text->len) return;
+    ds4_tokens prompt = {0};
+    char err[256] = {0};
+    for (int i = 0; i < ctx; i++) ds4_tokens_push(&prompt, text->v[i]);
+    TEST_ASSERT(ds4_session_sync(s, &prompt, err, sizeof(err)) == 0);
+    float *ref = malloc(98304u * sizeof(float)), *got = malloc(98304u * sizeof(float));
+    double *d_ms = calloc((size_t)rounds * 2, sizeof(double)), *c_ms = calloc((size_t)rounds * 2, sizeof(double));
+    bool ok = ref && got && d_ms && c_ms;
+    TEST_ASSERT(ok);
+    for (size_t ki = 0; ok && ki < nk; ki++) {
+        const uint32_t k = ks[ki];
+        int nd = 0, nc = 0;
+        uint64_t differ = 0;
+        bool have_ref = false;
+        for (int r = 0; r < rounds && ok; r++) {
+            static const bool order[4] = { false, true, true, false };
+            for (int j = 0; j < 4 && ok; j++) {
+                double ms = 0.0;
+                ok = ds4_test_mellum_rows_arm(s, &text->v[ctx], k, order[j], have_ref ? got : ref, &ms);
+                if (!ok) break;
+                if (have_ref) {
+                    for (uint32_t i = 0; i < 98304u; i++) differ += memcmp(&got[i], &ref[i], sizeof(float)) != 0;
+                }
+                have_ref = true;
+                if (r == 0) continue;
+                if (order[j]) c_ms[nc++] = ms;
+                else d_ms[nd++] = ms;
+            }
+        }
+        TEST_ASSERT(ok);
+        TEST_ASSERT(differ == 0);
+        if (ok && nd > 0 && nc > 0) {
+            const double d = test_median(d_ms, nd) / k, c = test_median(c_ms, nc);
+            printf("mellum-bk: context %d k %u: n %d per arm; one decode step %.3f ms, %u-row forward %.3f ms "
+                   "(%.3f-%.3f); forward / one step %.3f; logit words that differ from decode %llu\n",
+                   ctx, k, nd, d, k, c, c_ms[0], c_ms[nc - 1], c / d, (unsigned long long)differ);
+        }
+    }
+    free(ref); free(got); free(d_ms); free(c_ms);
+    ds4_tokens_free(&prompt);
+    ds4_session_free(s);
+}
+
+static void test_mellum_bk(void) {
+    const char *model = getenv("DS4_TEST_MELLUM_MODEL");
+    if (!model || !model[0]) {
+        puts("mellum-bk: DS4_TEST_MELLUM_MODEL unset, skipped");
+        return;
+    }
+    const char *ctx_env = getenv("DS4_TEST_MELLUM_BK_CTX"), *n_env = getenv("DS4_TEST_MELLUM_BK_N");
+    const int ctx = ctx_env && atoi(ctx_env) > 0 ? atoi(ctx_env) : 2048;
+    const int rounds = n_env && atoi(n_env) > 1 ? atoi(n_env) : 4;
+    FILE *f = fopen("speed-bench/promessi_sposi.txt", "rb");
+    TEST_ASSERT(f != NULL);
+    if (!f) return;
+    char *buf = malloc(1u << 21);
+    const size_t n = buf ? fread(buf, 1, (1u << 21) - 1, f) : 0;
+    fclose(f);
+    if (!buf) return;
+    buf[n] = '\0';
+    ds4_engine *engine = NULL;
+    ds4_engine_options opt = { .model_path = model, .backend = DS4_BACKEND_METAL,
+                               .context_size = (ctx + 66 + 1023) / 1024 * 1024 };
+    TEST_ASSERT(ds4_engine_open(&engine, &opt) == 0 && engine != NULL);
+    if (engine) {
+        ds4_tokens text = {0};
+        ds4_tokenize_text(engine, buf, &text);
+        test_mellum_bk_at(engine, &text, ctx, rounds);
+        ds4_tokens_free(&text);
+        ds4_engine_close(engine);
+    }
+    free(buf);
+}
+
 static void test_mellum_rewind(void) {
     const char *model = getenv("DS4_TEST_MELLUM_MODEL");
     if (!model || !model[0]) {
