@@ -130,21 +130,23 @@ def run(model: Path, out: Path, port: int = 8099, deadline: float = 1800, server
             agent = subprocess.Popen(args, cwd=workspace, env=env, stdout=so, stderr=se, start_new_session=True)
             started, deadline_hit, stalled = time.monotonic(), False, False
             log_size, log_grew = -1, time.monotonic()
-            while agent.poll() is None:
-                if srv.poll() is not None:
-                    break
-                now = time.monotonic()
-                if now - started > deadline:
-                    deadline_hit = True
-                    break
-                size = (out / 'server.log').stat().st_size
-                if size != log_size:
-                    log_size, log_grew = size, now
-                elif now - log_grew > idle_timeout:
-                    stalled = True   # Pi is alive and the model has done nothing (a foreground server, say)
-                    break
-                time.sleep(0.5)
-            _stop(agent)
+            try:
+                while agent.poll() is None:
+                    if srv.poll() is not None:
+                        break
+                    now = time.monotonic()
+                    if now - started > deadline:
+                        deadline_hit = True
+                        break
+                    size = (out / 'server.log').stat().st_size
+                    if size != log_size:
+                        log_size, log_grew = size, now
+                    elif now - log_grew > idle_timeout:
+                        stalled = True   # Pi is alive and the model has done nothing (a foreground server, say)
+                        break
+                    time.sleep(0.5)
+            finally:
+                _stop(agent)   # also on Ctrl-C: Pi's own session never sees the terminal's SIGINT
         record.update(pi_exit=agent.returncode, deadline_hit=deadline_hit, stalled=stalled, server_exit=srv.poll())
     finally:
         _stop(srv)
