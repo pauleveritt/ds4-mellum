@@ -1,0 +1,6 @@
+state before 2048: 22:34:24 'AC Power' powermode=2 No thermal warning level has been recorded No performance warning level has been recorded No CPU power status has been recorded
+state after 2048: 22:34:34 'AC Power' powermode=2 No thermal warning level has been recorded No performance warning level has been recorded No CPU power status has been recorded
+state before 8192: 22:35:19 'AC Power' powermode=2 No thermal warning level has been recorded No performance warning level has been recorded No CPU power status has been recorded
+state after 8192: 22:35:31 'AC Power' powermode=2 No thermal warning level has been recorded No performance warning level has been recorded No CPU power status has been recorded
+state before 32768: 22:36:17 'AC Power' powermode=2 No thermal warning level has been recorded No performance warning level has been recorded No CPU power status has been recorded
+state after 32768: 22:36:46 'AC Power' powermode=2 No thermal warning level has been recorded No performance warning level has been recorded No CPU power status has been recorded

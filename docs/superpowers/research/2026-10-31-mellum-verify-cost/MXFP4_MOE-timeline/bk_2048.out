@@ -1,0 +1,7 @@
+mellum-bk: context 2048 k 1: n 6 per arm; one decode step 7.743 ms, 1-row forward 7.759 ms (7.676-7.769); forward / one step 1.002; logit words that differ from decode 0
+mellum-bk: context 2048 k 2: n 6 per arm; one decode step 9.667 ms, 2-row forward 12.176 ms (11.936-12.465); forward / one step 1.260; logit words that differ from decode 0
+mellum-bk: context 2048 k 3: n 6 per arm; one decode step 9.183 ms, 3-row forward 14.116 ms (13.524-14.154); forward / one step 1.537; logit words that differ from decode 0
+mellum-bk: context 2048 k 4: n 6 per arm; one decode step 9.234 ms, 4-row forward 16.436 ms (16.359-16.554); forward / one step 1.780; logit words that differ from decode 0
+mellum-bk: context 2048 k 6: n 6 per arm; one decode step 9.446 ms, 6-row forward 21.273 ms (20.422-21.542); forward / one step 2.252; logit words that differ from decode 0
+mellum-bk: context 2048 k 8: n 6 per arm; one decode step 9.348 ms, 8-row forward 25.705 ms (25.042-25.857); forward / one step 2.750; logit words that differ from decode 0
+ds4 tests: ok

@@ -1,0 +1,5 @@
+ds4_test failed at context 2048
+==> /Users/pauleveritt/ds4-runs/bk/Q8_0/bk_2048.out <==
+
+==> /Users/pauleveritt/ds4-runs/bk/Q8_0/bk_2048.err <==
+/Users/pauleveritt/projects/pauleveritt/ds4-mellum/.worktrees/verify-cost/tests/mellum_bk.sh: line 29: tl[@]: unbound variable
