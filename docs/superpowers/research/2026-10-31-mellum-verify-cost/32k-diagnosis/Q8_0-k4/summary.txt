@@ -1,0 +1,1 @@
+mellum-bk: context 32768 k 4: n 30 per arm; one decode step 9.640 ms, 4-row forward 20.928 ms (20.364-23.294); forward / one step 2.171; logit words that differ from decode 0
