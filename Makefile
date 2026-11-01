@@ -1608,6 +1608,14 @@ test-mellum: test-mellum-pi
 .PHONY: test-mellum-pi-grader
 test-mellum-pi-grader:
 	python3 -I tools/mellum_pi_grade.py qualify tests/agentclinic_easy
+# Verify cost: the k-row anatomy reader is stdlib only; the expert-union tool needs numpy (and gguf to run), so its
+# test goes through uv and is not in test-mellum
+.PHONY: test-mellum-verify test-mellum-expert-union
+test-mellum-verify:
+	python3 -I tests/test_mellum_bk_anatomy.py
+test-mellum: test-mellum-verify
+test-mellum-expert-union:
+	uv run --no-project --with numpy python -I tests/test_mellum_expert_union.py
 .PHONY: test-mellum-s4-measure
 test-mellum-s4-measure:
 	python3 -I tests/test_mellum_s4_measure.py
