@@ -280,8 +280,10 @@ ceiling.
 - **Next**
   - Sliding attention with more partitions per head (ceiling 1.14x), full attention at long context (1.12x at
     32K), GPU idle between steps (1.08x).
-  - A cheaper two-row verify, which prompt lookup and an MTP head both need. Outside reports find speculation
-    rarely helps batch-1 decode on Apple GPUs, so measure first.
+  - A cheaper multi-row verify, which prompt lookup and an MTP head both need. Measured: a k-row forward costs
+    1.26-1.45 decode steps at 2 rows and 3.2-3.9 at 8 (n = 30); at 2 rows that is the extra experts two tokens
+    select, from 3 rows the exact-rows kernels' per-row work, and at 32K a multi-row attention that reads the KV
+    cache per row ([note](docs/superpowers/research/2026-10-31-mellum-verify-cost.md)).
 
 ### SSD streaming
 
